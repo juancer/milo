@@ -15,6 +15,7 @@ import (
 	"github.com/juancer/nexo/internal/actions"
 	"github.com/juancer/nexo/internal/app"
 	"github.com/juancer/nexo/internal/audio"
+	"github.com/juancer/nexo/internal/features"
 	"github.com/juancer/nexo/internal/secrets"
 	"github.com/juancer/nexo/internal/store"
 	"github.com/juancer/nexo/internal/system"
@@ -488,29 +489,38 @@ func TestOutboxRetriesAfterOutage(t *testing.T) {
 	})
 }
 
+func (h *harness) telegramFeature() features.Status {
+	h.t.Helper()
+	list, _ := h.app.Features.List(h.ctx)
+	for _, f := range list {
+		if f.Name == telegram.FeatureName {
+			return f
+		}
+	}
+	h.t.Fatal("telegram feature not registered")
+	return features.Status{}
+}
+
 func TestStartRequiresValidTokenButToleratesOffline(t *testing.T) {
 	h := newHarness(t, false)
 	if err := h.app.Features.SetEnabled(h.ctx, telegram.FeatureName, true); err != nil {
 		t.Fatal(err)
 	}
-	list, _ := h.app.Features.List(h.ctx)
-	if list[0].Running || !strings.Contains(list[0].LastError, "no Telegram bot token") {
-		t.Fatalf("without a token: %+v", list)
+	if f := h.telegramFeature(); f.Running || !strings.Contains(f.LastError, "no Telegram bot token") {
+		t.Fatalf("without a token: %+v", f)
 	}
 
 	h.app.Vault.Put(h.ctx, telegram.SecretBotToken, []byte("999:wrong-token-wrong-token-wrong-token"))
 	h.app.Features.Restart(h.ctx, telegram.FeatureName)
-	list, _ = h.app.Features.List(h.ctx)
-	if list[0].Running || !strings.Contains(list[0].LastError, "rejected the bot token") {
-		t.Fatalf("with a wrong token: %+v", list)
+	if f := h.telegramFeature(); f.Running || !strings.Contains(f.LastError, "rejected the bot token") {
+		t.Fatalf("with a wrong token: %+v", f)
 	}
 
 	h.fake.SetFailing(true) // Telegram unreachable at boot must not stop the device
 	h.app.Vault.Put(h.ctx, telegram.SecretBotToken, []byte(token))
 	h.app.Features.Restart(h.ctx, telegram.FeatureName)
-	list, _ = h.app.Features.List(h.ctx)
-	if !list[0].Running {
-		t.Fatalf("offline start must still run: %+v", list)
+	if f := h.telegramFeature(); !f.Running {
+		t.Fatalf("offline start must still run: %+v", f)
 	}
 	h.fake.SetFailing(false)
 	h.addUser(10, "Dad", "PARENT")

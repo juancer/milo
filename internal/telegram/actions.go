@@ -213,12 +213,16 @@ func (s *Service) playNext(ctx context.Context) (bool, error) {
 			return false, err
 		}
 	default:
+		spoke := false
 		if s.Speak != nil {
 			if err := s.Speak(ctx, m.Body); err != nil {
-				return false, err
+				s.Log.Warn("cannot read message aloud", "error", err)
+			} else {
+				spoke = true
 			}
-		} else {
-			// No text-to-speech configured: a distinct sound instead of silence.
+		}
+		if !spoke {
+			// No text-to-speech available: a distinct sound instead of silence.
 			s.Notify.Notify(ctx, audio.NotifyMessage) //nolint:errcheck
 		}
 	}
@@ -310,9 +314,7 @@ func (s *Service) chatSelect(ctx context.Context, _ actions.Call) (actions.Resul
 		}
 	}
 	// Say the name when text-to-speech exists, otherwise beep the chat's number.
-	if s.Speak != nil {
-		s.Speak(ctx, next.Name) //nolint:errcheck
-	} else {
+	if s.Speak == nil || s.Speak(ctx, next.Name) != nil {
 		s.Audio.Play(ctx, audio.Blips(idx)) //nolint:errcheck
 	}
 	return actions.Result{Message: next.Name, Data: map[string]any{"chat": next.Name}}, nil
