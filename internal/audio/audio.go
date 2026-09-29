@@ -7,6 +7,7 @@ package audio
 
 import (
 	"context"
+	"io"
 	"time"
 )
 
@@ -27,6 +28,14 @@ const (
 	NotifyNone        Notification = "none" // "nothing to play"
 	NotifyAlarm       Notification = "alarm"
 )
+
+// Stream is raw signed 16-bit little-endian PCM to be played as it is read.
+type Stream struct {
+	Reader     io.Reader
+	SampleRate int
+	Channels   int
+	Label      string // shown in logs and the simulator
+}
 
 // RecordOptions control a recording.
 type RecordOptions struct {
@@ -53,6 +62,12 @@ type Audio interface {
 	// Play plays a WAV file and blocks until it finishes, ctx is cancelled or
 	// Stop is called.
 	Play(ctx context.Context, wav []byte) error
+	// PlayStream plays raw 16-bit PCM from a reader (music). It blocks until the
+	// stream ends or is interrupted. Any other playback (a notification, speech)
+	// or Stop interrupts it, so alerts are never drowned out by music.
+	PlayStream(ctx context.Context, s Stream) error
+	// Busy reports whether a sound (other than a stream) is playing or waiting.
+	Busy() bool
 	// PlayNotification plays a built-in sound at volume percent (100 = full).
 	PlayNotification(ctx context.Context, n Notification, volume int) error
 	// Stop interrupts current playback, if any.

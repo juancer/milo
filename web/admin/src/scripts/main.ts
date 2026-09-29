@@ -7,6 +7,7 @@ import * as dashboard from "./views/dashboard";
 import * as people from "./views/people";
 import * as schedules from "./views/schedules";
 import * as simulator from "./views/simulator";
+import * as skills from "./views/skills";
 import * as sound from "./views/sound";
 import * as system from "./views/system";
 import * as telegram from "./views/telegram";
@@ -35,6 +36,7 @@ const VIEWS: View[] = [
   { id: "schedules", title: "Schedules", render: schedules.render },
   { id: "assistant", title: "Assistant", render: assistant.render },
   { id: "wakeword", title: "Wake word", render: wakeword.render, stop: wakeword.stop },
+  { id: "skills", title: "Skills", render: skills.render, stop: skills.stop },
   { id: "sound", title: "Sound", render: sound.render },
   { id: "wifi", title: "Wi-Fi", render: wifi.render },
   { id: "system", title: "System", render: system.render },

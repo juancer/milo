@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"time"
 
+	"github.com/juancer/nexo/internal/audio"
 	"github.com/juancer/nexo/internal/auth"
 	"github.com/juancer/nexo/internal/secrets"
 	"github.com/juancer/nexo/internal/store"
@@ -53,7 +56,8 @@ func devSeed(ctx context.Context, cfg system.Config) error {
 
 	// The assistant talks to the simulator's fake OpenAI-compatible endpoints.
 	// These keys are placeholders that only the simulator accepts.
-	simURL := getenv("NEXO_SIM_URL", "http://sim:8081") + "/v1"
+	simURLBase := getenv("NEXO_SIM_URL", "http://sim:8081")
+	simURL := simURLBase + "/v1"
 	if err := vault.Put(ctx, "assistant.llm_api_key", []byte("sim-llm-key-not-real")); err != nil {
 		return err
 	}
@@ -66,6 +70,24 @@ func devSeed(ctx context.Context, cfg system.Config) error {
 	}
 	g.LLMBaseURL, g.STTBaseURL, g.ChildName, g.Age = simURL, simURL, "Sam", 7
 	if err := st.UpdateGPTSettings(ctx, g); err != nil {
+		return err
+	}
+
+	// Skills: a small music folder of public-domain melodies, and the simulator's
+	// fake weather service and calendar.
+	musicDir := getenv("NEXO_DEV_MUSIC", filepath.Join(cfg.DataDir, "music"))
+	if err := writeDemoMusic(musicDir); err != nil {
+		return err
+	}
+	st.SetSetting(ctx, "music.dir", musicDir) //nolint:errcheck
+	for k, v := range map[string]string{
+		"weather.api_base": simURLBase + "/weather", "weather.geo_base": simURLBase + "/weather",
+		"weather.latitude": "40.4168", "weather.longitude": "-3.7038", "weather.place": "Madrid, Demoland",
+		"system.timezone": getenv("NEXO_DEV_TIMEZONE", "Europe/Madrid"),
+	} {
+		st.SetSetting(ctx, k, v) //nolint:errcheck
+	}
+	if err := vault.Put(ctx, "calendar.ics_url", []byte(simURLBase+"/calendar.ics")); err != nil {
 		return err
 	}
 
@@ -97,11 +119,47 @@ func devSeed(ctx context.Context, cfg system.Config) error {
 }
 
 // devFeatures are switched on in the demo. Later phases append to this list.
-var devFeatures = []string{"telegram", "assistant", "wakeword"}
+var devFeatures = []string{"telegram", "assistant", "wakeword", "timer", "reminders", "music", "weather", "calendar"}
 
 func getenv(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
 	}
 	return def
+}
+
+// writeDemoMusic renders a few public-domain nursery melodies as WAV files so
+// the music skill has something to play in the demo.
+func writeDemoMusic(dir string) error {
+	if err := os.MkdirAll(filepath.Join(dir, "Nursery rhymes"), 0o755); err != nil {
+		return err
+	}
+	const (
+		c4, d4, e4, f4, g4, a4, b4, c5 = 261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25
+	)
+	type note struct {
+		freq float64
+		beat float64
+	}
+	songs := map[string][]note{
+		"Twinkle Twinkle Little Star": {{c4, 1}, {c4, 1}, {g4, 1}, {g4, 1}, {a4, 1}, {a4, 1}, {g4, 2}, {f4, 1}, {f4, 1}, {e4, 1}, {e4, 1}, {d4, 1}, {d4, 1}, {c4, 2}},
+		"Ode to Joy":                  {{e4, 1}, {e4, 1}, {f4, 1}, {g4, 1}, {g4, 1}, {f4, 1}, {e4, 1}, {d4, 1}, {c4, 1}, {c4, 1}, {d4, 1}, {e4, 1}, {e4, 1.5}, {d4, 0.5}, {d4, 2}},
+		"Happy Birthday":              {{g4, 0.75}, {g4, 0.25}, {a4, 1}, {g4, 1}, {c5, 1}, {b4, 2}, {g4, 0.75}, {g4, 0.25}, {a4, 1}, {g4, 1}, {d4 * 2, 1}, {c5, 2}},
+		"Frere Jacques":               {{c4, 1}, {d4, 1}, {e4, 1}, {c4, 1}, {c4, 1}, {d4, 1}, {e4, 1}, {c4, 1}, {e4, 1}, {f4, 1}, {g4, 2}, {e4, 1}, {f4, 1}, {g4, 2}},
+	}
+	for title, melody := range songs {
+		var pcm []byte
+		for round := 0; round < 2; round++ {
+			for _, n := range melody {
+				d := time.Duration(n.beat * 380 * float64(time.Millisecond))
+				pcm = append(pcm, audio.Tone(n.freq, d-30*time.Millisecond)...)
+				pcm = append(pcm, audio.Tone(0, 30*time.Millisecond)...)
+			}
+		}
+		path := filepath.Join(dir, "Nursery rhymes", title+".wav")
+		if err := os.WriteFile(path, audio.EncodeWAV(pcm, audio.SampleRate), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }

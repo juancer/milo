@@ -71,6 +71,9 @@ func (a *App) registerCoreActions() {
 		Description: "Stop whatever sound is playing.",
 		Exposure:    actions.ExposeDevice | actions.ExposeAssistant,
 		Handler: func(ctx context.Context, c actions.Call) (actions.Result, error) {
+			if a.Music != nil {
+				a.Music.Halt() // "stop" also ends the music for good
+			}
 			a.Audio.Stop()
 			return actions.Result{Message: "Stopped"}, nil
 		},

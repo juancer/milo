@@ -33,6 +33,7 @@ configuration, persistence, UI.
 | `assistant` | Conversations, tool loop, voice session; talks to an `AIProvider` interface | 5 |
 | `openrouter` | OpenAI-compatible chat client (OpenRouter, Groq...) | 5 |
 | `speech` | Speech-to-text and text-to-speech providers | 5 |
+| `skills` | Timers, reminders, music, weather, calendar (each a feature with actions) | 8 |
 | `wakeword` | Local wake-word detection (template matcher, external helper plug) | 7 |
 | `wifi` | Wi-Fi networks applied to NetworkManager (`nmcli`) | 6 |
 | `moderation` | Input/output safety net and parent-defined blocked phrases | 5 |

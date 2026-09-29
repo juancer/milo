@@ -82,6 +82,10 @@ type Session struct {
 	convID   int64 // 0 when nothing is stored
 	history  []Message
 	source   string
+	// finished is set when the request has been carried out in a way that
+	// ends the conversation (for example music started), so Nexo does not keep
+	// a microphone open over the song.
+	finished bool
 }
 
 // NewSession starts a conversation using the current settings.
@@ -256,6 +260,9 @@ func (e *Engine) runTool(ctx context.Context, sess *Session, tc ToolCall) string
 	} else {
 		b, _ := json.Marshal(map[string]any{"ok": true, "result": res.Message})
 		out = string(b)
+		if tc.Name == "play_music" {
+			sess.finished = true
+		}
 	}
 	if len(out) > maxToolResultLen {
 		out = out[:maxToolResultLen]

@@ -44,6 +44,9 @@ func NotificationWAV(n Notification) []byte {
 	return EncodeWAV(pcm, SampleRate)
 }
 
+// Tone returns 16-bit mono PCM for a sine tone of the given frequency (0 = silence).
+func Tone(freq float64, d time.Duration) []byte { return synth(freq, d) }
+
 // synth renders a sine tone with short fades so it does not click.
 func synth(freq float64, d time.Duration) []byte {
 	n := int(d.Seconds() * SampleRate)
