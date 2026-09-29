@@ -687,3 +687,117 @@ func TestSchedulesRequireLogin(t *testing.T) {
 		}
 	}
 }
+
+func TestAssistantSettingsValidationAndKeys(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	get := decode[struct {
+		Settings assistantDTO `json:"settings"`
+		LLMKey   bool         `json:"llm_key_configured"`
+	}](t, e.do(t, "GET", "/api/assistant", "", cookie, nil))
+	if get.Settings.LLMModel != "openai/gpt-oss-20b:free" || get.Settings.Age != 7 || get.LLMKey {
+		t.Fatalf("defaults = %+v", get)
+	}
+
+	d := get.Settings
+	d.ChildName, d.Age, d.RetentionDays = "Lia", 9, 7
+	body, _ := json.Marshal(d)
+	if resp := e.do(t, "PUT", "/api/assistant", string(body), cookie, nil); resp.StatusCode != 200 {
+		t.Fatalf("save = %d", resp.StatusCode)
+	}
+	g, _ := e.store.GetGPTSettings(context.Background())
+	if g.ChildName != "Lia" || g.Age != 9 || g.RetentionDays != 7 {
+		t.Fatalf("stored = %+v", g)
+	}
+
+	bad := map[string]func(*assistantDTO){
+		"age":            func(x *assistantDTO) { x.Age = 40 },
+		"retention":      func(x *assistantDTO) { x.RetentionDays = 5 },
+		"words":          func(x *assistantDTO) { x.MaxResponseWords = 5000 },
+		"http url":       func(x *assistantDTO) { x.LLMBaseURL = "ftp://evil.example" },
+		"url with creds": func(x *assistantDTO) { x.STTBaseURL = "https://user:pw@evil.example/v1" },
+		"model":          func(x *assistantDTO) { x.LLMModel = "x; rm -rf /" },
+		"piper path":     func(x *assistantDTO) { x.TTSModelPath = "../../etc/passwd.onnx" },
+		"tts engine":     func(x *assistantDTO) { x.TTSEngine = "shell" },
+		"empty persona":  func(x *assistantDTO) { x.Personality = " " },
+	}
+	for name, mutate := range bad {
+		x := d
+		mutate(&x)
+		b, _ := json.Marshal(x)
+		if resp := e.do(t, "PUT", "/api/assistant", string(b), cookie, nil); resp.StatusCode != 400 {
+			t.Errorf("%s = %d, want 400", name, resp.StatusCode)
+		}
+	}
+
+	// Keys are write-only, stored encrypted and never echoed or audited.
+	const secret = "sk-or-v1-SUPER-SECRET-VALUE-12345"
+	resp := e.do(t, "PUT", "/api/assistant/keys", `{"llm_api_key":"`+secret+`"}`, cookie, nil)
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 || strings.Contains(string(raw), secret) || !strings.Contains(string(raw), `"llm_key_configured":true`) {
+		t.Fatalf("set key = %d %s", resp.StatusCode, raw)
+	}
+	stored, _ := e.store.GetSecret(context.Background(), "assistant.llm_api_key")
+	if strings.Contains(string(stored), "SUPER-SECRET") {
+		t.Fatal("key stored in plaintext")
+	}
+	entries, _ := e.store.ListAudit(context.Background(), 50)
+	for _, en := range entries {
+		if strings.Contains(en.Details+en.Target, "SUPER-SECRET") {
+			t.Fatal("key leaked into the audit log")
+		}
+	}
+	for _, badKey := range []string{`{"llm_api_key":"short"}`, `{"llm_api_key":"has space in it here"}`} {
+		if resp := e.do(t, "PUT", "/api/assistant/keys", badKey, cookie, nil); resp.StatusCode != 400 {
+			t.Errorf("bad key %s = %d", badKey, resp.StatusCode)
+		}
+	}
+	if resp := e.do(t, "DELETE", "/api/assistant/keys/llm", "", cookie, nil); resp.StatusCode != 204 {
+		t.Fatalf("delete key = %d", resp.StatusCode)
+	}
+	if resp := e.do(t, "DELETE", "/api/assistant/keys/whatever", "", cookie, nil); resp.StatusCode != 404 {
+		t.Fatalf("unknown key = %d", resp.StatusCode)
+	}
+}
+
+func TestModerationRulesAndConversationsAPI(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	ctx := context.Background()
+
+	if resp := e.do(t, "POST", "/api/moderation-rules", `{"pattern":"Voldemort","applies_to":"input"}`, cookie, nil); resp.StatusCode != 201 {
+		t.Fatalf("create rule = %d", resp.StatusCode)
+	}
+	for _, bad := range []string{`{"pattern":"x","applies_to":"both"}`, `{"pattern":"ok phrase","applies_to":"sideways"}`, `{"pattern":"","applies_to":"both"}`} {
+		if resp := e.do(t, "POST", "/api/moderation-rules", bad, cookie, nil); resp.StatusCode != 400 {
+			t.Errorf("%s = %d", bad, resp.StatusCode)
+		}
+	}
+	rules := decode[[]map[string]any](t, e.do(t, "GET", "/api/moderation-rules", "", cookie, nil))
+	if len(rules) != 1 || rules[0]["pattern"] != "Voldemort" {
+		t.Fatalf("rules = %v", rules)
+	}
+	id := itoa(int64(rules[0]["id"].(float64)))
+	if resp := e.do(t, "DELETE", "/api/moderation-rules/"+id, "", cookie, nil); resp.StatusCode != 204 {
+		t.Fatalf("delete rule = %d", resp.StatusCode)
+	}
+
+	cid, _ := e.store.CreateConversation(ctx, "button")
+	e.store.AddConversationMessage(ctx, cid, "user", "hello there", "")
+	e.store.AddConversationMessage(ctx, cid, "assistant", "hi!", "")
+	convs := decode[[]map[string]any](t, e.do(t, "GET", "/api/conversations", "", cookie, nil))
+	if len(convs) != 1 || len(convs[0]["lines"].([]any)) != 2 {
+		t.Fatalf("conversations = %v", convs)
+	}
+	if resp := e.do(t, "DELETE", "/api/conversations", "", cookie, nil); resp.StatusCode != 204 {
+		t.Fatalf("erase = %d", resp.StatusCode)
+	}
+	if convs, _ := e.store.ListConversations(ctx, 5); len(convs) != 0 {
+		t.Fatal("history not erased")
+	}
+	for _, r := range [][2]string{{"GET", "/api/assistant"}, {"PUT", "/api/assistant/keys"}, {"GET", "/api/conversations"}, {"GET", "/api/moderation-rules"}} {
+		if resp := e.do(t, r[0], r[1], "{}", nil, nil); resp.StatusCode != 401 {
+			t.Errorf("%s %s without login = %d", r[0], r[1], resp.StatusCode)
+		}
+	}
+}

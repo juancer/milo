@@ -47,6 +47,10 @@ migration that has shipped; add a new one.
 Open <http://localhost:8080> (sign in with the demo password) and use the **Simulator** tab
 for virtual buttons, a microphone ("what the child says next") and a speaker log.
 
+The assistant runs against the simulator's rule-based "brain" (`/v1/chat/completions` and
+`/v1/audio/transcriptions`), which speaks the same protocol as OpenRouter and Groq. In the
+Simulator tab type what the child says, then press the green GPT button.
+
 A quick tour: as *Stranger*, send `/start` (refused). In the admin UI create an invitation,
 paste its link into the Stranger chat, approve the request, and message the device as Dad.
 Press the blue LISTEN button in the Simulator tab.

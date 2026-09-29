@@ -57,6 +57,7 @@ func New(a *app.App, version string, assets fs.FS) http.Handler {
 	s.telegramRoutes(mux)
 	s.settingsRoutes(mux)
 	s.scheduleRoutes(mux)
+	s.assistantRoutes(mux)
 	s.simRoutes(mux)
 	mux.Handle("/", http.FileServerFS(assets))
 	return securityHeaders(csrfGuard(mux))

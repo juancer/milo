@@ -57,6 +57,8 @@ func main() {
 	mux.HandleFunc("GET /sim/api/chat/{id}/audio/{bubble}", s.audioFile)
 	mux.HandleFunc("POST /sim/api/people", s.addPerson)
 	mux.HandleFunc("POST /sim/api/outage", s.outage)
+	mux.HandleFunc("POST /v1/chat/completions", s.chatCompletions)
+	mux.HandleFunc("POST /v1/audio/transcriptions", s.transcribe)
 	mux.Handle("/bot"+token+"/", s.tg)
 	mux.Handle("/file/", s.tg)
 	mux.Handle("/", http.FileServerFS(ui))

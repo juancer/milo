@@ -1,5 +1,6 @@
 import { api, ApiError, type Status } from "./api";
 import { clear, errorMessage, h } from "./dom";
+import * as assistant from "./views/assistant";
 import * as buttons from "./views/buttons";
 import * as chats from "./views/chats";
 import * as dashboard from "./views/dashboard";
@@ -29,6 +30,7 @@ const VIEWS: View[] = [
   { id: "people", title: "People", render: people.render },
   { id: "chats", title: "Chats", render: chats.render },
   { id: "schedules", title: "Schedules", render: schedules.render },
+  { id: "assistant", title: "Assistant", render: assistant.render },
   { id: "sound", title: "Sound", render: sound.render },
   { id: "simulator", title: "Simulator", render: simulator.render, stop: simulator.stop, devOnly: true },
 ];

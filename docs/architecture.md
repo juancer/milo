@@ -30,7 +30,10 @@ configuration, persistence, UI.
 | `schedules` | When each feature may be used (timezone-aware windows) | 4 |
 | `telegram` | Bot API client, authorization, invitations, inbox/outbox, Telegram actions | 3 |
 | `notifications` | Notification sounds honouring parent settings | 3 |
-| `assistant`, `openrouter` | LLM and conversation | 5 |
+| `assistant` | Conversations, tool loop, voice session; talks to an `AIProvider` interface | 5 |
+| `openrouter` | OpenAI-compatible chat client (OpenRouter, Groq...) | 5 |
+| `speech` | Speech-to-text and text-to-speech providers | 5 |
+| `moderation` | Input/output safety net and parent-defined blocked phrases | 5 |
 
 Packages are created when the phase that needs them starts, not before.
 

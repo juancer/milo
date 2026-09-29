@@ -396,3 +396,17 @@ input[type="password"] {
 input[type="time"] {
   width: 8rem;
 }
+
+textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+details {
+  border-top: 1px solid var(--line);
+  padding: 0.4rem 0;
+}
+
+summary {
+  cursor: pointer;
+}

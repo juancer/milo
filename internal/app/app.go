@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/juancer/nexo/internal/actions"
+	"github.com/juancer/nexo/internal/assistant"
 	"github.com/juancer/nexo/internal/audio"
 	"github.com/juancer/nexo/internal/audit"
 	"github.com/juancer/nexo/internal/buttons"
@@ -43,6 +44,7 @@ type App struct {
 	Notifier  *notifications.Notifier
 	Telegram  *telegram.Service
 	Schedules *schedules.Service
+	Assistant *assistant.Engine
 
 	// Set only when NEXO_HARDWARE=mock, for tests and the simulator.
 	MockAudio *audio.Mock
@@ -74,6 +76,7 @@ func New(ctx context.Context, cfg system.Config, log *slog.Logger, st *store.Sto
 	a.Schedules = schedules.New(st)
 	a.Actions.SetSchedules(a.Schedules)
 	a.registerCoreActions()
+	a.initAssistant()
 	if err := a.initTelegram(runCtx); err != nil {
 		cancel()
 		return nil, err
@@ -83,6 +86,7 @@ func New(ctx context.Context, cfg system.Config, log *slog.Logger, st *store.Sto
 		cancel()
 		return nil, err
 	}
+	go a.maintenance(runCtx)
 	return a, nil
 }
 
@@ -187,7 +191,6 @@ func (a *App) dispatchButton(ctx context.Context, e buttons.Event) {
 }
 
 func (a *App) initTelegram(ctx context.Context) error {
-	a.Notifier = notifications.New(a.Audio, a.Store)
 	var codec audio.Transcoder = audio.Opus{}
 	if a.Cfg.Hardware == "mock" {
 		codec = audio.PassThrough{} // simulated voice notes are plain WAV
@@ -195,8 +198,12 @@ func (a *App) initTelegram(ctx context.Context) error {
 	a.Telegram = telegram.New(telegram.Deps{
 		Store: a.Store, Vault: a.Vault, Audio: a.Audio, Codec: codec, Notify: a.Notifier,
 		Actions: a.Actions, Perms: a.Perms, Audit: a.Audit, Log: a.Log, BaseURL: a.Cfg.TelegramAPIURL,
+		Speak: a.Assistant.Speak,
 	})
 	a.Telegram.SetSchedules(a.Schedules)
 	a.Telegram.RegisterActions(a.Actions)
-	return a.Features.Register(ctx, a.Telegram)
+	if err := a.Features.Register(ctx, a.Telegram); err != nil {
+		return err
+	}
+	return a.Features.Register(ctx, a.Assistant)
 }

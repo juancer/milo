@@ -51,6 +51,24 @@ func devSeed(ctx context.Context, cfg system.Config) error {
 		return err
 	}
 
+	// The assistant talks to the simulator's fake OpenAI-compatible endpoints.
+	// These keys are placeholders that only the simulator accepts.
+	simURL := getenv("NEXO_SIM_URL", "http://sim:8081") + "/v1"
+	if err := vault.Put(ctx, "assistant.llm_api_key", []byte("sim-llm-key-not-real")); err != nil {
+		return err
+	}
+	if err := vault.Put(ctx, "assistant.stt_api_key", []byte("sim-stt-key-not-real")); err != nil {
+		return err
+	}
+	g, err := st.GetGPTSettings(ctx)
+	if err != nil {
+		return err
+	}
+	g.LLMBaseURL, g.STTBaseURL, g.ChildName, g.Age = simURL, simURL, "Sam", 7
+	if err := st.UpdateGPTSettings(ctx, g); err != nil {
+		return err
+	}
+
 	family := []struct {
 		name, role string
 		tg         int64
@@ -79,7 +97,7 @@ func devSeed(ctx context.Context, cfg system.Config) error {
 }
 
 // devFeatures are switched on in the demo. Later phases append to this list.
-var devFeatures = []string{"telegram"}
+var devFeatures = []string{"telegram", "assistant"}
 
 func getenv(k, def string) string {
 	if v := os.Getenv(k); v != "" {

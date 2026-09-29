@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/juancer/nexo/internal/actions"
 	"github.com/juancer/nexo/internal/audio"
@@ -62,6 +63,26 @@ func (a *App) registerCoreActions() {
 				Message: fmt.Sprintf("Volume %d percent. %d features running.", st.Volume, len(on)),
 				Data:    map[string]any{"volume": st.Volume, "features_running": on, "audio_available": st.Available},
 			}, nil
+		},
+	})
+
+	a.Actions.MustRegister(actions.Action{
+		Name:        "stop_audio",
+		Description: "Stop whatever sound is playing.",
+		Exposure:    actions.ExposeDevice | actions.ExposeAssistant,
+		Handler: func(ctx context.Context, c actions.Call) (actions.Result, error) {
+			a.Audio.Stop()
+			return actions.Result{Message: "Stopped"}, nil
+		},
+	})
+
+	a.Actions.MustRegister(actions.Action{
+		Name:        "get_time",
+		Description: "Tell the current day and time.",
+		Exposure:    all,
+		Handler: func(ctx context.Context, c actions.Call) (actions.Result, error) {
+			now := time.Now().In(a.Schedules.Location(ctx))
+			return actions.Result{Message: "It is " + now.Format("Monday, 15:04") + ".", Data: map[string]any{"time": now.Format(time.RFC3339)}}, nil
 		},
 	})
 }
