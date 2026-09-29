@@ -4,6 +4,7 @@ import * as buttons from "./views/buttons";
 import * as chats from "./views/chats";
 import * as dashboard from "./views/dashboard";
 import * as people from "./views/people";
+import * as schedules from "./views/schedules";
 import * as simulator from "./views/simulator";
 import * as sound from "./views/sound";
 import * as telegram from "./views/telegram";
@@ -27,6 +28,7 @@ const VIEWS: View[] = [
   { id: "telegram", title: "Telegram", render: telegram.render },
   { id: "people", title: "People", render: people.render },
   { id: "chats", title: "Chats", render: chats.render },
+  { id: "schedules", title: "Schedules", render: schedules.render },
   { id: "sound", title: "Sound", render: sound.render },
   { id: "simulator", title: "Simulator", render: simulator.render, stop: simulator.stop, devOnly: true },
 ];

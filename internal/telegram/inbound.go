@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/juancer/nexo/internal/actions"
+	"github.com/juancer/nexo/internal/permissions"
 	"github.com/juancer/nexo/internal/store"
 )
 
@@ -171,6 +172,8 @@ func (s *Service) handleKnown(ctx context.Context, c *Client, user store.User, m
 	switch {
 	case m.Voice != nil:
 		s.receiveVoice(ctx, c, user, m)
+	case text == "/emergency":
+		s.confirmEmergency(ctx, c, user, m.From.ID)
 	case text == "/start" || strings.HasPrefix(text, "/start ") || text == "/menu" || text == "/help":
 		s.sendMenu(ctx, c, user, m.From.ID)
 	case strings.HasPrefix(text, "/"):
@@ -237,6 +240,9 @@ func (s *Service) menuKeyboard(ctx context.Context, user store.User) Keyboard {
 		{Text: "🎤 Send voice message", CallbackData: "menu:voice"},
 		{Text: "💬 Send message", CallbackData: "menu:text"},
 	}}
+	if ok, _ := s.Perms.Has(ctx, user.ID, permissions.EmergencyAlert); ok {
+		kb = append(kb, []InlineButton{{Text: "🚨 Emergency", CallbackData: "menu:emergency"}})
+	}
 	return kb
 }
 
@@ -262,6 +268,9 @@ func (s *Service) handleCallback(ctx context.Context, c *Client, q *CallbackQuer
 		s.fireEmergency(ctx, c, user, q.From.ID)
 	case "emergency:no":
 		answer("Cancelled")
+		s.mu.Lock()
+		delete(s.emergencyConfirm, user.ID) // a cancelled confirmation can never be revived
+		s.mu.Unlock()
 		s.reply(ctx, c, q.From.ID, "Cancelled. No alert was sent.", nil)
 	default:
 		answer("")

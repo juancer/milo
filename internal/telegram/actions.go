@@ -44,6 +44,8 @@ func (s *Service) RegisterActions(e *actions.Engine) {
 		Handler: s.deliverMessage,
 	})
 
+	s.registerEmergencyAction(e)
+
 	e.MustRegister(actions.Action{
 		Name:        "listen",
 		Description: "Play the next pending message (urgent ones first).",
@@ -105,9 +107,11 @@ func (s *Service) deliverMessage(ctx context.Context, c actions.Call) (actions.R
 	case kind == "voice" && len(audioData) == 0:
 		return actions.Result{}, fmt.Errorf("%w: audio is required", actions.ErrInvalidParams)
 	}
-	id, err := s.Store.InsertMessage(ctx, store.Message{
-		Direction: "in", Kind: kind, Body: text, Audio: audioData, UserID: c.Actor.UserID,
-	})
+	msg := store.Message{Direction: "in", Kind: kind, Body: text, Audio: audioData, UserID: c.Actor.UserID}
+	if s.urgentActive(c.Actor.UserID) { // follows an emergency alert from the same person
+		msg.Type, msg.Priority = "emergency", "critical"
+	}
+	id, err := s.Store.InsertMessage(ctx, msg)
 	if err != nil {
 		return actions.Result{}, err
 	}
