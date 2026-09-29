@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 )
 
@@ -48,4 +50,17 @@ func (s *Store) ListFeatures(ctx context.Context) ([]FeatureRow, error) {
 		out = append(out, f)
 	}
 	return out, rows.Err()
+}
+
+// FeatureEnabled reports whether a feature is enabled. Unknown features are disabled.
+func (s *Store) FeatureEnabled(ctx context.Context, name string) (bool, error) {
+	var on bool
+	err := s.db.QueryRowContext(ctx, `SELECT enabled FROM features WHERE name = ?`, name).Scan(&on)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("store: feature enabled %q: %w", name, err)
+	}
+	return on, nil
 }

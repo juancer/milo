@@ -147,3 +147,9 @@ func (m *Manager) reconcile(ctx context.Context, e *entry, enabled bool) {
 		m.log.Info("feature stopped", "feature", name)
 	}
 }
+
+// Enabled reports whether a feature is switched on in SQLite. It implements
+// actions.FeatureChecker.
+func (m *Manager) Enabled(ctx context.Context, name string) (bool, error) {
+	return m.store.FeatureEnabled(ctx, name)
+}

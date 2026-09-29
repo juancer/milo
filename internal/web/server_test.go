@@ -8,14 +8,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
-	"github.com/juancer/nexo/internal/audit"
+	"github.com/juancer/nexo/internal/app"
 	"github.com/juancer/nexo/internal/auth"
 	"github.com/juancer/nexo/internal/features"
+	"github.com/juancer/nexo/internal/secrets"
 	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/nexo/internal/system"
 )
 
 const testPassword = "a-long-test-password"
@@ -28,22 +32,32 @@ func (f *fakeFeature) Stop(context.Context) error  { f.started = false; return n
 
 type env struct {
 	srv     *httptest.Server
+	app     *app.App
 	store   *store.Store
 	feature *fakeFeature
 }
 
 func newEnv(t *testing.T, setPassword bool) *env {
 	t.Helper()
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "n.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	fm := features.NewManager(st, log)
+	vault, err := secrets.New(make([]byte, 32), st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := app.New(ctx, system.Config{Hardware: "mock", DataDir: t.TempDir()}, log, st, vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(a.Close)
 	ff := &fakeFeature{}
-	if err := fm.Register(ctx, ff); err != nil {
+	if err := a.Features.Register(ctx, ff); err != nil {
 		t.Fatal(err)
 	}
 	if setPassword {
@@ -51,10 +65,9 @@ func newEnv(t *testing.T, setPassword bool) *env {
 		st.SetSetting(ctx, settingPasswordHash, hash)
 	}
 	assets := fstest.MapFS{"index.html": {Data: []byte("<h1>Nexo</h1>")}}
-	h := New(Deps{Store: st, Features: fm, Audit: audit.New(st, log), Log: log, Version: "test", Hardware: "mock"}, assets)
-	srv := httptest.NewServer(h)
+	srv := httptest.NewServer(New(a, "test", assets))
 	t.Cleanup(srv.Close)
-	return &env{srv: srv, store: st, feature: ff}
+	return &env{srv: srv, app: a, store: st, feature: ff}
 }
 
 func (e *env) do(t *testing.T, method, path, body string, cookie *http.Cookie, headers map[string]string) *http.Response {
@@ -246,3 +259,114 @@ func TestFeatureToggle(t *testing.T) {
 		t.Fatal("feature not stopped")
 	}
 }
+
+func TestButtonsCRUDAndReload(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+
+	var list []buttonDTO
+	json.NewDecoder(e.do(t, "GET", "/api/buttons", "", cookie, nil).Body).Decode(&list)
+	if len(list) != 4 || list[0].Color != "red" || list[0].GPIO != 17 {
+		t.Fatalf("default buttons = %+v", list)
+	}
+	// Seeded actions belong to later phases, so they are flagged as unknown for now.
+	if len(list[0].Unknown) == 0 {
+		t.Fatalf("expected unknown action flag, got %+v", list[0])
+	}
+
+	body := `{"name":"Purple","color":"purple","gpio":5,"active_low":true,"enabled":true,
+		"actions":{"short_press":{"action":"set_volume","parameters":{"change":10}}}}`
+	resp := e.do(t, "POST", "/api/buttons", body, cookie, nil)
+	var created buttonDTO
+	json.NewDecoder(resp.Body).Decode(&created)
+	if resp.StatusCode != 200 || created.ID == 0 || len(created.Unknown) != 0 {
+		t.Fatalf("create = %d %+v", resp.StatusCode, created)
+	}
+
+	// The new mapping works immediately, without a restart.
+	before := e.app.MockAudio.Status(context.Background()).Volume
+	e.app.MockGPIO.Tap(5)
+	deadline := time.Now().Add(2 * time.Second)
+	for e.app.MockAudio.Status(context.Background()).Volume == before && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := e.app.MockAudio.Status(context.Background()).Volume; got != before+10 {
+		t.Fatalf("volume = %d, want %d", got, before+10)
+	}
+
+	// Validation.
+	for name, bad := range map[string]string{
+		"gpio out of range": `{"name":"X","gpio":99,"enabled":true}`,
+		"empty name":        `{"name":"","gpio":6,"enabled":true}`,
+		"bad event":         `{"name":"X","gpio":6,"actions":{"triple":{"action":"a"}}}`,
+		"bad action name":   `{"name":"X","gpio":6,"actions":{"short_press":{"action":"rm -rf /"}}}`,
+	} {
+		if resp := e.do(t, "POST", "/api/buttons", bad, cookie, nil); resp.StatusCode != 400 {
+			t.Errorf("%s = %d, want 400", name, resp.StatusCode)
+		}
+	}
+	if resp := e.do(t, "POST", "/api/buttons", `{"name":"Dup","gpio":5,"enabled":true}`, cookie, nil); resp.StatusCode != 409 {
+		t.Errorf("duplicate gpio = %d, want 409", resp.StatusCode)
+	}
+
+	if resp := e.do(t, "DELETE", "/api/buttons/"+itoa(created.ID), "", cookie, nil); resp.StatusCode != 204 {
+		t.Fatalf("delete = %d", resp.StatusCode)
+	}
+	if resp := e.do(t, "DELETE", "/api/buttons/"+itoa(created.ID), "", cookie, nil); resp.StatusCode != 404 {
+		t.Fatalf("delete twice = %d", resp.StatusCode)
+	}
+}
+
+func TestButtonsRequireLogin(t *testing.T) {
+	e := newEnv(t, true)
+	for _, r := range [][2]string{{"GET", "/api/buttons"}, {"POST", "/api/buttons"}, {"GET", "/api/actions"}, {"GET", "/api/sim/audio"}} {
+		if resp := e.do(t, r[0], r[1], "{}", nil, nil); resp.StatusCode != 401 {
+			t.Errorf("%s %s = %d, want 401", r[0], r[1], resp.StatusCode)
+		}
+	}
+}
+
+func TestSimulatorButtonPressAndAudioLog(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	var buttons []buttonDTO
+	json.NewDecoder(e.do(t, "GET", "/api/buttons", "", cookie, nil).Body).Decode(&buttons)
+	// The default red button maps to "talk", which is not implemented yet, so
+	// pressing it produces the error tone: the full path button -> engine -> audio.
+	if resp := e.do(t, "POST", "/api/sim/buttons/"+itoa(buttons[0].ID)+"/press", `{"hold_ms":30}`, cookie, nil); resp.StatusCode != 202 {
+		t.Fatalf("press = %d", resp.StatusCode)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		var out struct {
+			Played []struct{ Label string } `json:"played"`
+		}
+		json.NewDecoder(e.do(t, "GET", "/api/sim/audio", "", cookie, nil).Body).Decode(&out)
+		if len(out.Played) > 0 && out.Played[0].Label == "error" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no error tone played: %+v", out)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if resp := e.do(t, "POST", "/api/sim/buttons/"+itoa(buttons[0].ID)+"/press", `{"hold_ms":1}`, cookie, nil); resp.StatusCode != 400 {
+		t.Fatalf("bad hold = %d", resp.StatusCode)
+	}
+}
+
+func TestActionsCatalogueListsDeviceActions(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	var list []actionDTO
+	json.NewDecoder(e.do(t, "GET", "/api/actions", "", cookie, nil).Body).Decode(&list)
+	names := map[string]bool{}
+	for _, a := range list {
+		names[a.Name] = true
+	}
+	if !names["set_volume"] || !names["get_device_status"] {
+		t.Fatalf("actions = %+v", list)
+	}
+}
+
+func itoa(n int64) string { return strconv.FormatInt(n, 10) }

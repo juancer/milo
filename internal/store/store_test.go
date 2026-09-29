@@ -185,3 +185,61 @@ func TestUsersAndPermissions(t *testing.T) {
 		t.Fatalf("UserPermissions = %v", got)
 	}
 }
+
+func TestButtonsSeededAndEditable(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTemp(t)
+	list, err := s.ListButtons(ctx)
+	if err != nil || len(list) != 4 {
+		t.Fatalf("seeded buttons = %+v, %v", list, err)
+	}
+	if list[0].Color != "red" || list[0].GPIO != 17 || list[0].Actions["short_press"].Action != "talk" {
+		t.Fatalf("red = %+v", list[0])
+	}
+
+	// Another installation: RED becomes GPT, pin changes.
+	list[0].Actions = map[string]ButtonAction{"short_press": {Action: "gpt"}, "long_press": {Action: "set_volume", Parameters: `{"change":10}`}}
+	list[0].GPIO = 5
+	if err := s.UpdateButton(ctx, list[0]); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetButton(ctx, list[0].ID)
+	if got.GPIO != 5 || got.Actions["short_press"].Action != "gpt" || len(got.Actions) != 2 {
+		t.Fatalf("updated = %+v", got)
+	}
+
+	if _, err := s.CreateButton(ctx, Button{Name: "Blue", GPIO: 40, Enabled: true}); err == nil {
+		t.Fatal("duplicate name accepted")
+	}
+	if _, err := s.CreateButton(ctx, Button{Name: "X", GPIO: 5, Enabled: true}); err == nil {
+		t.Fatal("duplicate gpio accepted")
+	}
+	if _, err := s.CreateButton(ctx, Button{Name: "X", GPIO: 99, Enabled: true}); err == nil {
+		t.Fatal("out-of-range gpio accepted")
+	}
+
+	if err := s.DeleteButton(ctx, got.ID); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	s.db.QueryRow(`SELECT COUNT(*) FROM button_actions WHERE button_id = ?`, got.ID).Scan(&n)
+	if n != 0 {
+		t.Fatal("actions not cascaded")
+	}
+	if err := s.DeleteButton(ctx, got.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestFeatureEnabledLookup(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTemp(t)
+	if on, err := s.FeatureEnabled(ctx, "ghost"); on || err != nil {
+		t.Fatalf("unknown = %v, %v", on, err)
+	}
+	s.EnsureFeature(ctx, "x")
+	s.SetFeatureEnabled(ctx, "x", true)
+	if on, _ := s.FeatureEnabled(ctx, "x"); !on {
+		t.Fatal("enabled feature reported off")
+	}
+}

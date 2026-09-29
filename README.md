@@ -7,10 +7,7 @@ device through their own Telegram bot; parents configure everything from a local
 Nexo is the name of the software, not of any child. Nothing about a specific family,
 Telegram account or bot is hardcoded: each installation is configured on its own.
 
-> **Status: Phase 1 (foundation).** The runtime, SQLite store, migrations, secrets, audit,
-> permissions, feature lifecycle, CLI, systemd service and the web admin skeleton are done.
-> Buttons, audio, Telegram, schedules, emergency channel and the assistant come in later
-> phases. See [docs/roadmap.md](docs/roadmap.md).
+> **Status: Phase 2 of 8.** Foundation, configurable buttons, audio and the Action Engine work.
 
 ## Design in one minute
 
@@ -62,4 +59,7 @@ ssh pi@raspberrypi 'sudo ./nexo install && sudo -u nexo nexo admin-password'
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+Nexo is open source: improve it, fork it. Please let the project know by opening a pull request
+or issue (see [CONTRIBUTING.md](CONTRIBUTING.md)).

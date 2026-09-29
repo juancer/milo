@@ -53,6 +53,13 @@ func Install(ctx context.Context, out io.Writer) error {
 	uid, _ := strconv.Atoi(u.Uid)
 	gid, _ := strconv.Atoi(u.Gid)
 
+	// Hardware access: sound card and GPIO. Groups that do not exist are skipped.
+	for _, g := range []string{"audio", "gpio", "netdev"} {
+		if _, err := user.LookupGroup(g); err == nil {
+			run("usermod", "-aG", g, serviceUser) //nolint:errcheck // best effort
+		}
+	}
+
 	if err := os.MkdirAll(DefaultDataDir, 0o750); err != nil {
 		return err
 	}
