@@ -1,0 +1,15 @@
+# Development / build / test image for the Go toolchain.
+# Docker is a development dependency only; the Raspberry Pi runs the plain binary.
+FROM golang:1.26
+
+# World-writable so the container can run as the host user and still use the
+# named cache volumes (which inherit these permissions when first created).
+RUN mkdir -p /cache /data && chmod 777 /cache /data
+
+ENV GOCACHE=/cache/go-build \
+    GOMODCACHE=/cache/go-mod \
+    GOFLAGS=-buildvcs=false \
+    CGO_ENABLED=0 \
+    HOME=/tmp
+
+WORKDIR /src

@@ -1,0 +1,76 @@
+// Package auth provides admin password hashing, sessions and login throttling.
+package auth
+
+import (
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"strings"
+
+	"golang.org/x/crypto/argon2"
+)
+
+// Argon2id parameters follow the OWASP minimum (19 MiB, 2 passes), which is
+// affordable on a Raspberry Pi 3B.
+const (
+	argonMemoryKiB  = 19 * 1024
+	argonIterations = 2
+	argonThreads    = 1
+	argonSaltLen    = 16
+	argonKeyLen     = 32
+
+	MinPasswordLength = 12
+	maxPasswordBytes  = 128
+)
+
+// ValidatePassword enforces the admin password policy.
+func ValidatePassword(pw string) error {
+	if len(pw) < MinPasswordLength {
+		return fmt.Errorf("password must be at least %d characters", MinPasswordLength)
+	}
+	if len(pw) > maxPasswordBytes {
+		return fmt.Errorf("password must be at most %d bytes", maxPasswordBytes)
+	}
+	return nil
+}
+
+// HashPassword returns a PHC-formatted Argon2id hash.
+func HashPassword(pw string) (string, error) {
+	salt := make([]byte, argonSaltLen)
+	if _, err := rand.Read(salt); err != nil {
+		return "", err
+	}
+	sum := argon2.IDKey([]byte(pw), salt, argonIterations, argonMemoryKiB, argonThreads, argonKeyLen)
+	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
+		argon2.Version, argonMemoryKiB, argonIterations, argonThreads,
+		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(sum)), nil
+}
+
+// VerifyPassword checks pw against a hash produced by HashPassword.
+func VerifyPassword(pw, encoded string) (bool, error) {
+	parts := strings.Split(encoded, "$")
+	if len(parts) != 6 || parts[1] != "argon2id" {
+		return false, errors.New("auth: unsupported password hash format")
+	}
+	var version int
+	if _, err := fmt.Sscanf(parts[2], "v=%d", &version); err != nil || version != argon2.Version {
+		return false, errors.New("auth: unsupported argon2 version")
+	}
+	var mem, iter uint32
+	var threads uint8
+	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &mem, &iter, &threads); err != nil {
+		return false, errors.New("auth: malformed argon2 parameters")
+	}
+	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
+	if err != nil {
+		return false, errors.New("auth: malformed salt")
+	}
+	want, err := base64.RawStdEncoding.DecodeString(parts[5])
+	if err != nil || len(want) == 0 {
+		return false, errors.New("auth: malformed hash")
+	}
+	got := argon2.IDKey([]byte(pw), salt, iter, mem, threads, uint32(len(want)))
+	return subtle.ConstantTimeCompare(got, want) == 1, nil
+}

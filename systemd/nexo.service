@@ -1,0 +1,30 @@
+[Unit]
+Description=Nexo family communication and AI assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nexo
+Group=nexo
+Environment=NEXO_DATA_DIR=/var/lib/nexo
+Environment=NEXO_LISTEN=:8080
+# The master key is readable only by root; systemd hands a copy to the service.
+LoadCredential=master.key:/etc/nexo/master.key
+ExecStart=/usr/local/bin/nexo run
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/nexo
+ProtectControlGroups=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
