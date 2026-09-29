@@ -54,6 +54,8 @@ func New(a *app.App, version string, assets fs.FS) http.Handler {
 	mux.Handle("PUT /api/features/{name}", s.requireAuth(s.setFeature))
 	mux.Handle("GET /api/audit", s.requireAuth(s.listAudit))
 	s.buttonRoutes(mux)
+	s.telegramRoutes(mux)
+	s.settingsRoutes(mux)
 	s.simRoutes(mux)
 	mux.Handle("/", http.FileServerFS(assets))
 	return securityHeaders(csrfGuard(mux))

@@ -17,10 +17,12 @@ import (
 	"github.com/juancer/nexo/internal/buttons"
 	"github.com/juancer/nexo/internal/features"
 	"github.com/juancer/nexo/internal/gpio"
+	"github.com/juancer/nexo/internal/notifications"
 	"github.com/juancer/nexo/internal/permissions"
 	"github.com/juancer/nexo/internal/secrets"
 	"github.com/juancer/nexo/internal/store"
 	"github.com/juancer/nexo/internal/system"
+	"github.com/juancer/nexo/internal/telegram"
 )
 
 // App is the assembled application.
@@ -34,9 +36,11 @@ type App struct {
 	Features *features.Manager
 	Actions  *actions.Engine
 
-	Audio   audio.Audio
-	GPIO    gpio.Controller
-	Buttons *buttons.Engine
+	Audio    audio.Audio
+	GPIO     gpio.Controller
+	Buttons  *buttons.Engine
+	Notifier *notifications.Notifier
+	Telegram *telegram.Service
 
 	// Set only when NEXO_HARDWARE=mock, for tests and the simulator.
 	MockAudio *audio.Mock
@@ -66,6 +70,10 @@ func New(ctx context.Context, cfg system.Config, log *slog.Logger, st *store.Sto
 		return nil, err
 	}
 	a.registerCoreActions()
+	if err := a.initTelegram(runCtx); err != nil {
+		cancel()
+		return nil, err
+	}
 
 	if err := a.Features.Sync(runCtx); err != nil {
 		cancel()
@@ -168,8 +176,22 @@ func (a *App) dispatchButton(ctx context.Context, e buttons.Event) {
 			level = slog.LevelInfo
 		}
 		a.Log.Log(ctx, level, "button action failed", "button", e.ButtonName, "event", e.Type, "action", e.Action, "error", err)
-		a.Audio.PlayNotification(ctx, audio.NotifyError)
+		a.Audio.PlayNotification(ctx, audio.NotifyError, 100)
 		return
 	}
 	a.Log.Debug("button action done", "button", e.ButtonName, "action", e.Action, "message", res.Message)
+}
+
+func (a *App) initTelegram(ctx context.Context) error {
+	a.Notifier = notifications.New(a.Audio, a.Store)
+	var codec audio.Transcoder = audio.Opus{}
+	if a.Cfg.Hardware == "mock" {
+		codec = audio.PassThrough{} // simulated voice notes are plain WAV
+	}
+	a.Telegram = telegram.New(telegram.Deps{
+		Store: a.Store, Vault: a.Vault, Audio: a.Audio, Codec: codec, Notify: a.Notifier,
+		Actions: a.Actions, Perms: a.Perms, Audit: a.Audit, Log: a.Log, BaseURL: a.Cfg.TelegramAPIURL,
+	})
+	a.Telegram.RegisterActions(a.Actions)
+	return a.Features.Register(ctx, a.Telegram)
 }

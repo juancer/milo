@@ -32,10 +32,13 @@ services:
   # Long-running Nexo with mocked hardware. Open http://localhost:8080
   dev:
     <<: *go
-    command: sh -c "go run ./cmd/nexo keygen && go run ./cmd/nexo run"
+    command: sh -c "go build -o /tmp/nexo ./cmd/nexo && /tmp/nexo keygen && /tmp/nexo dev-seed && exec /tmp/nexo run"
+    depends_on:
+      - sim
     ports:
       - "8080:8080"
     environment:
+      NEXO_TELEGRAM_API_URL: http://sim:8081
       NEXO_DATA_DIR: /data
       NEXO_LISTEN: ":8080"
       NEXO_HARDWARE: mock
@@ -45,6 +48,13 @@ services:
       - ..:/src
       - gocache:/cache
       - devdata:/data
+
+  # Simulator: fake family phones + fake Telegram Bot API. Open http://localhost:8090
+  sim:
+    <<: *go
+    command: go run ./cmd/nexo-sim
+    ports:
+      - "8090:8081"
 
   # Astro dev server with hot reload, proxying the API to the `dev` service.
   web-dev:

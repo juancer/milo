@@ -15,6 +15,9 @@ const (
 	Integer ParamType = "integer"
 	Number  ParamType = "number"
 	Boolean ParamType = "boolean"
+	// Bytes carries binary data between in-process callers (for example a
+	// Telegram voice note). It is never offered to an LLM.
+	Bytes ParamType = "bytes"
 )
 
 // Param describes one parameter. It doubles as a JSON-schema fragment for LLM tools.
@@ -41,7 +44,7 @@ func validateSchema(params []Param) error {
 		}
 		seen[p.Name] = true
 		switch p.Type {
-		case String, Integer, Number, Boolean:
+		case String, Integer, Number, Boolean, Bytes:
 		default:
 			return fmt.Errorf("parameter %q has unsupported type %q", p.Name, p.Type)
 		}
@@ -103,6 +106,19 @@ func coerce(p Param, v any) (any, error) {
 			return nil, fmt.Errorf("must be one of %v", p.Enum)
 		}
 		return s, nil
+	case Bytes:
+		b, ok := v.([]byte)
+		if !ok {
+			return nil, errors.New("must be binary data")
+		}
+		limit := p.MaxLen
+		if limit == 0 {
+			limit = 8 << 20
+		}
+		if len(b) > limit {
+			return nil, fmt.Errorf("must be at most %d bytes", limit)
+		}
+		return b, nil
 	case Boolean:
 		b, ok := v.(bool)
 		if !ok {
@@ -152,6 +168,9 @@ func JSONSchema(params []Param) map[string]any {
 	props := map[string]any{}
 	var required []string
 	for _, p := range params {
+		if p.Type == Bytes {
+			continue
+		}
 		prop := map[string]any{"type": string(p.Type), "description": p.Description}
 		if len(p.Enum) > 0 {
 			prop["enum"] = p.Enum

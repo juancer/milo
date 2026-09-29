@@ -74,14 +74,14 @@ func TestMockRecordsPlaybackAndVolume(t *testing.T) {
 	ctx := context.Background()
 	m := NewMock()
 	m.SetUtterance("play frozen")
-	wav, err := m.Record(ctx, RecordOptions{})
+	wav, err := m.Record(ctx, RecordOptions{MaxDuration: 20 * time.Millisecond})
 	if err != nil || ExtractText(wav) != "play frozen" {
 		t.Fatalf("Record = %q, %v", ExtractText(wav), err)
 	}
-	if again, _ := m.Record(ctx, RecordOptions{}); ExtractText(again) != "" {
+	if again, _ := m.Record(ctx, RecordOptions{MaxDuration: 20 * time.Millisecond}); ExtractText(again) != "" {
 		t.Fatal("utterance must be consumed")
 	}
-	m.PlayNotification(ctx, NotifyMessage)
+	m.PlayNotification(ctx, NotifyMessage, 100)
 	m.Play(ctx, wav)
 	m.SetVolume(ctx, 250)
 	p := m.Played()
@@ -159,5 +159,43 @@ func TestRecordFromEndsOnContextCancel(t *testing.T) {
 	pcm, ok := recordFrom(ctx, pr, RecordOptions{}.withDefaults(), func() {})
 	if !ok || len(pcm) == 0 {
 		t.Fatalf("len=%d ok=%v", len(pcm), ok)
+	}
+}
+
+func TestScaleAndBlips(t *testing.T) {
+	wav := NotificationWAV(NotifyMessage)
+	quiet := Scale(wav, 25)
+	loud, _, _ := DecodeWAV(wav)
+	soft, _, err := DecodeWAV(quiet)
+	if err != nil || len(soft) != len(loud) || rms(soft) >= rms(loud)/3 || rms(soft) == 0 {
+		t.Fatalf("scaling failed: %v %v %v", err, rms(soft), rms(loud))
+	}
+	if !bytes.Equal(Scale(wav, 100), wav) {
+		t.Fatal("100% must not change the audio")
+	}
+	if rms(mustPCM(t, Scale(wav, 0))) != 0 {
+		t.Fatal("0% must be silent")
+	}
+	if Duration(Blips(3)) <= Duration(Blips(1)) || Duration(Blips(99)) != Duration(Blips(9)) {
+		t.Fatal("Blips length wrong")
+	}
+}
+
+func mustPCM(t *testing.T, wav []byte) []byte {
+	t.Helper()
+	pcm, _, err := DecodeWAV(wav)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pcm
+}
+
+func TestPassThroughCodec(t *testing.T) {
+	var c Transcoder = PassThrough{}
+	in := []byte("x")
+	out, _ := c.OggToWAV(context.Background(), in)
+	back, _ := c.WAVToOgg(context.Background(), out)
+	if string(back) != "x" {
+		t.Fatal("PassThrough must not alter data")
 	}
 }

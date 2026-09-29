@@ -196,3 +196,26 @@ func TestJSONSchema(t *testing.T) {
 		t.Fatalf("schema = %v", s)
 	}
 }
+
+func TestBytesParamsStayInProcess(t *testing.T) {
+	e := NewEngine(fakeFeatures{}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	var got []byte
+	e.MustRegister(Action{
+		Name: "deliver", Exposure: ExposeTelegram | ExposeAssistant,
+		Params:  []Param{{Name: "audio", Type: Bytes, MaxLen: 4}},
+		Handler: func(_ context.Context, c Call) (Result, error) { got = c.Args.Bytes("audio"); return Result{}, nil },
+	})
+	tg := Actor{Kind: ActorTelegram}
+	if _, err := e.Execute(context.Background(), tg, "deliver", map[string]any{"audio": []byte("abc")}); err != nil || string(got) != "abc" {
+		t.Fatalf("bytes = %q, %v", got, err)
+	}
+	if _, err := e.Execute(context.Background(), tg, "deliver", map[string]any{"audio": []byte("abcde")}); !errors.Is(err, ErrInvalidParams) {
+		t.Fatalf("oversized bytes = %v", err)
+	}
+	if _, err := e.Execute(context.Background(), tg, "deliver", map[string]any{"audio": "not bytes"}); !errors.Is(err, ErrInvalidParams) {
+		t.Fatalf("string as bytes = %v", err)
+	}
+	if props := JSONSchema([]Param{{Name: "audio", Type: Bytes}})["properties"].(map[string]any); len(props) != 0 {
+		t.Fatalf("binary parameters must not be offered to an LLM: %v", props)
+	}
+}

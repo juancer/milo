@@ -1,5 +1,5 @@
 import { api } from "../api";
-import { clear, errorMessage, h, toast } from "../dom";
+import { clear, confirmTwice, errorMessage, field, h, toast } from "../dom";
 
 interface ButtonAction {
   action: string;
@@ -103,8 +103,8 @@ function card(root: HTMLElement, b: Button, actions: ActionInfo[]): HTMLElement 
       h("button", { type: "submit" }, isNew ? "Add" : "Save"),
       isNew ? null : h("button", {
         type: "button", class: "danger",
-        onclick: async () => {
-          if (!confirmTwice(deleteBtn)) return;
+        onclick: async (ev: Event) => {
+          if (!confirmTwice(ev.currentTarget as HTMLButtonElement, "Delete")) return;
           try {
             await api("DELETE", `/api/buttons/${b.id}`);
             await render(root);
@@ -115,23 +115,5 @@ function card(root: HTMLElement, b: Button, actions: ActionInfo[]): HTMLElement 
       }, "Delete"),
     ),
   );
-  const deleteBtn = form.querySelector<HTMLButtonElement>("button.danger");
   return form;
-}
-
-/** Two-step confirmation without dialogs (they are blocked in some viewers). */
-function confirmTwice(btn: HTMLButtonElement | null): boolean {
-  if (!btn) return false;
-  if (btn.dataset.armed === "1") return true;
-  btn.dataset.armed = "1";
-  btn.textContent = "Click again to delete";
-  setTimeout(() => {
-    btn.dataset.armed = "";
-    btn.textContent = "Delete";
-  }, 4000);
-  return false;
-}
-
-function field(label: string, input: HTMLElement): HTMLElement {
-  return h("label", { class: "field" }, h("span", {}, label), input);
 }

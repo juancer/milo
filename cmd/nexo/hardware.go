@@ -54,13 +54,13 @@ func testAudio(ctx context.Context, cfg system.Config) error {
 	fmt.Printf("audio backend: %s, available: %v, volume: %d%% %s\n", st.Backend, st.Available, st.Volume, st.Detail)
 	for _, n := range []audio.Notification{audio.NotifyMessage, audio.NotifyEmergency, audio.NotifyOK} {
 		fmt.Printf("playing %q sound...\n", n)
-		if err := a.Audio.PlayNotification(ctx, n); err != nil {
+		if err := a.Audio.PlayNotification(ctx, n, 100); err != nil {
 			return err
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
 	fmt.Println("recording for 3 seconds - say something...")
-	a.Audio.PlayNotification(ctx, audio.NotifyRecordStart)
+	a.Audio.PlayNotification(ctx, audio.NotifyRecordStart, 100)
 	rctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	wav, err := a.Audio.Record(rctx, audio.RecordOptions{MaxDuration: 3 * time.Second})

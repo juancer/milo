@@ -1,8 +1,12 @@
 import { api, ApiError, type Status } from "./api";
 import { clear, errorMessage, h } from "./dom";
 import * as buttons from "./views/buttons";
+import * as chats from "./views/chats";
 import * as dashboard from "./views/dashboard";
+import * as people from "./views/people";
 import * as simulator from "./views/simulator";
+import * as sound from "./views/sound";
+import * as telegram from "./views/telegram";
 
 interface SessionInfo {
   authenticated: boolean;
@@ -20,6 +24,10 @@ interface View {
 const VIEWS: View[] = [
   { id: "dashboard", title: "Dashboard", render: dashboard.render },
   { id: "buttons", title: "Buttons", render: buttons.render },
+  { id: "telegram", title: "Telegram", render: telegram.render },
+  { id: "people", title: "People", render: people.render },
+  { id: "chats", title: "Chats", render: chats.render },
+  { id: "sound", title: "Sound", render: sound.render },
   { id: "simulator", title: "Simulator", render: simulator.render, stop: simulator.stop, devOnly: true },
 ];
 

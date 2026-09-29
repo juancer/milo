@@ -8,7 +8,7 @@ There is no buildx or ARM emulation requirement: the Go binary is cross-compiled
 |---|---|
 | `make test` | `go vet` + `go test` in the `go` service |
 | `make build-arm64` | Astro build (pnpm, via corepack) in a Node container, then the ARM64 binary in `dist/` |
-| `make dev` | Builds the UI and runs Nexo on `:8080` with mocked hardware |
+| `make dev` | Builds the UI and runs Nexo (`:8080`) with mocked hardware, plus the simulator (`:8090`) |
 | `make web-dev` | Astro dev server (`:4321`) proxying `/api` to the `dev` service |
 | `make shell` | Bash in the Go container |
 
@@ -31,3 +31,25 @@ or third-party assets. Render dynamic text with `textContent`, never `innerHTML`
 
 Add `internal/store/migrations/NNNN_description.sql` with the next number. Never edit a
 migration that has shipped; add a new one.
+
+## The demo environment (`make dev`)
+
+`make dev` starts two containers:
+
+- **dev**: Nexo with `NEXO_HARDWARE=mock`. On first start `nexo dev-seed` creates a demo
+  installation: admin password `nexo-demo-password`, the simulator's fake bot token, a demo
+  family (Dad and Mum as PARENT, Grandma as FAMILY) and enabled features. It refuses to run
+  unless hardware is mocked, so it can never touch a real device.
+- **sim** (`cmd/nexo-sim`): fake family phones and a fake Telegram Bot API on
+  <http://localhost:8090>. Chat as Dad, Mum, Grandma or a Stranger, paste invitation links,
+  tap inline buttons and simulate a Telegram outage.
+
+Open <http://localhost:8080> (sign in with the demo password) and use the **Simulator** tab
+for virtual buttons, a microphone ("what the child says next") and a speaker log.
+
+A quick tour: as *Stranger*, send `/start` (refused). In the admin UI create an invitation,
+paste its link into the Stranger chat, approve the request, and message the device as Dad.
+Press the blue LISTEN button in the Simulator tab.
+
+The simulator's "voice notes" are silent WAV files that carry their words in a hidden chunk,
+so the development speech-to-text can "hear" them. Real recordings never contain it.

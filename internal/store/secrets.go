@@ -30,3 +30,11 @@ func (s *Store) GetSecret(ctx context.Context, name string) ([]byte, error) {
 	}
 	return ct, nil
 }
+
+// DeleteSecret removes a secret. Deleting a missing secret is not an error.
+func (s *Store) DeleteSecret(ctx context.Context, name string) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM secrets WHERE name = ?`, name); err != nil {
+		return fmt.Errorf("store: delete secret %q: %w", name, err)
+	}
+	return nil
+}

@@ -61,3 +61,24 @@ export function toast(message: string, isError = false): void {
 export function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : "Something went wrong";
 }
+
+export function field(label: string, input: HTMLElement): HTMLElement {
+  return h("label", { class: "field" }, h("span", {}, label), input);
+}
+
+/** Two-step confirmation without dialogs (they are blocked in some viewers). */
+export function confirmTwice(btn: HTMLButtonElement, label: string): boolean {
+  if (btn.dataset.armed === "1") return true;
+  btn.dataset.armed = "1";
+  const original = btn.textContent;
+  btn.textContent = "Click again to confirm";
+  setTimeout(() => {
+    btn.dataset.armed = "";
+    btn.textContent = original ?? label;
+  }, 4000);
+  return false;
+}
+
+export function badge(text: string, warn = false): HTMLElement {
+  return h("span", { class: warn ? "badge warn" : "badge" }, text);
+}

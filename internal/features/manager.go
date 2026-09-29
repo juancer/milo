@@ -153,3 +153,25 @@ func (m *Manager) reconcile(ctx context.Context, e *entry, enabled bool) {
 func (m *Manager) Enabled(ctx context.Context, name string) (bool, error) {
 	return m.store.FeatureEnabled(ctx, name)
 }
+
+// Restart stops and starts a feature again if it is enabled, for example after
+// its credentials changed.
+func (m *Manager) Restart(ctx context.Context, name string) error {
+	rows, err := m.store.ListFeatures(ctx)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, ok := m.features[name]
+	if !ok {
+		return ErrUnknownFeature
+	}
+	m.reconcile(ctx, e, false)
+	for _, r := range rows {
+		if r.Name == name && r.Enabled {
+			m.reconcile(ctx, e, true)
+		}
+	}
+	return nil
+}

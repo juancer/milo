@@ -66,6 +66,9 @@ type Args map[string]any
 // String returns a string parameter ("" if absent).
 func (a Args) String(name string) string { s, _ := a[name].(string); return s }
 
+// Bytes returns a binary parameter.
+func (a Args) Bytes(name string) []byte { b, _ := a[name].([]byte); return b }
+
 // Int returns an integer parameter (0 if absent).
 func (a Args) Int(name string) int { n, _ := a[name].(int); return n }
 

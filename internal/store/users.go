@@ -12,6 +12,7 @@ type User struct {
 	ID          int64
 	DisplayName string
 	Role        string
+	Active      bool
 }
 
 // CreateUser inserts a user. The role must be one of the roles allowed by the schema.
@@ -26,8 +27,8 @@ func (s *Store) CreateUser(ctx context.Context, displayName, role string) (int64
 // GetUser returns the user with the given id, or ErrNotFound.
 func (s *Store) GetUser(ctx context.Context, id int64) (User, error) {
 	var u User
-	err := s.db.QueryRowContext(ctx, `SELECT id, display_name, role FROM users WHERE id = ?`, id).
-		Scan(&u.ID, &u.DisplayName, &u.Role)
+	err := s.db.QueryRowContext(ctx, `SELECT id, display_name, role, active FROM users WHERE id = ?`, id).
+		Scan(&u.ID, &u.DisplayName, &u.Role, &u.Active)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
 	}

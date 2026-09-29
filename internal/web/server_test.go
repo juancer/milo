@@ -26,7 +26,7 @@ const testPassword = "a-long-test-password"
 
 type fakeFeature struct{ started bool }
 
-func (f *fakeFeature) Name() string                { return "telegram" }
+func (f *fakeFeature) Name() string                { return "demo" }
 func (f *fakeFeature) Start(context.Context) error { f.started = true; return nil }
 func (f *fakeFeature) Stop(context.Context) error  { f.started = false; return nil }
 
@@ -212,7 +212,7 @@ func TestCSRFProtection(t *testing.T) {
 	cookie := e.login(t)
 
 	// Missing custom header.
-	req, _ := http.NewRequest("PUT", e.srv.URL+"/api/features/telegram", strings.NewReader(`{"enabled":true}`))
+	req, _ := http.NewRequest("PUT", e.srv.URL+"/api/features/demo", strings.NewReader(`{"enabled":true}`))
 	req.AddCookie(cookie)
 	resp, _ := http.DefaultClient.Do(req)
 	if resp.StatusCode != 403 {
@@ -221,7 +221,7 @@ func TestCSRFProtection(t *testing.T) {
 	resp.Body.Close()
 
 	// Cross-origin.
-	resp = e.do(t, "PUT", "/api/features/telegram", `{"enabled":true}`, cookie, map[string]string{"Origin": "http://evil.example"})
+	resp = e.do(t, "PUT", "/api/features/demo", `{"enabled":true}`, cookie, map[string]string{"Origin": "http://evil.example"})
 	if resp.StatusCode != 403 {
 		t.Fatalf("cross-origin = %d, want 403", resp.StatusCode)
 	}
@@ -234,7 +234,7 @@ func TestFeatureToggle(t *testing.T) {
 	e := newEnv(t, true)
 	cookie := e.login(t)
 
-	if resp := e.do(t, "PUT", "/api/features/telegram", `{"enabled":true}`, cookie, nil); resp.StatusCode != 204 {
+	if resp := e.do(t, "PUT", "/api/features/demo", `{"enabled":true}`, cookie, nil); resp.StatusCode != 204 {
 		t.Fatalf("enable = %d", resp.StatusCode)
 	}
 	if !e.feature.started {
@@ -242,19 +242,25 @@ func TestFeatureToggle(t *testing.T) {
 	}
 	var list []features.Status
 	json.NewDecoder(e.do(t, "GET", "/api/features", "", cookie, nil).Body).Decode(&list)
-	if len(list) != 1 || !list[0].Enabled || !list[0].Running {
+	var demo features.Status
+	for _, f := range list {
+		if f.Name == "demo" {
+			demo = f
+		}
+	}
+	if !demo.Enabled || !demo.Running {
 		t.Fatalf("list = %+v", list)
 	}
 	if resp := e.do(t, "PUT", "/api/features/ghost", `{"enabled":true}`, cookie, nil); resp.StatusCode != 404 {
 		t.Fatalf("unknown feature = %d", resp.StatusCode)
 	}
-	if resp := e.do(t, "PUT", "/api/features/telegram", `{}`, cookie, nil); resp.StatusCode != 400 {
+	if resp := e.do(t, "PUT", "/api/features/demo", `{}`, cookie, nil); resp.StatusCode != 400 {
 		t.Fatalf("missing enabled = %d", resp.StatusCode)
 	}
-	if resp := e.do(t, "PUT", "/api/features/telegram", `{"enabled":true,"extra":1}`, cookie, nil); resp.StatusCode != 400 {
+	if resp := e.do(t, "PUT", "/api/features/demo", `{"enabled":true,"extra":1}`, cookie, nil); resp.StatusCode != 400 {
 		t.Fatalf("unknown field = %d", resp.StatusCode)
 	}
-	e.do(t, "PUT", "/api/features/telegram", `{"enabled":false}`, cookie, nil)
+	e.do(t, "PUT", "/api/features/demo", `{"enabled":false}`, cookie, nil)
 	if e.feature.started {
 		t.Fatal("feature not stopped")
 	}
@@ -269,10 +275,16 @@ func TestButtonsCRUDAndReload(t *testing.T) {
 	if len(list) != 4 || list[0].Color != "red" || list[0].GPIO != 17 {
 		t.Fatalf("default buttons = %+v", list)
 	}
-	// Seeded actions belong to later phases, so they are flagged as unknown for now.
-	if len(list[0].Unknown) == 0 {
-		t.Fatalf("expected unknown action flag, got %+v", list[0])
+	if len(list[0].Unknown) != 0 {
+		t.Fatalf("default 'talk' mapping should be a known action: %+v", list[0])
 	}
+	odd := `{"name":"Odd","gpio":6,"enabled":true,"actions":{"short_press":{"action":"time_travel"}}}`
+	var oddDTO buttonDTO
+	json.NewDecoder(e.do(t, "POST", "/api/buttons", odd, cookie, nil).Body).Decode(&oddDTO)
+	if len(oddDTO.Unknown) != 1 || oddDTO.Unknown[0] != "time_travel" {
+		t.Fatalf("unregistered action must be flagged: %+v", oddDTO)
+	}
+	e.do(t, "DELETE", "/api/buttons/"+itoa(oddDTO.ID), "", cookie, nil)
 
 	body := `{"name":"Purple","color":"purple","gpio":5,"active_low":true,"enabled":true,
 		"actions":{"short_press":{"action":"set_volume","parameters":{"change":10}}}}`
@@ -370,3 +382,225 @@ func TestActionsCatalogueListsDeviceActions(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+func decode[T any](t *testing.T, resp *http.Response) T {
+	t.Helper()
+	var v T
+	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func TestInvitationAPI(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	e.store.SetSetting(context.Background(), "telegram.bot_username", "family_bot")
+
+	resp := e.do(t, "POST", "/api/invitations", `{"role":"FAMILY","ttl_hours":2,"note":"grandma"}`, cookie, nil)
+	inv := decode[map[string]any](t, resp)
+	if resp.StatusCode != 201 {
+		t.Fatalf("create = %d %v", resp.StatusCode, inv)
+	}
+	token, _ := inv["token"].(string)
+	if len(token) < 40 || inv["link"] != "https://t.me/family_bot?start="+token {
+		t.Fatalf("invitation = %v", inv)
+	}
+	// The raw token is not stored, only its hash, and it is not in the list.
+	list := e.do(t, "GET", "/api/invitations", "", cookie, nil)
+	raw, _ := io.ReadAll(list.Body)
+	if strings.Contains(string(raw), token) || !strings.Contains(string(raw), `"status":"active"`) {
+		t.Fatalf("list leaks token or lacks status: %s", raw)
+	}
+	entries, _ := e.store.ListAudit(context.Background(), 20)
+	for _, en := range entries {
+		if strings.Contains(en.Details, token) || strings.Contains(en.Target, token) {
+			t.Fatal("invitation token written to the audit log")
+		}
+	}
+
+	for name, bad := range map[string]string{
+		"owner":     `{"role":"OWNER"}`,
+		"nonsense":  `{"role":"ROOT"}`,
+		"huge ttl":  `{"role":"FAMILY","ttl_hours":9999}`,
+		"long note": `{"role":"FAMILY","note":"` + strings.Repeat("x", 100) + `"}`,
+	} {
+		if resp := e.do(t, "POST", "/api/invitations", bad, cookie, nil); resp.StatusCode != 400 {
+			t.Errorf("%s = %d, want 400 (invitations must never grant OWNER)", name, resp.StatusCode)
+		}
+	}
+
+	id := itoa(int64(inv["id"].(float64)))
+	if resp := e.do(t, "DELETE", "/api/invitations/"+id, "", cookie, nil); resp.StatusCode != 204 {
+		t.Fatalf("revoke = %d", resp.StatusCode)
+	}
+	if resp := e.do(t, "DELETE", "/api/invitations/"+id, "", cookie, nil); resp.StatusCode != 404 {
+		t.Fatalf("revoke twice = %d", resp.StatusCode)
+	}
+}
+
+func TestAuthorizationApprovalCreatesUserAndChat(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	ctx := context.Background()
+	pid, _ := e.store.CreatePending(ctx, store.PendingAuthorization{TelegramID: 77, Username: "mami", FirstName: "Mami", Role: "PARENT"})
+	e.store.CreatePending(ctx, store.PendingAuthorization{TelegramID: 78, FirstName: "Nope", Role: "FAMILY"})
+
+	pending := decode[[]map[string]any](t, e.do(t, "GET", "/api/authorizations", "", cookie, nil))
+	if len(pending) != 2 || pending[0]["username"] != "mami" {
+		t.Fatalf("pending = %v", pending)
+	}
+	if resp := e.do(t, "POST", "/api/authorizations/"+itoa(pid)+"/approve", `{"display_name":"Mum","create_chat":true}`, cookie, nil); resp.StatusCode != 200 {
+		t.Fatalf("approve = %d", resp.StatusCode)
+	}
+	users := decode[[]userDTO](t, e.do(t, "GET", "/api/users", "", cookie, nil))
+	if len(users) != 1 || users[0].DisplayName != "Mum" || users[0].Role != "PARENT" || !users[0].Effective["emergency_alert"] || users[0].Effective["manage_configuration"] {
+		t.Fatalf("users = %+v", users)
+	}
+	chats := decode[[]chatDTO](t, e.do(t, "GET", "/api/chats", "", cookie, nil))
+	if len(chats) != 1 || chats[0].Name != "Mum" || chats[0].TelegramChatID != 77 || !chats[0].Favorite {
+		t.Fatalf("chats = %+v", chats)
+	}
+	if resp := e.do(t, "POST", "/api/authorizations/"+itoa(pid)+"/approve", `{}`, cookie, nil); resp.StatusCode != 404 {
+		t.Fatalf("approve twice = %d", resp.StatusCode)
+	}
+	pend2 := decode[[]map[string]any](t, e.do(t, "GET", "/api/authorizations", "", cookie, nil))
+	if resp := e.do(t, "POST", "/api/authorizations/"+itoa(int64(pend2[0]["id"].(float64)))+"/reject", "", cookie, nil); resp.StatusCode != 204 {
+		t.Fatalf("reject = %d", resp.StatusCode)
+	}
+	if list, _ := e.store.ListPending(ctx); len(list) != 0 {
+		t.Fatal("still pending after reject")
+	}
+}
+
+func TestUserPermissionOverridesAndEmergencyPermission(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	uid, _ := e.store.CreateTelegramUser(context.Background(), "Grandma", "FAMILY", 5, "gran")
+
+	body := `{"display_name":"Grandma","role":"FAMILY","active":true,"permissions":{"emergency_alert":true,"send_message":false}}`
+	u := decode[userDTO](t, e.do(t, "PUT", "/api/users/"+itoa(uid), body, cookie, nil))
+	if !u.Effective["emergency_alert"] || u.Effective["send_message"] || !u.Effective["receive_message"] {
+		t.Fatalf("effective = %v", u.Effective)
+	}
+	// null clears the override so the role default applies again.
+	u = decode[userDTO](t, e.do(t, "PUT", "/api/users/"+itoa(uid),
+		`{"display_name":"Grandma","role":"FAMILY","active":true,"permissions":{"emergency_alert":null,"send_message":null}}`, cookie, nil))
+	if u.Effective["emergency_alert"] || !u.Effective["send_message"] || len(u.Overrides) != 0 {
+		t.Fatalf("after clearing: %+v", u)
+	}
+	for name, bad := range map[string]string{
+		"unknown permission": `{"display_name":"G","role":"FAMILY","active":true,"permissions":{"shell":true}}`,
+		"bad role":           `{"display_name":"G","role":"ROOT","active":true}`,
+		"empty name":         `{"display_name":"","role":"FAMILY","active":true}`,
+	} {
+		if resp := e.do(t, "PUT", "/api/users/"+itoa(uid), bad, cookie, nil); resp.StatusCode != 400 {
+			t.Errorf("%s = %d", name, resp.StatusCode)
+		}
+	}
+	if resp := e.do(t, "PUT", "/api/users/999", `{"display_name":"x","role":"FAMILY","active":true}`, cookie, nil); resp.StatusCode != 404 {
+		t.Errorf("unknown user = %d", resp.StatusCode)
+	}
+	entries, _ := e.store.ListAudit(context.Background(), 20)
+	found := false
+	for _, en := range entries {
+		found = found || en.Action == "user.updated"
+	}
+	if !found {
+		t.Fatal("permission change was not audited")
+	}
+}
+
+func TestChatsAPIValidation(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	uid, _ := e.store.CreateTelegramUser(context.Background(), "Dad", "PARENT", 42, "dad")
+
+	ok := `{"name":"Dad","kind":"user","user_id":` + itoa(uid) + `,"favorite":true,"position":1,"enabled":true}`
+	c := decode[chatDTO](t, e.do(t, "POST", "/api/chats", ok, cookie, nil))
+	if c.ID == 0 || c.TelegramChatID != 42 {
+		t.Fatalf("chat = %+v (destination must come from the authorized user, not the request)", c)
+	}
+	// A client cannot point a "user" chat at an arbitrary Telegram id.
+	spoof := `{"name":"Spoof","kind":"user","user_id":` + itoa(uid) + `,"telegram_chat_id":999999,"enabled":true}`
+	s := decode[chatDTO](t, e.do(t, "POST", "/api/chats", spoof, cookie, nil))
+	if s.TelegramChatID != 42 {
+		t.Fatalf("spoofed destination accepted: %+v", s)
+	}
+	for name, bad := range map[string]string{
+		"unknown user": `{"name":"X","kind":"user","user_id":999,"enabled":true}`,
+		"group no id":  `{"name":"G","kind":"group","enabled":true}`,
+		"bad kind":     `{"name":"G","kind":"channel","enabled":true}`,
+		"empty name":   `{"name":"","kind":"group","telegram_chat_id":-5}`,
+	} {
+		if resp := e.do(t, "POST", "/api/chats", bad, cookie, nil); resp.StatusCode != 400 {
+			t.Errorf("%s = %d, want 400", name, resp.StatusCode)
+		}
+	}
+	if resp := e.do(t, "POST", "/api/chats", ok, cookie, nil); resp.StatusCode != 409 {
+		t.Errorf("duplicate name = %d, want 409", resp.StatusCode)
+	}
+	if resp := e.do(t, "POST", "/api/chats", `{"name":"Family","kind":"group","telegram_chat_id":-1001,"favorite":true,"enabled":true}`, cookie, nil); resp.StatusCode != 200 {
+		t.Errorf("group = %d", resp.StatusCode)
+	}
+}
+
+func TestTelegramTokenIsValidatedStoredEncryptedAndNeverEchoed(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	const tok = "123456:ABCdefGhIJKlmnoPQRstuvWXyz-0123456789"
+
+	if resp := e.do(t, "PUT", "/api/telegram/token", `{"token":"not-a-token"}`, cookie, nil); resp.StatusCode != 400 {
+		t.Fatalf("bad token = %d", resp.StatusCode)
+	}
+	resp := e.do(t, "PUT", "/api/telegram/token", `{"token":"`+tok+`"}`, cookie, nil)
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 || strings.Contains(string(raw), tok) || !strings.Contains(string(raw), `"configured":true`) {
+		t.Fatalf("set token = %d %s", resp.StatusCode, raw)
+	}
+	stored, _ := e.store.GetSecret(context.Background(), "telegram.bot_token")
+	if strings.Contains(string(stored), "ABCdef") {
+		t.Fatal("token stored in plaintext")
+	}
+	entries, _ := e.store.ListAudit(context.Background(), 20)
+	for _, en := range entries {
+		if strings.Contains(en.Details+en.Target, "ABCdef") {
+			t.Fatal("token in audit log")
+		}
+	}
+	if resp := e.do(t, "DELETE", "/api/telegram/token", "", cookie, nil); resp.StatusCode != 204 {
+		t.Fatalf("delete token = %d", resp.StatusCode)
+	}
+	raw2, _ := io.ReadAll(e.do(t, "GET", "/api/telegram", "", cookie, nil).Body)
+	if !strings.Contains(string(raw2), `"configured":false`) {
+		t.Fatalf("status after delete: %s", raw2)
+	}
+}
+
+func TestMessagesListHasNoContent(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	uid, _ := e.store.CreateTelegramUser(context.Background(), "Dad", "PARENT", 42, "dad")
+	e.store.InsertMessage(context.Background(), store.Message{Direction: "in", Kind: "text", Body: "TOP-SECRET-BODY", UserID: uid})
+	raw, _ := io.ReadAll(e.do(t, "GET", "/api/messages", "", cookie, nil).Body)
+	if strings.Contains(string(raw), "TOP-SECRET") || !strings.Contains(string(raw), `"person":"Dad"`) {
+		t.Fatalf("messages = %s", raw)
+	}
+}
+
+func TestNotificationSettingsAPI(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	cfg := decode[map[string]any](t, e.do(t, "GET", "/api/settings/notifications", "", cookie, nil))
+	if cfg["new_message_sound_enabled"] != true || cfg["volume"] != float64(100) {
+		t.Fatalf("defaults = %v", cfg)
+	}
+	put := `{"new_message_sound_enabled":false,"emergency_sound_enabled":true,"notify_pending_after_schedule":false,"volume":40}`
+	cfg = decode[map[string]any](t, e.do(t, "PUT", "/api/settings/notifications", put, cookie, nil))
+	if cfg["new_message_sound_enabled"] != false || cfg["volume"] != float64(40) {
+		t.Fatalf("saved = %v", cfg)
+	}
+	if resp := e.do(t, "PUT", "/api/settings/notifications", `{"volume":500}`, cookie, nil); resp.StatusCode != 400 {
+		t.Fatalf("bad volume = %d", resp.StatusCode)
+	}
+}

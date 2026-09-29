@@ -64,3 +64,33 @@ func synth(freq float64, d time.Duration) []byte {
 	}
 	return out
 }
+
+// Scale returns a copy of a 16-bit WAV with its amplitude multiplied by percent/100.
+// It is how notification volume is applied without touching the mixer.
+func Scale(wav []byte, percent int) []byte {
+	if percent >= 100 {
+		return wav
+	}
+	percent = max(percent, 0)
+	pcm, rate, err := DecodeWAV(wav)
+	if err != nil {
+		return wav
+	}
+	out := make([]byte, len(pcm))
+	for i := 0; i+1 < len(pcm); i += 2 {
+		v := int16(binary.LittleEndian.Uint16(pcm[i:]))
+		binary.LittleEndian.PutUint16(out[i:], uint16(int16(int(v)*percent/100)))
+	}
+	return EncodeWAV(out, rate)
+}
+
+// Blips returns n short beeps (1-9): a spoken-word-free way to say "chat number n".
+func Blips(n int) []byte {
+	n = max(1, min(n, 9))
+	var pcm []byte
+	for i := 0; i < n; i++ {
+		pcm = append(pcm, synth(660, 110*time.Millisecond)...)
+		pcm = append(pcm, synth(0, 110*time.Millisecond)...)
+	}
+	return EncodeWAV(pcm, SampleRate)
+}

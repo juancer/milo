@@ -93,6 +93,9 @@ func (c *Checker) Has(ctx context.Context, userID int64, p Permission) (bool, er
 	if err != nil {
 		return false, err
 	}
+	if !u.Active {
+		return false, nil // deactivated users hold no permissions at all
+	}
 	overrides, err := c.store.UserPermissions(ctx, userID)
 	if err != nil {
 		return false, err
@@ -114,4 +117,20 @@ func (c *Checker) Set(ctx context.Context, userID int64, p Permission, granted b
 		return fmt.Errorf("permissions: unknown permission %q", p)
 	}
 	return c.store.SetPermission(ctx, userID, string(p), granted)
+}
+
+// All returns every known permission.
+func All() []Permission { return append([]Permission(nil), all...) }
+
+// Effective returns the user's resolved permissions (role defaults plus overrides).
+func (c *Checker) Effective(ctx context.Context, userID int64) (map[Permission]bool, error) {
+	out := make(map[Permission]bool, len(all))
+	for _, p := range all {
+		ok, err := c.Has(ctx, userID, p)
+		if err != nil {
+			return nil, err
+		}
+		out[p] = ok
+	}
+	return out, nil
 }

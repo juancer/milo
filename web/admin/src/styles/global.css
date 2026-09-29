@@ -372,3 +372,17 @@ td {
   border-color: var(--danger);
   color: var(--danger);
 }
+
+.perms {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 0.4rem 1rem;
+}
+
+input[type="range"] {
+  width: min(24rem, 100%);
+}
+
+input[type="password"] {
+  min-width: 16rem;
+}

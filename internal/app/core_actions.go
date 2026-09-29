@@ -37,7 +37,7 @@ func (a *App) registerCoreActions() {
 			if err := a.Store.SetSetting(ctx, "audio.volume", fmt.Sprint(level)); err != nil {
 				return actions.Result{}, err
 			}
-			a.Audio.PlayNotification(ctx, audio.NotifyOK)
+			a.Audio.PlayNotification(ctx, audio.NotifyOK, 100)
 			return actions.Result{Message: fmt.Sprintf("Volume %d percent", level), Data: map[string]any{"volume": level}}, nil
 		},
 	})
