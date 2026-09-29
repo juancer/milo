@@ -37,14 +37,14 @@ migration that has shipped; add a new one.
 `make dev` starts two containers:
 
 - **dev**: Nexo with `NEXO_HARDWARE=mock`. On first start `nexo dev-seed` creates a demo
-  installation: admin password `nexo-demo-password`, the simulator's fake bot token, a demo
+  installation: administrators `admin` (owner) and `mom` with password `nexo-demo-password`, the simulator's fake bot token, a demo
   family (Dad and Mum as PARENT, Grandma as FAMILY) and enabled features. It refuses to run
   unless hardware is mocked, so it can never touch a real device.
 - **sim** (`cmd/nexo-sim`): fake family phones and a fake Telegram Bot API on
   <http://localhost:8090>. Chat as Dad, Mum, Grandma or a Stranger, paste invitation links,
   tap inline buttons and simulate a Telegram outage.
 
-Open <http://localhost:8080> (sign in with the demo password) and use the **Simulator** tab
+Open <http://localhost:8080> (sign in as `admin` or `mom`, password `nexo-demo-password`) and use the **Simulator** tab
 for virtual buttons, a microphone ("what the child says next") and a speaker log.
 
 The assistant runs against the simulator's rule-based "brain" (`/v1/chat/completions` and

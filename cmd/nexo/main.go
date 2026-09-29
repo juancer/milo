@@ -23,8 +23,10 @@ Commands:
   run             run the device (used by the systemd service)
   install         install and start the systemd service (root)
   keygen          create the master key if it does not exist
-  admin-password  set the web admin password
-                  (--password-stdin reads it from standard input)
+  admin-password  set an admin's password ([--user name] [--password-stdin])
+  admin-reset     give an admin a new generated password ([--user name])
+  backup FILE     write an encrypted backup ([--passphrase-stdin] [--no-key])
+  restore FILE    restore a backup with Nexo stopped ([--passphrase-stdin] [--replace-key])
   test-audio      play the built-in sounds, then record and play back 3 seconds
   test-buttons    print button presses (real GPIO only)
   dev-seed        (development only) create a demo family and admin password
@@ -60,7 +62,7 @@ func execute(ctx context.Context, args []string) error {
 		return system.Install(ctx, os.Stdout)
 	case "start", "stop", "restart", "status":
 		return system.Systemctl(cmd)
-	case "run", "keygen", "admin-password", "test-audio", "test-buttons", "dev-seed":
+	case "run", "keygen", "admin-password", "admin-reset", "test-audio", "test-buttons", "dev-seed", "backup", "restore":
 		cfg, err := system.LoadConfig(os.Getenv)
 		if err != nil {
 			return err
@@ -76,6 +78,12 @@ func execute(ctx context.Context, args []string) error {
 			return testAudio(ctx, cfg)
 		case "test-buttons":
 			return testButtons(ctx, cfg)
+		case "backup":
+			return backupCmd(ctx, cfg, rest)
+		case "restore":
+			return restoreCmd(ctx, cfg, rest)
+		case "admin-reset":
+			return adminReset(ctx, cfg, rest)
 		default:
 			return adminPassword(ctx, cfg, rest)
 		}

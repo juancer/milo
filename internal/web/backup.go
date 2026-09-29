@@ -1,0 +1,172 @@
+package web
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/juancer/nexo/internal/app"
+	"github.com/juancer/nexo/internal/backup"
+)
+
+const maxUpload = 1 << 30 // 1 GiB
+
+func (s *server) backupRoutes(mux *http.ServeMux) {
+	mux.Handle("GET /api/backup", s.requireAuth(s.getBackup))
+	mux.Handle("PUT /api/backup", s.requireAuth(s.putBackup))
+	mux.Handle("POST /api/backup/run", s.requireAuth(s.runBackup))
+	mux.Handle("POST /api/backup/download", s.requireAuth(s.downloadBackup))
+	mux.Handle("POST /api/backup/restore", s.requireAuth(s.restoreBackup))
+}
+
+func (s *server) getBackup(w http.ResponseWriter, r *http.Request) {
+	st := s.app.BackupSettings(r.Context())
+	files, _ := backup.List(st.Dir)
+	if files == nil {
+		files = []backup.File{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"settings": st, "files": files, "min_passphrase": backup.MinPassphrase})
+}
+
+func (s *server) putBackup(w http.ResponseWriter, r *http.Request) {
+	var b app.BackupSettings
+	if !decodeJSON(w, r, &b) {
+		return
+	}
+	b.Dir = strings.TrimSpace(b.Dir)
+	switch {
+	case !dirRe.MatchString(b.Dir) || strings.Contains(b.Dir, ".."):
+		writeError(w, http.StatusBadRequest, "enter an absolute folder path such as /var/lib/nexo/backups")
+		return
+	case b.Keep < 1 || b.Keep > 60 || b.EveryHours < 1 || b.EveryHours > 168:
+		writeError(w, http.StatusBadRequest, "keep 1-60 copies, every 1-168 hours")
+		return
+	}
+	if err := os.MkdirAll(b.Dir, 0o700); err != nil {
+		writeError(w, http.StatusBadRequest, "that folder cannot be created or written by Nexo (only /var/lib/nexo is writable by default)")
+		return
+	}
+	if err := s.app.SaveBackupSettings(r.Context(), b); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	s.audit(r, "backup.settings_updated", "", nil)
+	s.getBackup(w, r)
+}
+
+func (s *server) runBackup(w http.ResponseWriter, r *http.Request) {
+	if _, err := s.app.RunLocalBackup(r.Context()); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	s.audit(r, "backup.run", "", nil)
+	s.getBackup(w, r)
+}
+
+// downloadBackup streams an encrypted backup the parents can keep anywhere.
+func (s *server) downloadBackup(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Passphrase string `json:"passphrase"`
+		IncludeKey bool   `json:"include_key"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if len(body.Passphrase) < backup.MinPassphrase || len(body.Passphrase) > 200 {
+		writeError(w, http.StatusBadRequest, backup.ErrWeakPassphrase.Error())
+		return
+	}
+	name, _ := s.app.Store.DeviceName(r.Context())
+	opts := backup.Options{Passphrase: body.Passphrase, NexoVersion: s.version, DeviceName: name, WorkDir: s.app.Cfg.DataDir}
+	if body.IncludeKey {
+		opts.KeyPath = s.app.Cfg.KeyPath
+	}
+	// Build the file on disk first so a failure becomes a clean error, not a broken download.
+	tmp, err := os.CreateTemp(s.app.Cfg.DataDir, "download-*.nexo")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot prepare the backup")
+		return
+	}
+	defer os.Remove(tmp.Name())
+	defer tmp.Close()
+	if err := backup.Create(r.Context(), s.app.Store, opts, tmp); err != nil {
+		s.app.Log.Error("backup download", "error", err)
+		writeError(w, http.StatusInternalServerError, "the backup could not be created")
+		return
+	}
+	info, _ := tmp.Stat()
+	tmp.Seek(0, io.SeekStart)                                                                           //nolint:errcheck
+	s.audit(r, "backup.downloaded", "", map[string]string{"includes_key": fmt.Sprint(body.IncludeKey)}) // never the passphrase
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", `attachment; filename="nexo-backup-`+time.Now().Format("2006-01-02")+`.nexo"`)
+	w.Header().Set("Content-Length", fmt.Sprint(info.Size()))
+	w.Header().Set("Cache-Control", "no-store")
+	io.Copy(w, tmp) //nolint:errcheck
+}
+
+// restoreBackup verifies an uploaded backup and stages it; it takes effect
+// when Nexo restarts. Form fields: "passphrase" first, then the file.
+func (s *server) restoreBackup(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if !s.limiter.Allowed(ip) {
+		writeError(w, http.StatusTooManyRequests, "too many failed attempts, try again later")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
+	mr, err := r.MultipartReader()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "send the backup as a form upload")
+		return
+	}
+	var pass string
+	for {
+		part, err := mr.NextPart()
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "the passphrase and the backup file are both required")
+			return
+		}
+		if part.FormName() == "passphrase" {
+			b, _ := io.ReadAll(io.LimitReader(part, 512))
+			pass = string(b)
+			continue
+		}
+		if part.FormName() != "file" || pass == "" {
+			writeError(w, http.StatusBadRequest, "send the passphrase before the file")
+			return
+		}
+		s.stageRestore(w, r, part, pass, ip)
+		return
+	}
+}
+
+func (s *server) stageRestore(w http.ResponseWriter, r *http.Request, file io.Reader, pass, ip string) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	defer cancel()
+	c, err := backup.Open(ctx, file, pass, s.app.Cfg.DataDir)
+	if err != nil {
+		if errors.Is(err, backup.ErrWrongPassphrase) {
+			s.limiter.Fail(ip)
+		}
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	defer c.Close()
+	if err := backup.Stage(c, s.app.Cfg.DataDir, s.app.Cfg.KeyPath); err != nil {
+		msg := err.Error()
+		if errors.Is(err, backup.ErrKeyMismatch) {
+			msg += ". Restore it from the command line instead (sudo nexo restore FILE --replace-key)"
+		}
+		writeError(w, http.StatusUnprocessableEntity, msg)
+		return
+	}
+	s.audit(r, "backup.restore_staged", c.Manifest.DeviceName, nil)
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"staged": true, "device_name": c.Manifest.DeviceName, "created_at": c.Manifest.CreatedAt,
+		"schema_version": c.Manifest.SchemaVersion, "restart_required": true,
+	})
+}

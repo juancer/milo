@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/juancer/nexo/internal/app"
@@ -19,36 +20,55 @@ import (
 )
 
 const (
-	settingPasswordHash = "admin.password_hash"
-	cookieName          = "nexo_session"
-	clientHeader        = "X-Requested-With"
-	clientHeaderValue   = "nexo-admin"
-	sessionTTL          = 12 * time.Hour
-	maxBody             = 4 << 10
+	cookieName        = "nexo_session"
+	clientHeader      = "X-Requested-With"
+	clientHeaderValue = "nexo-admin"
+	sessionTTL        = 12 * time.Hour
+	maxBody           = 4 << 10
 )
 
 type server struct {
-	app      *app.App
-	version  string
-	sessions *auth.Sessions
-	limiter  *auth.Limiter
-	started  time.Time
+	app         *app.App
+	version     string
+	accounts    *auth.Accounts
+	sessions    *auth.Sessions
+	limiter     *auth.Limiter // failed sign-ins per client address
+	userLimiter *auth.Limiter // failed sign-ins per username
+	started     time.Time
+}
+
+type ctxKey struct{}
+
+// adminFrom returns the signed-in administrator of an authenticated request.
+func adminFrom(r *http.Request) store.AdminUser {
+	u, _ := r.Context().Value(ctxKey{}).(store.AdminUser)
+	return u
 }
 
 // New returns the HTTP handler. assets is the built Astro UI (rooted at index.html).
 func New(a *app.App, version string, assets fs.FS) http.Handler {
-	s := &server{
-		app:      a,
-		version:  version,
-		sessions: auth.NewSessions(sessionTTL),
-		limiter:  auth.NewLimiter(5, 15*time.Minute),
-		started:  time.Now(),
+	return newServer(a, version).handler(assets)
+}
+
+func newServer(a *app.App, version string) *server {
+	return &server{
+		app:         a,
+		version:     version,
+		accounts:    auth.NewAccounts(a.Store),
+		sessions:    auth.NewSessions(sessionTTL),
+		limiter:     auth.NewLimiter(5, 15*time.Minute),
+		userLimiter: auth.NewLimiter(8, 15*time.Minute),
+		started:     time.Now(),
 	}
+}
+
+func (s *server) handler(assets fs.FS) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /api/session", s.sessionInfo)
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)
+	s.accountRoutes(mux)
 	mux.Handle("GET /api/status", s.requireAuth(s.status))
 	mux.Handle("GET /api/features", s.requireAuth(s.listFeatures))
 	mux.Handle("PUT /api/features/{name}", s.requireAuth(s.setFeature))
@@ -62,6 +82,7 @@ func New(a *app.App, version string, assets fs.FS) http.Handler {
 	s.systemRoutes(mux)
 	s.wakeRoutes(mux)
 	s.skillRoutes(mux)
+	s.backupRoutes(mux)
 	s.simRoutes(mux)
 	mux.Handle("/", http.FileServerFS(assets))
 	return securityHeaders(csrfGuard(mux))
@@ -103,26 +124,41 @@ func csrfGuard(next http.Handler) http.Handler {
 	})
 }
 
+// passwordChangeOK lists what a freshly generated password may do before it is changed.
+var passwordChangeOK = map[string]bool{"/api/account/password": true, "/api/logout": true}
+
 func (s *server) requireAuth(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !s.authenticated(r) {
+		user, ok := s.authenticated(r)
+		if !ok {
 			writeError(w, http.StatusUnauthorized, "authentication required")
 			return
 		}
-		next(w, r)
+		if user.MustChange && !passwordChangeOK[r.URL.Path] {
+			writeError(w, http.StatusForbidden, "password_change_required")
+			return
+		}
+		next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, user)))
 	})
 }
 
-func (s *server) authenticated(r *http.Request) bool {
+// authenticated resolves the session cookie to an administrator. A session
+// stops working the moment its user's password changes or the user is removed.
+func (s *server) authenticated(r *http.Request) (store.AdminUser, bool) {
 	c, err := r.Cookie(cookieName)
 	if err != nil {
-		return false
+		return store.AdminUser{}, false
 	}
-	hash, err := s.app.Store.GetSetting(r.Context(), settingPasswordHash)
-	if err != nil {
-		return false
+	id, fp, ok := s.sessions.Lookup(c.Value)
+	if !ok {
+		return store.AdminUser{}, false
 	}
-	return s.sessions.Valid(c.Value, auth.Fingerprint(hash))
+	user, err := s.app.Store.GetAdmin(r.Context(), id)
+	if err != nil || !auth.Matches(fp, user.PasswordHash) {
+		s.sessions.Delete(c.Value)
+		return store.AdminUser{}, false
+	}
+	return user, true
 }
 
 func (s *server) health(w http.ResponseWriter, r *http.Request) {
@@ -136,52 +172,18 @@ func (s *server) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) sessionInfo(w http.ResponseWriter, r *http.Request) {
-	_, err := s.app.Store.GetSetting(r.Context(), settingPasswordHash)
-	writeJSON(w, http.StatusOK, map[string]bool{
-		"authenticated":  s.authenticated(r),
-		"setup_required": errors.Is(err, store.ErrNotFound),
-	})
+	user, ok := s.authenticated(r)
+	info := map[string]any{"authenticated": ok}
+	if ok {
+		info["username"], info["is_owner"], info["must_change_password"] = user.Username, user.IsOwner, user.MustChange
+	}
+	writeJSON(w, http.StatusOK, info)
 }
 
-func (s *server) login(w http.ResponseWriter, r *http.Request) {
-	ip := clientIP(r)
-	if !s.limiter.Allowed(ip) {
-		writeError(w, http.StatusTooManyRequests, "too many failed attempts, try again later")
-		return
-	}
-	var body struct {
-		Password string `json:"password"`
-	}
-	if !decodeJSON(w, r, &body) {
-		return
-	}
-	hash, err := s.app.Store.GetSetting(r.Context(), settingPasswordHash)
-	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusConflict, "admin password not set; run `nexo admin-password` on the device")
-		return
-	}
+func (s *server) startSession(w http.ResponseWriter, user store.AdminUser) error {
+	token, err := s.sessions.Create(user.ID, auth.Fingerprint(user.PasswordHash))
 	if err != nil {
-		s.app.Log.Error("login: read password hash", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	ok, err := auth.VerifyPassword(body.Password, hash)
-	if err != nil {
-		s.app.Log.Error("login: verify password", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	if !ok {
-		s.limiter.Fail(ip)
-		s.app.Audit.Record(r.Context(), "admin", "admin.login_failed", "", map[string]string{"ip": ip})
-		writeError(w, http.StatusUnauthorized, "incorrect password")
-		return
-	}
-	s.limiter.Reset(ip)
-	token, err := s.sessions.Create(auth.Fingerprint(hash))
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
+		return err
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: cookieName, Value: token, Path: "/",
@@ -189,8 +191,50 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true, SameSite: http.SameSiteStrictMode,
 		// Secure is off because the admin UI is plain HTTP on the local network.
 	})
-	s.app.Audit.Record(r.Context(), "admin", "admin.login", "", map[string]string{"ip": ip})
-	writeJSON(w, http.StatusOK, map[string]bool{"authenticated": true})
+	return nil
+}
+
+func (s *server) login(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	var body struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	name := strings.ToLower(strings.TrimSpace(body.Username))
+	if len(name) > 40 {
+		name = name[:40]
+	}
+	// Both the address and the account are throttled, so guessing one account's
+	// password from several machines is slowed down as well.
+	if !s.limiter.Allowed(ip) || !s.userLimiter.Allowed(name) {
+		writeError(w, http.StatusTooManyRequests, "too many failed attempts, try again later")
+		return
+	}
+	user, err := s.accounts.Authenticate(r.Context(), body.Username, body.Password)
+	if errors.Is(err, auth.ErrBadCredentials) {
+		s.limiter.Fail(ip)
+		s.userLimiter.Fail(name)
+		s.app.Audit.Record(r.Context(), "anonymous", "admin.login_failed", name, map[string]string{"ip": ip})
+		writeError(w, http.StatusUnauthorized, "incorrect username or password")
+		return
+	}
+	if err != nil {
+		s.app.Log.Error("login", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	s.limiter.Reset(ip)
+	s.userLimiter.Reset(name)
+	if err := s.startSession(w, user); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	s.app.Audit.Record(r.Context(), user.Username, "admin.login", "", map[string]string{"ip": ip})
+	writeJSON(w, http.StatusOK, map[string]any{"authenticated": true, "username": user.Username,
+		"is_owner": user.IsOwner, "must_change_password": user.MustChange})
 }
 
 func (s *server) logout(w http.ResponseWriter, r *http.Request) {
@@ -314,5 +358,9 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 
 // audit records an admin action, ignoring write failures (they are logged).
 func (s *server) audit(r *http.Request, action, target string, details map[string]string) {
-	s.app.Audit.Record(r.Context(), "admin", action, target, details)
+	actor := "admin"
+	if u := adminFrom(r); u.Username != "" {
+		actor = u.Username
+	}
+	s.app.Audit.Record(r.Context(), actor, action, target, details)
 }
