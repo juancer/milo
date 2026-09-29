@@ -7,8 +7,9 @@ device through their own Telegram bot; parents configure everything from a local
 Nexo is the name of the software, not of any child. Nothing about a specific family,
 Telegram account or bot is hardcoded: each installation is configured on its own.
 
-> **Status: Phase 5 of 8.** Foundation, configurable buttons, audio, the Action Engine, the
-> Telegram family channel, usage schedules, the emergency channel and the voice assistant work.
+> **Status: Phase 6 of 8.** Foundation, configurable buttons, audio, the Action Engine, the
+> Telegram family channel, usage schedules, the emergency channel, the voice assistant, Wi-Fi
+> management and the system pages work.
 
 ## Design in one minute
 

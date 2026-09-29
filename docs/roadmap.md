@@ -9,5 +9,6 @@ Each phase leaves the repository compiling, tested and documented.
 - [x] **Phase 3** - Telegram bot, invitations, authorization, chats, messages, notifications.
 - [x] **Phase 4** - Schedules, parental controls, emergency channel.
 - [x] **Phase 5** - OpenRouter, Action Engine, conversation history, cloud STT, local TTS.
-- Future - wake word (evaluate against the no-Python runtime), music, timers, reminders,
-  calendar, Wi-Fi management.
+- [x] **Phase 6** - More STT/TTS providers, assistant UX, Wi-Fi, system pages.
+- [ ] **Phase 7** - Local wake word.
+- [ ] **Phase 8** - Optional skills: timers, reminders, music, weather, calendar.

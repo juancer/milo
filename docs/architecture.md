@@ -33,6 +33,7 @@ configuration, persistence, UI.
 | `assistant` | Conversations, tool loop, voice session; talks to an `AIProvider` interface | 5 |
 | `openrouter` | OpenAI-compatible chat client (OpenRouter, Groq...) | 5 |
 | `speech` | Speech-to-text and text-to-speech providers | 5 |
+| `wifi` | Wi-Fi networks applied to NetworkManager (`nmcli`) | 6 |
 | `moderation` | Input/output safety net and parent-defined blocked phrases | 5 |
 
 Packages are created when the phase that needs them starts, not before.
