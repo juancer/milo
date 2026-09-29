@@ -6,14 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
-	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"runtime"
 	"time"
 
-	"github.com/juancer/nexo/internal/audit"
+	"github.com/juancer/nexo/internal/app"
 	"github.com/juancer/nexo/internal/auth"
 	"github.com/juancer/nexo/internal/features"
 	"github.com/juancer/nexo/internal/store"
@@ -28,27 +27,19 @@ const (
 	maxBody             = 4 << 10
 )
 
-// Deps are the collaborators the server needs.
-type Deps struct {
-	Store    *store.Store
-	Features *features.Manager
-	Audit    *audit.Logger
-	Log      *slog.Logger
-	Version  string
-	Hardware string
-}
-
 type server struct {
-	Deps
+	app      *app.App
+	version  string
 	sessions *auth.Sessions
 	limiter  *auth.Limiter
 	started  time.Time
 }
 
 // New returns the HTTP handler. assets is the built Astro UI (rooted at index.html).
-func New(d Deps, assets fs.FS) http.Handler {
+func New(a *app.App, version string, assets fs.FS) http.Handler {
 	s := &server{
-		Deps:     d,
+		app:      a,
+		version:  version,
 		sessions: auth.NewSessions(sessionTTL),
 		limiter:  auth.NewLimiter(5, 15*time.Minute),
 		started:  time.Now(),
@@ -62,6 +53,8 @@ func New(d Deps, assets fs.FS) http.Handler {
 	mux.Handle("GET /api/features", s.requireAuth(s.listFeatures))
 	mux.Handle("PUT /api/features/{name}", s.requireAuth(s.setFeature))
 	mux.Handle("GET /api/audit", s.requireAuth(s.listAudit))
+	s.buttonRoutes(mux)
+	s.simRoutes(mux)
 	mux.Handle("/", http.FileServerFS(assets))
 	return securityHeaders(csrfGuard(mux))
 }
@@ -117,7 +110,7 @@ func (s *server) authenticated(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	hash, err := s.Store.GetSetting(r.Context(), settingPasswordHash)
+	hash, err := s.app.Store.GetSetting(r.Context(), settingPasswordHash)
 	if err != nil {
 		return false
 	}
@@ -127,7 +120,7 @@ func (s *server) authenticated(r *http.Request) bool {
 func (s *server) health(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
-	if err := s.Store.Ping(ctx); err != nil {
+	if err := s.app.Store.Ping(ctx); err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable"})
 		return
 	}
@@ -135,7 +128,7 @@ func (s *server) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) sessionInfo(w http.ResponseWriter, r *http.Request) {
-	_, err := s.Store.GetSetting(r.Context(), settingPasswordHash)
+	_, err := s.app.Store.GetSetting(r.Context(), settingPasswordHash)
 	writeJSON(w, http.StatusOK, map[string]bool{
 		"authenticated":  s.authenticated(r),
 		"setup_required": errors.Is(err, store.ErrNotFound),
@@ -154,25 +147,25 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	hash, err := s.Store.GetSetting(r.Context(), settingPasswordHash)
+	hash, err := s.app.Store.GetSetting(r.Context(), settingPasswordHash)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusConflict, "admin password not set; run `nexo admin-password` on the device")
 		return
 	}
 	if err != nil {
-		s.Log.Error("login: read password hash", "error", err)
+		s.app.Log.Error("login: read password hash", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	ok, err := auth.VerifyPassword(body.Password, hash)
 	if err != nil {
-		s.Log.Error("login: verify password", "error", err)
+		s.app.Log.Error("login: verify password", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if !ok {
 		s.limiter.Fail(ip)
-		s.Audit.Record(r.Context(), "admin", "admin.login_failed", "", map[string]string{"ip": ip})
+		s.app.Audit.Record(r.Context(), "admin", "admin.login_failed", "", map[string]string{"ip": ip})
 		writeError(w, http.StatusUnauthorized, "incorrect password")
 		return
 	}
@@ -188,7 +181,7 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true, SameSite: http.SameSiteStrictMode,
 		// Secure is off because the admin UI is plain HTTP on the local network.
 	})
-	s.Audit.Record(r.Context(), "admin", "admin.login", "", map[string]string{"ip": ip})
+	s.app.Audit.Record(r.Context(), "admin", "admin.login", "", map[string]string{"ip": ip})
 	writeJSON(w, http.StatusOK, map[string]bool{"authenticated": true})
 }
 
@@ -201,23 +194,25 @@ func (s *server) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) status(w http.ResponseWriter, r *http.Request) {
-	version, err := s.Store.SchemaVersion(r.Context())
+	version, err := s.app.Store.SchemaVersion(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"version":        s.Version,
-		"uptime_seconds": int64(time.Since(s.started).Seconds()),
-		"hardware":       s.Hardware,
-		"schema_version": version,
-		"go_version":     runtime.Version(),
-		"arch":           runtime.GOOS + "/" + runtime.GOARCH,
+		"audio":           s.app.Audio.Status(r.Context()),
+		"hardware_errors": s.app.HardwareErrors,
+		"version":         s.version,
+		"uptime_seconds":  int64(time.Since(s.started).Seconds()),
+		"hardware":        s.app.Cfg.Hardware,
+		"schema_version":  version,
+		"go_version":      runtime.Version(),
+		"arch":            runtime.GOOS + "/" + runtime.GOARCH,
 	})
 }
 
 func (s *server) listFeatures(w http.ResponseWriter, r *http.Request) {
-	list, err := s.Features.List(r.Context())
+	list, err := s.app.Features.List(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -237,13 +232,13 @@ func (s *server) setFeature(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, `"enabled" is required`)
 		return
 	}
-	err := s.Features.SetEnabled(r.Context(), name, *body.Enabled)
+	err := s.app.Features.SetEnabled(r.Context(), name, *body.Enabled)
 	if errors.Is(err, features.ErrUnknownFeature) {
 		writeError(w, http.StatusNotFound, "unknown feature")
 		return
 	}
 	if err != nil {
-		s.Log.Error("set feature", "feature", name, "error", err)
+		s.app.Log.Error("set feature", "feature", name, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -251,12 +246,12 @@ func (s *server) setFeature(w http.ResponseWriter, r *http.Request) {
 	if *body.Enabled {
 		action = "feature.enabled"
 	}
-	s.Audit.Record(r.Context(), "admin", action, name, nil)
+	s.app.Audit.Record(r.Context(), "admin", action, name, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *server) listAudit(w http.ResponseWriter, r *http.Request) {
-	entries, err := s.Store.ListAudit(r.Context(), 50)
+	entries, err := s.app.Store.ListAudit(r.Context(), 50)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -284,7 +279,11 @@ func clientIP(r *http.Request) string {
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+	return decodeJSONLimit(w, r, dst, maxBody)
+}
+
+func decodeJSONLimit(w http.ResponseWriter, r *http.Request, dst any, limit int64) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
@@ -303,4 +302,9 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// audit records an admin action, ignoring write failures (they are logged).
+func (s *server) audit(r *http.Request, action, target string, details map[string]string) {
+	s.app.Audit.Record(r.Context(), "admin", action, target, details)
 }

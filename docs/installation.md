@@ -1,7 +1,8 @@
 # Installation (Raspberry Pi)
 
 Target: Raspberry Pi 3B with Raspberry Pi OS **64-bit**. The Pi needs no Go, Node, Python or
-Docker.
+Docker. It needs `alsa-utils` (and `opus-tools` from Phase 3): `sudo apt install alsa-utils opus-tools`.
+See [hardware.md](hardware.md) for the sound card and button wiring.
 
 1. Build on your development machine: `make build-arm64`.
 2. Copy `dist/nexo-linux-arm64` to the Pi (for example with `scp`).

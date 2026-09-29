@@ -22,9 +22,12 @@ configuration, persistence, UI.
 | `internal/web` | Admin API + embedded UI | 1 |
 | `web/admin` | Astro + TypeScript UI, built to static files and embedded with `go:embed` | 1 |
 | `systemd` | Embedded `nexo.service` unit | 1 |
-| `gpio`, `buttons`, `audio` | Hardware interfaces, real + mock | 2 |
+| `gpio`, `audio` | Hardware interfaces, each with a real and a mock implementation | 2 |
+| `buttons` | Press-pattern engine; resolves a press to a configured action | 2 |
+| `actions` | Action Engine: the security boundary for buttons, Telegram, voice and the LLM | 2 |
+| `app` | Assembles everything; owns lifecycles | 2 |
 | `telegram`, `schedules`, `notifications` | Transport and rules | 3-4 |
-| `actions`, `assistant`, `openrouter` | Action Engine and LLM | 5 |
+| `assistant`, `openrouter` | LLM and conversation | 5 |
 
 Packages are created when the phase that needs them starts, not before.
 
@@ -38,5 +41,8 @@ Packages are created when the phase that needs them starts, not before.
   transaction. A database newer than the binary is refused, so a downgrade cannot damage data.
 - **Admin password is set on the device** (`nexo admin-password`), not in the browser, so
   nobody on the LAN can claim an unconfigured admin.
-- **Hardware in development** is selected with `NEXO_HARDWARE=mock`. The GPIO and audio
-  interfaces (and their mocks) arrive in Phase 2; in Phase 1 the setting is only reported.
+- **Hardware in development** is selected with `NEXO_HARDWARE=mock`: GPIO and audio become
+  in-memory mocks and the web admin gains a *Simulator* tab (virtual buttons, microphone and a
+  speaker log). The mocks are also what the tests use.
+- **Buttons hold no logic.** A press becomes `(action, parameters)` from SQLite and goes through
+  the Action Engine, the same path Telegram commands and LLM tool calls will use.

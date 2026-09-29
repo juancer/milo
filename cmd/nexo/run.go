@@ -9,8 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/juancer/nexo/internal/audit"
-	"github.com/juancer/nexo/internal/features"
+	"github.com/juancer/nexo/internal/app"
 	"github.com/juancer/nexo/internal/secrets"
 	"github.com/juancer/nexo/internal/store"
 	"github.com/juancer/nexo/internal/system"
@@ -43,26 +42,19 @@ func runServer(ctx context.Context, cfg system.Config) error {
 		return err
 	}
 
-	fm := features.NewManager(st, log)
-	if err := fm.Sync(ctx); err != nil {
+	application, err := app.New(ctx, cfg, log, st, vault)
+	if err != nil {
 		return err
 	}
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		fm.Shutdown(stopCtx)
-	}()
+	defer application.Close()
 
 	dist, err := fs.Sub(admin.Dist, "dist")
 	if err != nil {
 		return err
 	}
 	srv := &http.Server{
-		Addr: cfg.Listen,
-		Handler: web.New(web.Deps{
-			Store: st, Features: fm, Audit: audit.New(st, log), Log: log,
-			Version: version, Hardware: cfg.Hardware,
-		}, dist),
+		Addr:              cfg.Listen,
+		Handler:           web.New(application, version, dist),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

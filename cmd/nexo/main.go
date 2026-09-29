@@ -25,6 +25,8 @@ Commands:
   keygen          create the master key if it does not exist
   admin-password  set the web admin password
                   (--password-stdin reads it from standard input)
+  test-audio      play the built-in sounds, then record and play back 3 seconds
+  test-buttons    print button presses (real GPIO only)
   start|stop|restart|status
                   control the systemd service
   version         print the version
@@ -57,7 +59,7 @@ func execute(ctx context.Context, args []string) error {
 		return system.Install(ctx, os.Stdout)
 	case "start", "stop", "restart", "status":
 		return system.Systemctl(cmd)
-	case "run", "keygen", "admin-password":
+	case "run", "keygen", "admin-password", "test-audio", "test-buttons":
 		cfg, err := system.LoadConfig(os.Getenv)
 		if err != nil {
 			return err
@@ -67,6 +69,10 @@ func execute(ctx context.Context, args []string) error {
 			return runServer(ctx, cfg)
 		case "keygen":
 			return keygen(cfg)
+		case "test-audio":
+			return testAudio(ctx, cfg)
+		case "test-buttons":
+			return testButtons(ctx, cfg)
 		default:
 			return adminPassword(ctx, cfg, rest)
 		}
