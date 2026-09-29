@@ -6,6 +6,10 @@ import (
 	"encoding/binary"
 	"io"
 	"math"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -197,5 +201,80 @@ func TestPassThroughCodec(t *testing.T) {
 	back, _ := c.WAVToOgg(context.Background(), out)
 	if string(back) != "x" {
 		t.Fatal("PassThrough must not alter data")
+	}
+}
+
+// A fake arecord that streams silence forever, at real-time pace, so the
+// microphone arbitration between Listen and Record can be tested.
+func fakeArecordPath(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\nwhile true; do head -c 3200 /dev/zero; sleep 0.1; done\n"
+	if err := os.WriteFile(filepath.Join(dir, "arecord"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+}
+
+func TestRecordTakesPriorityOverListenAndListenResumes(t *testing.T) {
+	fakeArecordPath(t)
+	a, err := NewALSA(DefaultALSAConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var chunks atomic.Int64
+	done := make(chan error, 1)
+	go func() { done <- a.Listen(ctx, func(pcm []byte) { chunks.Add(1) }) }()
+
+	waitFor := func(what string, cond func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for !cond() {
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for %s", what)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	waitFor("listen to deliver audio", func() bool { return chunks.Load() >= 2 })
+
+	before := chunks.Load()
+	wav, err := a.Record(context.Background(), RecordOptions{MaxDuration: 500 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := Duration(wav); d < 300*time.Millisecond {
+		t.Fatalf("recorded only %v: the microphone was not handed over", d)
+	}
+	during := chunks.Load() - before
+	if during > 2 {
+		t.Fatalf("Listen kept receiving audio (%d chunks) while a recording ran", during)
+	}
+
+	afterRecord := chunks.Load()
+	waitFor("listen to resume after the recording", func() bool { return chunks.Load() > afterRecord+2 })
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Listen returned %v after cancel", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Listen did not stop when cancelled")
+	}
+}
+
+func TestListenReportsAMissingMicrophone(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "arecord"), []byte("#!/bin/sh\necho 'no such device' >&2\nexit 1\n"), 0o755)
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	a, _ := NewALSA(DefaultALSAConfig)
+	err := a.Listen(context.Background(), func([]byte) {})
+	if err == nil || !strings.Contains(err.Error(), "no such device") {
+		t.Fatalf("err = %v", err)
 	}
 }

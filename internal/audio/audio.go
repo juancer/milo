@@ -57,6 +57,11 @@ type Audio interface {
 	PlayNotification(ctx context.Context, n Notification, volume int) error
 	// Stop interrupts current playback, if any.
 	Stop()
+	// Listen streams microphone audio (16 kHz mono 16-bit PCM in ~100 ms chunks)
+	// to handler until ctx is cancelled. It is for local processing such as
+	// wake-word detection. Record always takes priority: Listen pauses while a
+	// recording runs and resumes afterwards.
+	Listen(ctx context.Context, handler func(pcm []byte)) error
 	SetVolume(ctx context.Context, percent int) error
 	Status(ctx context.Context) Status
 }

@@ -97,7 +97,7 @@ func devSeed(ctx context.Context, cfg system.Config) error {
 }
 
 // devFeatures are switched on in the demo. Later phases append to this list.
-var devFeatures = []string{"telegram", "assistant"}
+var devFeatures = []string{"telegram", "assistant", "wakeword"}
 
 func getenv(k, def string) string {
 	if v := os.Getenv(k); v != "" {

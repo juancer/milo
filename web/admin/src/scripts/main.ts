@@ -10,6 +10,7 @@ import * as simulator from "./views/simulator";
 import * as sound from "./views/sound";
 import * as system from "./views/system";
 import * as telegram from "./views/telegram";
+import * as wakeword from "./views/wakeword";
 import * as wifi from "./views/wifi";
 
 interface SessionInfo {
@@ -33,6 +34,7 @@ const VIEWS: View[] = [
   { id: "chats", title: "Chats", render: chats.render },
   { id: "schedules", title: "Schedules", render: schedules.render },
   { id: "assistant", title: "Assistant", render: assistant.render },
+  { id: "wakeword", title: "Wake word", render: wakeword.render, stop: wakeword.stop },
   { id: "sound", title: "Sound", render: sound.render },
   { id: "wifi", title: "Wi-Fi", render: wifi.render },
   { id: "system", title: "System", render: system.render },

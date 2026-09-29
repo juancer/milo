@@ -10,5 +10,5 @@ Each phase leaves the repository compiling, tested and documented.
 - [x] **Phase 4** - Schedules, parental controls, emergency channel.
 - [x] **Phase 5** - OpenRouter, Action Engine, conversation history, cloud STT, local TTS.
 - [x] **Phase 6** - More STT/TTS providers, assistant UX, Wi-Fi, system pages.
-- [ ] **Phase 7** - Local wake word.
+- [x] **Phase 7** - Local wake word (built-in template engine + external helper plug).
 - [ ] **Phase 8** - Optional skills: timers, reminders, music, weather, calendar.

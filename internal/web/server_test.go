@@ -963,3 +963,44 @@ func TestSystemSettingsAndLogs(t *testing.T) {
 		}
 	}
 }
+
+func TestWakeWordSettingsAndSimulatedTrigger(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+
+	got := decode[map[string]any](t, e.do(t, "GET", "/api/wakeword", "", cookie, nil))
+	settings := got["settings"].(map[string]any)
+	if settings["engine"] != "template" || settings["phrase"] != "Hey Nexo" || settings["sensitivity"] != float64(5) || got["simulated"] != true {
+		t.Fatalf("defaults = %v", got)
+	}
+	if resp := e.do(t, "PUT", "/api/wakeword", `{"engine":"template","phrase":"Hola Nexo","sensitivity":7,"external_path":""}`, cookie, nil); resp.StatusCode != 200 {
+		t.Fatalf("save = %d", resp.StatusCode)
+	}
+	for name, bad := range map[string]string{
+		"engine":      `{"engine":"cloud","phrase":"x","sensitivity":5}`,
+		"phrase":      `{"engine":"template","phrase":"","sensitivity":5}`,
+		"sensitivity": `{"engine":"template","phrase":"x","sensitivity":11}`,
+		"helper path": `{"engine":"external","phrase":"x","sensitivity":5,"external_path":"/bin/sh; id"}`,
+		"missing":     `{"engine":"external","phrase":"x","sensitivity":5,"external_path":"/nonexistent/helper"}`,
+	} {
+		if resp := e.do(t, "PUT", "/api/wakeword", bad, cookie, nil); resp.StatusCode != 400 {
+			t.Errorf("%s = %d, want 400", name, resp.StatusCode)
+		}
+	}
+	// The simulated microphone cannot record a speaker, so enrolment reports why.
+	if resp := e.do(t, "POST", "/api/wakeword/samples", "", cookie, nil); resp.StatusCode != 422 {
+		t.Errorf("enrol on mock hardware = %d, want 422", resp.StatusCode)
+	}
+	if resp := e.do(t, "DELETE", "/api/wakeword/samples/99", "", cookie, nil); resp.StatusCode != 404 {
+		t.Errorf("delete missing = %d", resp.StatusCode)
+	}
+	// The wake word only triggers once its feature is on; then it starts the assistant.
+	if resp := e.do(t, "POST", "/api/sim/wake", "", cookie, nil); resp.StatusCode != 409 {
+		t.Errorf("wake while feature off = %d, want 409", resp.StatusCode)
+	}
+	for _, r := range [][2]string{{"GET", "/api/wakeword"}, {"PUT", "/api/wakeword"}, {"POST", "/api/wakeword/samples"}, {"POST", "/api/sim/wake"}} {
+		if resp := e.do(t, r[0], r[1], "{}", nil, nil); resp.StatusCode != 401 {
+			t.Errorf("%s %s without login = %d", r[0], r[1], resp.StatusCode)
+		}
+	}
+}

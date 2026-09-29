@@ -22,6 +22,8 @@ type Mock struct {
 	volume    int
 	played    []Played
 	utterance string // what the "child" says on the next recording
+	listeners map[int]func([]byte)
+	nextID    int
 }
 
 // NewMock returns a Mock at 70% volume.
@@ -74,6 +76,43 @@ func (m *Mock) Record(ctx context.Context, opts RecordOptions) ([]byte, error) {
 		wav = EmbedText(wav, text)
 	}
 	return wav, nil
+}
+
+// Listen implements Audio. Nothing is heard unless a test calls Feed.
+func (m *Mock) Listen(ctx context.Context, handler func([]byte)) error {
+	m.mu.Lock()
+	if m.listeners == nil {
+		m.listeners = map[int]func([]byte){}
+	}
+	id := m.nextID
+	m.nextID++
+	m.listeners[id] = handler
+	m.mu.Unlock()
+	<-ctx.Done()
+	m.mu.Lock()
+	delete(m.listeners, id)
+	m.mu.Unlock()
+	return nil
+}
+
+// Feed delivers PCM to whatever is listening (tests).
+func (m *Mock) Feed(pcm []byte) {
+	m.mu.Lock()
+	hs := make([]func([]byte), 0, len(m.listeners))
+	for _, h := range m.listeners {
+		hs = append(hs, h)
+	}
+	m.mu.Unlock()
+	for _, h := range hs {
+		h(pcm)
+	}
+}
+
+// Listening reports whether anything is listening (tests).
+func (m *Mock) Listening() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.listeners) > 0
 }
 
 // Play implements Audio.

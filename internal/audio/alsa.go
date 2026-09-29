@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -55,10 +56,11 @@ func (c ALSAConfig) Validate() error {
 type ALSA struct {
 	cfg ALSAConfig
 
-	micMu    sync.Mutex // one recording at a time
-	playMu   sync.Mutex // one playback at a time
-	cancelMu sync.Mutex
-	cancel   context.CancelFunc
+	micMu         sync.Mutex // the microphone: one user at a time
+	recordWaiters atomic.Int32
+	playMu        sync.Mutex // one playback at a time
+	cancelMu      sync.Mutex
+	cancel        context.CancelFunc
 
 	volMu  sync.Mutex
 	volume int
@@ -75,7 +77,9 @@ func NewALSA(cfg ALSAConfig) (*ALSA, error) {
 // Record implements Audio using `arecord` streaming raw PCM on stdout.
 func (a *ALSA) Record(ctx context.Context, opts RecordOptions) ([]byte, error) {
 	opts = opts.withDefaults()
+	a.recordWaiters.Add(1) // asks Listen to let go of the microphone
 	a.micMu.Lock()
+	a.recordWaiters.Add(-1)
 	defer a.micMu.Unlock()
 
 	rctx, cancel := context.WithTimeout(ctx, opts.MaxDuration)
@@ -139,6 +143,55 @@ func recordFrom(ctx context.Context, r io.Reader, opts RecordOptions, stop func(
 		}
 	}
 	return pcm, ctx.Err() != nil
+}
+
+// Listen implements Audio by streaming `arecord` output in 100 ms chunks.
+func (a *ALSA) Listen(ctx context.Context, handler func(pcm []byte)) error {
+	for ctx.Err() == nil {
+		for a.recordWaiters.Load() > 0 && ctx.Err() == nil { // let a recording go first
+			time.Sleep(20 * time.Millisecond)
+		}
+		if err := a.listenOnce(ctx, handler); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *ALSA) listenOnce(ctx context.Context, handler func([]byte)) error {
+	a.micMu.Lock()
+	defer a.micMu.Unlock()
+	lctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	cmd := exec.CommandContext(lctx, "arecord", "-q", "-D", a.cfg.CaptureDevice,
+		"-t", "raw", "-f", "S16_LE", "-r", fmt.Sprint(SampleRate), "-c", "1")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("audio: start arecord: %w", err)
+	}
+	buf := make([]byte, int(chunkDuration.Seconds()*SampleRate)*2)
+	got := false
+	for a.recordWaiters.Load() == 0 && ctx.Err() == nil {
+		n, err := io.ReadFull(stdout, buf)
+		if n > 0 {
+			got = true
+			handler(buf[:n])
+		}
+		if err != nil {
+			break
+		}
+	}
+	cancel()
+	cmd.Wait() //nolint:errcheck
+	if !got && ctx.Err() == nil && a.recordWaiters.Load() == 0 {
+		return fmt.Errorf("audio: microphone unavailable: %s", strings.TrimSpace(stderr.String()))
+	}
+	return nil
 }
 
 // Play implements Audio using `aplay` reading the WAV from stdin.

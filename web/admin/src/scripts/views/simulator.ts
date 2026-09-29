@@ -58,6 +58,19 @@ export async function render(root: HTMLElement): Promise<void> {
             )))),
     ),
     h("section", { class: "card" },
+      h("h2", {}, "Wake word"),
+      h("p", { class: "muted" }, "Pretend someone said the wake phrase (needs the “wakeword” feature on)."),
+      h("button", {
+        type: "button",
+        onclick: async () => {
+          try {
+            await api("POST", "/api/sim/wake");
+          } catch (e) {
+            toast(errorMessage(e), true);
+          }
+        },
+      }, "🗣 Say “Hey Nexo”")),
+    h("section", { class: "card" },
       h("h2", {}, "Microphone"),
       h("form", {
         class: "inline",
