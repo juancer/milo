@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"github.com/juancer/nexo/internal/secrets"
 	"github.com/juancer/nexo/internal/store"
 	"github.com/juancer/nexo/internal/system"
+	"github.com/juancer/nexo/internal/wifi"
 )
 
 const testPassword = "a-long-test-password"
@@ -796,6 +798,166 @@ func TestModerationRulesAndConversationsAPI(t *testing.T) {
 		t.Fatal("history not erased")
 	}
 	for _, r := range [][2]string{{"GET", "/api/assistant"}, {"PUT", "/api/assistant/keys"}, {"GET", "/api/conversations"}, {"GET", "/api/moderation-rules"}} {
+		if resp := e.do(t, r[0], r[1], "{}", nil, nil); resp.StatusCode != 401 {
+			t.Errorf("%s %s without login = %d", r[0], r[1], resp.StatusCode)
+		}
+	}
+}
+
+func TestWifiNetworksAreEncryptedValidatedAndApplied(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	ctx := context.Background()
+	const pw = "grandma-wifi-pass-123"
+
+	body := `{"ssid":"Grandparents","password":"` + pw + `","priority":5,"enabled":true}`
+	resp := e.do(t, "POST", "/api/wifi", body, cookie, nil)
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 || strings.Contains(string(raw), pw) {
+		t.Fatalf("create = %d %s", resp.StatusCode, raw)
+	}
+	e.do(t, "POST", "/api/wifi", `{"ssid":"Home","password":"home-wifi-password","priority":9,"enabled":true}`, cookie, nil)
+	e.do(t, "POST", "/api/wifi", `{"ssid":"CoffeeShop","open":true,"priority":1,"enabled":true}`, cookie, nil)
+
+	list := decode[struct {
+		Status   map[string]any `json:"status"`
+		Networks []wifiDTO      `json:"networks"`
+	}](t, e.do(t, "GET", "/api/wifi", "", cookie, nil))
+	if len(list.Networks) != 3 || list.Networks[0].SSID != "Home" || !list.Networks[2].Open || list.Networks[0].Open {
+		t.Fatalf("networks = %+v", list.Networks)
+	}
+	raw2, _ := json.Marshal(list)
+	if strings.Contains(string(raw2), pw) || strings.Contains(string(raw2), "home-wifi-password") {
+		t.Fatal("a Wi-Fi password was returned by the API")
+	}
+
+	// Stored encrypted, and applied to the operating system (the mock) in priority terms.
+	nets, _ := e.store.ListWifiNetworks(ctx)
+	for _, n := range nets {
+		if n.SecretName == "" {
+			continue
+		}
+		stored, _ := e.store.GetSecret(ctx, n.SecretName)
+		if strings.Contains(string(stored), "wifi-pass") || strings.Contains(string(stored), "home-wifi") {
+			t.Fatal("Wi-Fi password stored in plaintext")
+		}
+	}
+	applied := e.app.Wifi.(interface{ Applied() []wifi.Network }).Applied()
+	if len(applied) != 3 {
+		t.Fatalf("applied = %+v", applied)
+	}
+	byName := map[string]wifi.Network{}
+	for _, a := range applied {
+		byName[a.SSID] = a
+	}
+	if byName["Grandparents"].Password != pw || byName["Home"].Priority != 9 || byName["CoffeeShop"].Password != "" {
+		t.Fatalf("applied networks = %+v", byName)
+	}
+	if st := e.app.Wifi.Status(ctx); st.SSID != "Home" {
+		t.Fatalf("connected to %q, want the highest priority", st.SSID)
+	}
+
+	for name, bad := range map[string]string{
+		"empty ssid":     `{"ssid":"","password":"longenoughpw","enabled":true}`,
+		"long ssid":      `{"ssid":"` + strings.Repeat("x", 40) + `","password":"longenoughpw","enabled":true}`,
+		"short password": `{"ssid":"X","password":"short","enabled":true}`,
+		"no password":    `{"ssid":"NoPass","enabled":true}`,
+		"priority":       `{"ssid":"Y","password":"longenoughpw","priority":500,"enabled":true}`,
+	} {
+		if resp := e.do(t, "POST", "/api/wifi", bad, cookie, nil); resp.StatusCode != 400 {
+			t.Errorf("%s = %d, want 400", name, resp.StatusCode)
+		}
+	}
+	if resp := e.do(t, "POST", "/api/wifi", `{"ssid":"Home","password":"another-password-1","enabled":true}`, cookie, nil); resp.StatusCode != 409 {
+		t.Errorf("duplicate = %d", resp.StatusCode)
+	}
+
+	// Keeping the password when editing other fields; removing wipes the secret.
+	homeID := itoa(list.Networks[0].ID)
+	if resp := e.do(t, "PUT", "/api/wifi/"+homeID, `{"ssid":"Home","priority":2,"enabled":true}`, cookie, nil); resp.StatusCode != 200 {
+		t.Fatalf("edit = %d", resp.StatusCode)
+	}
+	home, _ := e.store.GetWifiNetwork(ctx, list.Networks[0].ID)
+	if home.Priority != 2 || home.SecretName == "" {
+		t.Fatalf("edit lost the password: %+v", home)
+	}
+	if resp := e.do(t, "DELETE", "/api/wifi/"+homeID, "", cookie, nil); resp.StatusCode != 200 {
+		t.Fatalf("delete = %d", resp.StatusCode)
+	}
+	if _, err := e.store.GetSecret(ctx, home.SecretName); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal("password survived deleting the network")
+	}
+	if len(e.app.Wifi.(interface{ Applied() []wifi.Network }).Applied()) != 2 {
+		t.Fatal("deleted network still applied")
+	}
+	entries, _ := e.store.ListAudit(ctx, 50)
+	for _, en := range entries {
+		if strings.Contains(en.Details+en.Target, "wifi-pass") {
+			t.Fatal("password in the audit log")
+		}
+	}
+}
+
+func TestWifiApplyFailureIsReportedNotFatal(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	e.app.Wifi.(*wifi.Mock).FailNext(errors.New("nmcli connection failed: no device"))
+	resp := e.do(t, "POST", "/api/wifi", `{"ssid":"Home","password":"home-wifi-password","enabled":true}`, cookie, nil)
+	out := decode[map[string]any](t, resp)
+	if resp.StatusCode != 200 || out["saved"] != true || out["warning"] == nil {
+		t.Fatalf("response = %d %v", resp.StatusCode, out)
+	}
+}
+
+func TestSystemSettingsAndLogs(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	e.app.Logs = system.NewRing(10)
+	e.app.Log.Info("hello from the test")
+
+	sys := decode[systemDTO](t, e.do(t, "GET", "/api/system", "", cookie, nil))
+	if sys.DeviceName != "Nexo" || sys.RetentionDays != 30 || sys.LongPressMS != 800 || sys.Audio.MixerControl != "Speaker" {
+		t.Fatalf("defaults = %+v", sys)
+	}
+	sys.DeviceName, sys.RetentionDays, sys.AnnounceSender, sys.Audio.MixerControl = "Lia's Nexo", 7, true, "Playback"
+	body, _ := json.Marshal(sys)
+	saved := decode[systemDTO](t, e.do(t, "PUT", "/api/system", string(body), cookie, nil))
+	if saved.DeviceName != "Lia's Nexo" || saved.RetentionDays != 7 || !saved.AnnounceSender || saved.Audio.MixerControl != "Playback" {
+		t.Fatalf("saved = %+v", saved)
+	}
+
+	for name, mutate := range map[string]func(*systemDTO){
+		"empty name":   func(x *systemDTO) { x.DeviceName = "" },
+		"retention":    func(x *systemDTO) { x.RetentionDays = 9999 },
+		"long press":   func(x *systemDTO) { x.LongPressMS = 10 },
+		"shell device": func(x *systemDTO) { x.Audio.PlaybackDevice = "default; rm -rf /" },
+		"shell mixer":  func(x *systemDTO) { x.Audio.MixerControl = "Speaker`id`" },
+	} {
+		x := saved
+		mutate(&x)
+		b, _ := json.Marshal(x)
+		if resp := e.do(t, "PUT", "/api/system", string(b), cookie, nil); resp.StatusCode != 400 {
+			t.Errorf("%s = %d, want 400", name, resp.StatusCode)
+		}
+	}
+
+	if resp := e.do(t, "POST", "/api/system/restart", "", cookie, nil); resp.StatusCode != 501 {
+		t.Errorf("restart without a hook = %d, want 501", resp.StatusCode)
+	}
+	restarted := make(chan struct{}, 1)
+	e.app.RestartFunc = func() { restarted <- struct{}{} }
+	if resp := e.do(t, "POST", "/api/system/restart", "", cookie, nil); resp.StatusCode != 202 {
+		t.Fatalf("restart = %d", resp.StatusCode)
+	}
+	select {
+	case <-restarted:
+	case <-time.After(time.Second):
+		t.Fatal("restart hook not called")
+	}
+
+	logs := decode[struct{ Lines []string }](t, e.do(t, "GET", "/api/logs", "", cookie, nil))
+	_ = logs
+	for _, r := range [][2]string{{"GET", "/api/system"}, {"POST", "/api/system/restart"}, {"GET", "/api/logs"}, {"GET", "/api/wifi"}} {
 		if resp := e.do(t, r[0], r[1], "{}", nil, nil); resp.StatusCode != 401 {
 			t.Errorf("%s %s without login = %d", r[0], r[1], resp.StatusCode)
 		}

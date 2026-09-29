@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
@@ -18,10 +19,14 @@ import (
 )
 
 func runServer(ctx context.Context, cfg system.Config) error {
-	log, err := system.NewLogger(os.Stderr, cfg.LogLevel, cfg.LogFormat)
+	base, err := system.NewLogger(os.Stderr, cfg.LogLevel, cfg.LogFormat)
 	if err != nil {
 		return err
 	}
+	logs := system.NewRing(300)
+	log := slog.New(system.WithRing(base.Handler(), logs))
+	ctx, restart := context.WithCancel(ctx)
+	defer restart()
 	log.Info("starting nexo", "version", version, "hardware", cfg.Hardware, "listen", cfg.Listen)
 
 	st, err := store.Open(ctx, cfg.DBPath())
@@ -47,6 +52,10 @@ func runServer(ctx context.Context, cfg system.Config) error {
 		return err
 	}
 	defer application.Close()
+	application.Logs, application.RestartFunc = logs, func() {
+		time.Sleep(500 * time.Millisecond) // let the HTTP response go out first
+		restart()
+	}
 
 	dist, err := fs.Sub(admin.Dist, "dist")
 	if err != nil {

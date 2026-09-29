@@ -410,3 +410,11 @@ details {
 summary {
   cursor: pointer;
 }
+
+pre.log {
+  max-height: 22rem;
+  overflow: auto;
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

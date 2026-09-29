@@ -2,6 +2,7 @@ package system
 
 import (
 	"bytes"
+	"log/slog"
 	"strings"
 	"testing"
 )
@@ -76,5 +77,25 @@ func TestIsSensitiveKey(t *testing.T) {
 		if IsSensitiveKey(k) {
 			t.Errorf("%q should not be sensitive", k)
 		}
+	}
+}
+
+func TestRingKeepsRecentRedactedLines(t *testing.T) {
+	var out bytes.Buffer
+	base, _ := NewLogger(&out, "info", "text")
+	ring := NewRing(3)
+	log := slog.New(WithRing(base.Handler(), ring)).With("component", "test")
+	log.Info("one")
+	log.Warn("two", "api_key", "SUPERSECRET", "ok", "visible")
+	log.Error("three")
+	log.Info("four")
+	log.Debug("hidden below the level")
+	lines := ring.Lines()
+	if len(lines) != 3 || !strings.Contains(lines[0], "two") || !strings.Contains(lines[2], "four") {
+		t.Fatalf("lines = %v", lines)
+	}
+	joined := strings.Join(lines, "\n")
+	if strings.Contains(joined, "SUPERSECRET") || !strings.Contains(joined, "api_key=[redacted]") || !strings.Contains(joined, "ok=visible") || !strings.Contains(joined, "component=test") {
+		t.Fatalf("ring content = %s", joined)
 	}
 }

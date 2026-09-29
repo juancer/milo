@@ -8,7 +8,9 @@ import * as people from "./views/people";
 import * as schedules from "./views/schedules";
 import * as simulator from "./views/simulator";
 import * as sound from "./views/sound";
+import * as system from "./views/system";
 import * as telegram from "./views/telegram";
+import * as wifi from "./views/wifi";
 
 interface SessionInfo {
   authenticated: boolean;
@@ -32,6 +34,8 @@ const VIEWS: View[] = [
   { id: "schedules", title: "Schedules", render: schedules.render },
   { id: "assistant", title: "Assistant", render: assistant.render },
   { id: "sound", title: "Sound", render: sound.render },
+  { id: "wifi", title: "Wi-Fi", render: wifi.render },
+  { id: "system", title: "System", render: system.render },
   { id: "simulator", title: "Simulator", render: simulator.render, stop: simulator.stop, devOnly: true },
 ];
 
@@ -109,8 +113,11 @@ async function start(): Promise<void> {
     const info = await api<SessionInfo>("GET", "/api/session");
     if (info.setup_required) return showSetup();
     if (!info.authenticated) return showLogin();
-    const status = await api<Status>("GET", "/api/status");
+    const [status, sys] = await Promise.all([api<Status>("GET", "/api/status"), api<{ device_name: string }>("GET", "/api/system")]);
     isDev = status.hardware === "mock";
+    const title = document.querySelector("header h1");
+    if (title) title.textContent = sys.device_name;
+    document.title = `${sys.device_name} admin`;
     logout.hidden = false;
     await route();
   } catch {

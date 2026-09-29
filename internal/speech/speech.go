@@ -184,3 +184,117 @@ type EmbeddedTextSTT struct{}
 func (EmbeddedTextSTT) Transcribe(_ context.Context, wav []byte) (string, error) {
 	return audio.ExtractText(wav), nil
 }
+
+// ---------------------------------------------------------------- more providers
+
+// OpenAICompatTTS calls an OpenAI-compatible /audio/speech endpoint and asks
+// for WAV output. Use it when the device is too slow for Piper.
+type OpenAICompatTTS struct {
+	base, key, model, voice string
+	http                    *http.Client
+}
+
+// NewOpenAICompatTTS returns a client.
+func NewOpenAICompatTTS(baseURL, apiKey, model, voice string) *OpenAICompatTTS {
+	return &OpenAICompatTTS{base: strings.TrimRight(baseURL, "/"), key: apiKey, model: model, voice: voice,
+		http: &http.Client{Timeout: 60 * time.Second}}
+}
+
+// Synthesize implements TTS.
+func (t *OpenAICompatTTS) Synthesize(ctx context.Context, text string) ([]byte, error) {
+	if t.key == "" {
+		return nil, errors.New("text-to-speech is not configured (no API key)")
+	}
+	if strings.TrimSpace(text) == "" {
+		return nil, errors.New("nothing to say")
+	}
+	if len(text) > 4000 {
+		text = text[:4000]
+	}
+	body := map[string]any{"model": t.model, "input": text, "response_format": "wav"}
+	if t.voice != "" {
+		body["voice"] = t.voice
+	}
+	payload, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.base+"/audio/speech", bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+t.key)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := t.http.Do(req)
+	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
+		return nil, fmt.Errorf("text-to-speech unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("text-to-speech failed (status %d)", resp.StatusCode)
+	}
+	wav, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	if err != nil {
+		return nil, err
+	}
+	if _, _, err := audio.DecodeWAV(wav); err != nil {
+		return nil, fmt.Errorf("text-to-speech returned unusable audio: %w", err)
+	}
+	return wav, nil
+}
+
+var whisperModelRe = regexp.MustCompile(`^[A-Za-z0-9_./-]{1,200}\.(bin|gguf)$`)
+
+// ValidWhisperModelPath reports whether p is an acceptable whisper.cpp model path.
+func ValidWhisperModelPath(p string) bool {
+	return whisperModelRe.MatchString(p) && !strings.Contains(p, "..")
+}
+
+// WhisperCpp runs whisper.cpp on the device for offline speech recognition. A
+// Raspberry Pi 3B only copes with the tiny models, and slowly; the cloud
+// engine is the practical default. The command line is fixed and the audio
+// goes through a private temporary file.
+type WhisperCpp struct {
+	binary, model string
+}
+
+// NewWhisperCpp validates the paths. binary is usually "whisper-cli".
+func NewWhisperCpp(binary, model string) (*WhisperCpp, error) {
+	if binary == "" {
+		binary = "whisper-cli"
+	}
+	if !binaryPathRe.MatchString(binary) || strings.Contains(binary, "..") {
+		return nil, fmt.Errorf("speech: invalid whisper binary %q", binary)
+	}
+	if !ValidWhisperModelPath(model) {
+		return nil, fmt.Errorf("speech: invalid whisper model %q (expected a path to a .bin or .gguf file)", model)
+	}
+	return &WhisperCpp{binary: binary, model: model}, nil
+}
+
+// Transcribe implements STT.
+func (w *WhisperCpp) Transcribe(ctx context.Context, wav []byte) (string, error) {
+	dir, err := os.MkdirTemp("", "nexo-stt-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(dir)
+	in := filepath.Join(dir, "speech.wav")
+	if err := os.WriteFile(in, wav, 0o600); err != nil {
+		return "", err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+	// -nt: no timestamps, -np: print only the transcript.
+	cmd := exec.CommandContext(cctx, w.binary, "-m", w.model, "-f", in, "-nt", "-np")
+	var out, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &stderr
+	if err := cmd.Run(); err != nil {
+		if _, lookErr := exec.LookPath(w.binary); lookErr != nil {
+			return "", errors.New("whisper.cpp not found: install it or use the cloud speech-to-text engine")
+		}
+		return "", fmt.Errorf("whisper.cpp failed: %s", strings.TrimSpace(stderr.String()))
+	}
+	return strings.Join(strings.Fields(out.String()), " "), nil
+}

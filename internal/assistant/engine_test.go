@@ -491,14 +491,25 @@ func TestVoiceSilenceAndOutageEndKindly(t *testing.T) {
 	h.waitSpoken(assistant.ReplyUnavailable)
 }
 
-func TestGPTPressWhileListeningStopsIt(t *testing.T) {
+func TestSecondPressFinishesTheRecordingAndStillAnswers(t *testing.T) {
 	h := newHarness(t)
 	h.app.Features.SetEnabled(h.ctx, "assistant", true)
-	h.app.Actions.Execute(h.ctx, device(), "gpt", nil)
-	res, err := h.app.Actions.Execute(h.ctx, device(), "gpt", nil)
-	if err != nil || res.Message != "Stopped" {
+	h.llm.replies = []assistant.Message{say("I heard you!")}
+	h.app.MockAudio.SetUtterance("hello nexo")
+	if res, err := h.app.Actions.Execute(h.ctx, device(), "gpt", nil); err != nil || res.Message != "Listening" {
+		t.Fatalf("first press = %+v, %v", res, err)
+	}
+	for i := 0; !h.app.Assistant.Listening(); i++ { // wait until the microphone is open
+		if i > 300 {
+			t.Fatal("never started listening")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	res, err := h.app.Actions.Execute(h.ctx, device(), "gpt", nil) // "I'm done talking"
+	if err != nil || res.Message != "Processing" {
 		t.Fatalf("second press = %+v, %v", res, err)
 	}
+	h.waitSpoken("I heard you!") // the recording was NOT discarded
 }
 
 func TestAssistantFeatureOffMeansNoAssistant(t *testing.T) {

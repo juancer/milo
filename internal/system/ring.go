@@ -1,0 +1,74 @@
+package system
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"strings"
+	"sync"
+	"time"
+)
+
+// Ring keeps the most recent log lines in memory for the admin "Logs" view.
+// Lines are already redacted, so secrets never reach it.
+type Ring struct {
+	mu    sync.Mutex
+	lines []string
+	max   int
+}
+
+// NewRing keeps at most max lines.
+func NewRing(max int) *Ring { return &Ring{max: max} }
+
+func (r *Ring) add(line string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lines = append(r.lines, line)
+	if len(r.lines) > r.max {
+		r.lines = append([]string(nil), r.lines[len(r.lines)-r.max:]...)
+	}
+}
+
+// Lines returns the buffered lines, oldest first.
+func (r *Ring) Lines() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.lines...)
+}
+
+type ringHandler struct {
+	next  slog.Handler
+	ring  *Ring
+	attrs []slog.Attr
+}
+
+// WithRing wraps a handler so every record is also kept in the ring.
+func WithRing(h slog.Handler, r *Ring) slog.Handler { return &ringHandler{next: h, ring: r} }
+
+func (h *ringHandler) Enabled(ctx context.Context, l slog.Level) bool { return h.next.Enabled(ctx, l) }
+
+func (h *ringHandler) Handle(ctx context.Context, rec slog.Record) error {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s %-5s %s", rec.Time.Format(time.TimeOnly), rec.Level, rec.Message)
+	write := func(a slog.Attr) {
+		v := a.Value.String()
+		if IsSensitiveKey(a.Key) {
+			v = "[redacted]"
+		}
+		fmt.Fprintf(&b, " %s=%s", a.Key, v)
+	}
+	for _, a := range h.attrs {
+		write(a)
+	}
+	rec.Attrs(func(a slog.Attr) bool { write(a); return true })
+	h.ring.add(b.String())
+	return h.next.Handle(ctx, rec)
+}
+
+func (h *ringHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &ringHandler{next: h.next.WithAttrs(attrs), ring: h.ring, attrs: append(append([]slog.Attr(nil), h.attrs...), attrs...)}
+}
+
+func (h *ringHandler) WithGroup(name string) slog.Handler {
+	return &ringHandler{next: h.next.WithGroup(name), ring: h.ring, attrs: h.attrs}
+}
