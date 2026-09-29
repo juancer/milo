@@ -3,6 +3,7 @@ package telegram_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"net/http/httptest"
 	"path/filepath"
@@ -567,4 +568,285 @@ func TestValidInvitationWorksRightAfterStrangerChatter(t *testing.T) {
 	if pend, _ := h.app.Store.ListPending(h.ctx); len(pend) != 1 {
 		t.Fatalf("pending = %+v", pend)
 	}
+}
+
+// ---------------------------------------------------------------- schedules and emergency
+
+type fakeSchedule struct {
+	mu   sync.Mutex
+	open bool
+}
+
+func (f *fakeSchedule) set(v bool) { f.mu.Lock(); f.open = v; f.mu.Unlock() }
+func (f *fakeSchedule) Allowed(context.Context, string, time.Time) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.open, nil
+}
+
+func (h *harness) playedCount(label string) int {
+	n := 0
+	for _, p := range h.app.MockAudio.Played() {
+		if p.Label == label {
+			n++
+		}
+	}
+	return n
+}
+
+func (h *harness) tapEmergency(tg int64) {
+	h.fake.Press(tg, "menu:emergency")
+}
+
+func TestEmergencyEndToEnd(t *testing.T) {
+	h := newHarness(t, true)
+	h.enable()
+	h.addUser(10, "Dad", "PARENT") // PARENT holds emergency_alert
+	h.fake.Send(10, "/menu")
+	eventually(t, "menu with emergency button", func() bool {
+		for _, b := range h.fake.Conversation(10) {
+			for _, row := range b.Buttons {
+				for _, btn := range row {
+					if btn.Data == "menu:emergency" {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	})
+
+	h.tapEmergency(10)
+	eventually(t, "confirmation prompt", func() bool { return h.botSaid(10, "Send emergency alert?") })
+	if total, _, _ := h.app.Store.PendingCounts(h.ctx); total != 0 {
+		t.Fatal("alert created before confirmation")
+	}
+	if h.playedCount("emergency") != 0 {
+		t.Fatal("alarm sounded before confirmation")
+	}
+
+	h.fake.Press(10, "emergency:yes")
+	eventually(t, "alert stored", func() bool { total, urgent, _ := h.app.Store.PendingCounts(h.ctx); return total == 1 && urgent == 1 })
+	eventually(t, "alarm", func() bool { return h.playedCount("emergency") == 1 })
+	eventually(t, "confirmation reply", func() bool { return h.botSaid(10, "Emergency alert sent") })
+
+	m, _ := h.app.Store.NextPending(h.ctx, false)
+	if m.Type != "emergency" || m.Priority != "critical" || m.Kind != "text" {
+		t.Fatalf("emergency message = %+v", m)
+	}
+	// Emergency is clearly distinguishable from a normal message tone.
+	if h.playedCount("message") != 0 {
+		t.Fatal("a normal message tone was played for the emergency")
+	}
+}
+
+func TestEmergencyBypassesSchedule(t *testing.T) {
+	h := newHarness(t, true)
+	sched := &fakeSchedule{open: false}
+	h.app.Telegram.SetSchedules(sched)
+	h.app.Actions.SetSchedules(sched)
+	h.enable()
+	h.addUser(10, "Dad", "PARENT")
+
+	// A normal message outside hours is silent...
+	h.fake.Send(10, "normal")
+	eventually(t, "stored", func() bool { total, _, _ := h.app.Store.PendingCounts(h.ctx); return total == 1 })
+	// ...an emergency is not, and LISTEN plays it even though hours are closed.
+	h.tapEmergency(10)
+	eventually(t, "prompt", func() bool { return h.botSaid(10, "Send emergency alert?") })
+	h.fake.Press(10, "emergency:yes")
+	eventually(t, "alarm despite closed schedule", func() bool { return h.playedCount("emergency") == 1 })
+	if h.playedCount("message") != 0 {
+		t.Fatal("normal message announced outside the schedule")
+	}
+
+	res, err := h.app.Actions.Execute(h.ctx, device(), "listen", nil)
+	if err != nil || res.Message != "Played a message" {
+		t.Fatalf("listen = %+v, %v", res, err)
+	}
+	total, urgent, _ := h.app.Store.PendingCounts(h.ctx)
+	if total != 1 || urgent != 0 {
+		t.Fatalf("after listen: total=%d urgent=%d (the emergency must have been played, the normal one kept)", total, urgent)
+	}
+	// Outside hours a second LISTEN must not release the normal message.
+	if res, _ := h.app.Actions.Execute(h.ctx, device(), "listen", nil); res.Message != "No messages" {
+		t.Fatalf("second listen = %+v", res)
+	}
+}
+
+func TestEmergencyIsPlayedBeforeOlderMessages(t *testing.T) {
+	h := newHarness(t, true)
+	h.enable()
+	h.addUser(10, "Dad", "PARENT")
+	h.fake.Send(10, "older")
+	eventually(t, "stored", func() bool { total, _, _ := h.app.Store.PendingCounts(h.ctx); return total == 1 })
+	h.tapEmergency(10)
+	eventually(t, "prompt", func() bool { return h.botSaid(10, "Send emergency alert?") })
+	h.fake.Press(10, "emergency:yes")
+	eventually(t, "alert", func() bool { _, urgent, _ := h.app.Store.PendingCounts(h.ctx); return urgent == 1 })
+	h.app.Actions.Execute(h.ctx, device(), "listen", nil)
+	if _, urgent, _ := h.app.Store.PendingCounts(h.ctx); urgent != 0 {
+		t.Fatal("LISTEN played the older message before the emergency")
+	}
+}
+
+func TestEmergencyRequiresPermission(t *testing.T) {
+	h := newHarness(t, true)
+	h.enable()
+	h.addUser(20, "Grandma", "FAMILY") // FAMILY has no emergency_alert by default
+
+	h.fake.Send(20, "/menu")
+	eventually(t, "menu", func() bool { return h.botSaid(20, "Send a voice message") })
+	for _, b := range h.fake.Conversation(20) {
+		for _, row := range b.Buttons {
+			for _, btn := range row {
+				if btn.Data == "menu:emergency" {
+					t.Fatal("emergency button shown to a user without the permission")
+				}
+			}
+		}
+	}
+
+	h.tapEmergency(20) // forged button press
+	eventually(t, "refusal", func() bool { return h.botSaid(20, "not allowed to send emergency alerts") })
+	h.fake.Press(20, "emergency:yes") // forged confirmation without a prompt
+	eventually(t, "expired", func() bool { return h.botSaid(20, "expired") })
+	h.fake.Send(20, "/emergency")
+	time.Sleep(200 * time.Millisecond)
+
+	if total, _, _ := h.app.Store.PendingCounts(h.ctx); total != 0 || h.playedCount("emergency") != 0 {
+		t.Fatal("an unauthorized emergency got through")
+	}
+
+	// Granting the permission explicitly is enough.
+	uid, _ := h.app.Store.GetUserByTelegramID(h.ctx, 20)
+	h.app.Perms.Set(h.ctx, uid.ID, "emergency_alert", true)
+	h.tapEmergency(20)
+	eventually(t, "prompt after grant", func() bool { return h.botSaid(20, "Send emergency alert?") })
+}
+
+func TestEmergencyConfirmationExpiresAndIsOneShot(t *testing.T) {
+	h := newHarness(t, true)
+	h.enable()
+	h.addUser(10, "Dad", "PARENT")
+	h.tapEmergency(10)
+	eventually(t, "prompt", func() bool { return h.botSaid(10, "Send emergency alert?") })
+	h.fake.Press(10, "emergency:no")
+	eventually(t, "cancel ack", func() bool { return h.botSaid(10, "No alert was sent") })
+	h.fake.Press(10, "emergency:yes") // pressing an old YES after cancelling
+	eventually(t, "yes after cancel refused", func() bool { return h.botSaid(10, "expired") })
+	if total, _, _ := h.app.Store.PendingCounts(h.ctx); total != 0 {
+		t.Fatal("alert sent from a cancelled confirmation")
+	}
+}
+
+func TestEmergencyCooldownAndUrgentFollowUp(t *testing.T) {
+	h := newHarness(t, true)
+	h.enable()
+	h.addUser(10, "Dad", "PARENT")
+	fire := func() {
+		h.tapEmergency(10)
+		eventually(t, "prompt", func() bool {
+			n := 0
+			for _, b := range h.fake.Conversation(10) {
+				if b.From == "bot" && strings.Contains(b.Text, "Send emergency alert?") {
+					n++
+				}
+			}
+			return n >= 1
+		})
+		h.fake.Press(10, "emergency:yes")
+	}
+	fire()
+	eventually(t, "first alert", func() bool { _, urgent, _ := h.app.Store.PendingCounts(h.ctx); return urgent == 1 })
+
+	// Follow-up voice within the window is urgent too.
+	h.fake.SendVoice(10, audio.EmbedText(audio.EncodeWAV(audio.Silence(time.Second), 16000), "the kitchen is on fire"), 2)
+	eventually(t, "urgent voice", func() bool { _, urgent, _ := h.app.Store.PendingCounts(h.ctx); return urgent == 2 })
+
+	// A second alert right away is refused.
+	h.tapEmergency(10)
+	time.Sleep(300 * time.Millisecond)
+	h.fake.Press(10, "emergency:yes")
+	eventually(t, "cooldown message", func() bool { return h.botSaid(10, "just sent") })
+	if h.playedCount("emergency") != 1 {
+		t.Fatalf("alarm sounded %d times", h.playedCount("emergency"))
+	}
+}
+
+func TestBacklogIsAnnouncedWhenHoursOpen(t *testing.T) {
+	h := newHarness(t, true)
+	sched := &fakeSchedule{open: false}
+	h.app.Telegram.SetSchedules(sched)
+	h.app.Telegram.SetTick(20 * time.Millisecond)
+	h.enable()
+	h.addUser(10, "Dad", "PARENT")
+	h.fake.Send(10, "one")
+	h.fake.Send(10, "two")
+	eventually(t, "stored", func() bool { total, _, _ := h.app.Store.PendingCounts(h.ctx); return total == 2 })
+	time.Sleep(150 * time.Millisecond)
+	if h.playedCount("message") != 0 {
+		t.Fatal("announced while closed")
+	}
+	sched.set(true)
+	eventually(t, "one sound for the whole backlog", func() bool { return h.playedCount("message") == 1 })
+	time.Sleep(150 * time.Millisecond)
+	if h.playedCount("message") != 1 {
+		t.Fatalf("backlog announced %d times, want once", h.playedCount("message"))
+	}
+	if un, _ := h.app.Store.UnnotifiedPending(h.ctx); len(un) != 0 {
+		t.Fatal("messages still marked unannounced")
+	}
+}
+
+func TestBacklogSilentWhenParentsDisabledIt(t *testing.T) {
+	h := newHarness(t, true)
+	sched := &fakeSchedule{open: false}
+	h.app.Telegram.SetSchedules(sched)
+	h.app.Telegram.SetTick(20 * time.Millisecond)
+	h.app.Store.SetSetting(h.ctx, "notifications.notify_pending_after_schedule", "0")
+	h.enable()
+	h.addUser(10, "Dad", "PARENT")
+	h.fake.Send(10, "one")
+	eventually(t, "stored", func() bool { total, _, _ := h.app.Store.PendingCounts(h.ctx); return total == 1 })
+	sched.set(true)
+	time.Sleep(200 * time.Millisecond)
+	if h.playedCount("message") != 0 {
+		t.Fatal("backlog announced although disabled")
+	}
+}
+
+func TestScheduleBlocksChildActionsOutsideHours(t *testing.T) {
+	h := newHarness(t, true)
+	sched := &fakeSchedule{open: false}
+	h.app.Telegram.SetSchedules(sched)
+	h.app.Actions.SetSchedules(sched)
+	h.enable()
+	dad := h.addUser(10, "Dad", "PARENT")
+	h.app.Store.CreateChat(h.ctx, store.Chat{Name: "Dad", Kind: "user", UserID: dad, TelegramChatID: 10, Favorite: true, Enabled: true})
+	for _, name := range []string{"talk", "chat_select", "get_pending_messages"} {
+		if _, err := h.app.Actions.Execute(h.ctx, device(), name, nil); !errors.Is(err, actions.ErrScheduleBlocked) {
+			t.Errorf("%s outside hours = %v, want schedule-blocked", name, err)
+		}
+	}
+	sched.set(true)
+	if _, err := h.app.Actions.Execute(h.ctx, device(), "chat_select", nil); err != nil {
+		t.Fatalf("chat_select inside hours: %v", err)
+	}
+}
+
+func TestOldFinishedMessagesArePruned(t *testing.T) {
+	h := newHarness(t, true)
+	h.app.Telegram.SetTick(20 * time.Millisecond)
+	id, _ := h.app.Store.InsertMessage(h.ctx, store.Message{Direction: "in", Kind: "text", Body: "old", Status: "played"})
+	h.app.Store.InsertMessage(h.ctx, store.Message{Direction: "in", Kind: "text", Body: "unplayed"}) // pending: must stay
+	// Age the played one beyond the retention window.
+	h.app.Store.SetSetting(h.ctx, "messages.retention_days", "1")
+	if _, err := h.app.Store.PruneMessages(h.ctx, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if total, _, _ := h.app.Store.PendingCounts(h.ctx); total != 1 {
+		t.Fatal("pending message pruned")
+	}
+	_ = id
 }

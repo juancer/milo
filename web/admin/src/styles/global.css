@@ -386,3 +386,13 @@ input[type="range"] {
 input[type="password"] {
   min-width: 16rem;
 }
+
+.days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+}
+
+input[type="time"] {
+  width: 8rem;
+}

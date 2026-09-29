@@ -604,3 +604,86 @@ func TestNotificationSettingsAPI(t *testing.T) {
 		t.Fatalf("bad volume = %d", resp.StatusCode)
 	}
 }
+
+func TestSchedulesAPI(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+
+	put := func(feature, body string) *http.Response {
+		return e.do(t, "PUT", "/api/schedules/"+feature, body, cookie, nil)
+	}
+	resp := put("telegram", `{"enabled":true,"rules":[
+		{"day_of_week":1,"start":"08:00","end":"20:30","enabled":true},
+		{"day_of_week":5,"start":"22:00","end":"06:00","enabled":true}]}`)
+	got := decode[struct {
+		Timezone string `json:"timezone"`
+		Features []scheduleDTO
+	}](t, resp)
+	if resp.StatusCode != 200 {
+		t.Fatalf("put = %d", resp.StatusCode)
+	}
+	var tg scheduleDTO
+	for _, f := range got.Features {
+		if f.Feature == "telegram" {
+			tg = f
+		}
+	}
+	if !tg.Enabled || len(tg.Rules) != 2 || tg.Rules[0].Start != "08:00" || tg.Rules[0].End != "20:30" || tg.Rules[1].End != "06:00" {
+		t.Fatalf("telegram schedule = %+v", tg)
+	}
+
+	// A schedule with the switch on and a window that is not now => closed right now (Monday 08:00 only).
+	if put("telegram", `{"enabled":true,"rules":[]}`).StatusCode != 200 {
+		t.Fatal("empty window list should be accepted (blocks the feature)")
+	}
+	allowed, _ := e.app.Schedules.Allowed(context.Background(), "telegram", time.Now())
+	if allowed {
+		t.Fatal("enabled schedule without windows must block")
+	}
+
+	for name, bad := range map[string]string{
+		"bad time":        `{"enabled":true,"rules":[{"day_of_week":1,"start":"8am","end":"20:00","enabled":true}]}`,
+		"bad day":         `{"enabled":true,"rules":[{"day_of_week":9,"start":"08:00","end":"20:00","enabled":true}]}`,
+		"empty window":    `{"enabled":true,"rules":[{"day_of_week":1,"start":"08:00","end":"08:00","enabled":true}]}`,
+		"end at midnight": `{"enabled":true,"rules":[{"day_of_week":1,"start":"08:00","end":"00:00","enabled":true}]}`,
+		"start at 24":     `{"enabled":true,"rules":[{"day_of_week":1,"start":"24:00","end":"23:00","enabled":true}]}`,
+	} {
+		if resp := put("telegram", bad); resp.StatusCode != 400 {
+			t.Errorf("%s = %d, want 400", name, resp.StatusCode)
+		}
+	}
+	if put("ghost", `{"enabled":true,"rules":[]}`).StatusCode != 404 {
+		t.Error("unknown feature must be 404")
+	}
+
+	// 24:00 is a valid end.
+	if put("telegram", `{"enabled":true,"rules":[{"day_of_week":1,"start":"20:00","end":"24:00","enabled":true}]}`).StatusCode != 200 {
+		t.Error("window ending at 24:00 rejected")
+	}
+
+	if resp := e.do(t, "PUT", "/api/settings/timezone", `{"timezone":"Europe/Madrid"}`, cookie, nil); resp.StatusCode != 200 {
+		t.Fatalf("timezone = %d", resp.StatusCode)
+	}
+	for _, bad := range []string{`{"timezone":"Mars/Olympus"}`, `{"timezone":""}`, `{"timezone":"Local"}`} {
+		if resp := e.do(t, "PUT", "/api/settings/timezone", bad, cookie, nil); resp.StatusCode != 400 {
+			t.Errorf("timezone %s = %d, want 400", bad, resp.StatusCode)
+		}
+	}
+	entries, _ := e.store.ListAudit(context.Background(), 30)
+	audited := false
+	for _, en := range entries {
+		audited = audited || en.Action == "schedule.updated"
+	}
+	if !audited {
+		t.Fatal("schedule change not audited")
+	}
+}
+
+func TestSchedulesRequireLogin(t *testing.T) {
+	e := newEnv(t, true)
+	for _, r := range [][2]string{{"GET", "/api/schedules"}, {"PUT", "/api/schedules/telegram"}, {"PUT", "/api/settings/timezone"}} {
+		if resp := e.do(t, r[0], r[1], "{}", nil, nil); resp.StatusCode != 401 {
+			t.Errorf("%s %s = %d", r[0], r[1], resp.StatusCode)
+		}
+	}
+}

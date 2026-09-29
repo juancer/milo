@@ -76,15 +76,24 @@ type Service struct {
 	now              func() time.Time
 	retryBase        time.Duration // first retry delay; tests shorten it
 	strangerCooldown time.Duration
+	tick             time.Duration // maintenance interval; tests shorten it
+
+	emergencyConfirm map[int64]time.Time // user id -> confirmation expiry
+	emergencyAt      map[int64]time.Time // user id -> last alert
+	urgentUntil      map[int64]time.Time // user id -> follow-up window end
 }
 
 // New creates the (not yet running) service.
 func New(d Deps) *Service {
-	return &Service{Deps: d, replyAt: map[int64]time.Time{}, wake: make(chan struct{}, 1), now: time.Now}
+	return &Service{Deps: d, replyAt: map[int64]time.Time{}, wake: make(chan struct{}, 1), now: time.Now,
+		emergencyConfirm: map[int64]time.Time{}, emergencyAt: map[int64]time.Time{}, urgentUntil: map[int64]time.Time{}}
 }
 
 // Name implements features.Feature.
 func (s *Service) Name() string { return FeatureName }
+
+// SetTick changes how often the maintenance loop runs (default 30s).
+func (s *Service) SetTick(d time.Duration) { s.tick = d }
 
 // SetStrangerCooldown changes how often the bot answers the same stranger (default 30s).
 func (s *Service) SetStrangerCooldown(d time.Duration) { s.strangerCooldown = d }
@@ -146,6 +155,7 @@ func (s *Service) Start(ctx context.Context) error {
 
 	s.spawn(func() { s.pollLoop(runCtx, client) })
 	s.spawn(func() { s.outboxLoop(runCtx, client) })
+	s.spawn(func() { s.maintenanceLoop(runCtx) })
 	s.Log.Info("telegram started", "bot", me.Username)
 	return nil
 }

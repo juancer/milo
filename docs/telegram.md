@@ -59,7 +59,9 @@ Relative → bot → authorized? → stored in SQLite as pending → short "piii
 - Messages are never read aloud automatically and the sender is not announced (unless you set
   `telegram.announce_sender` to `1`).
 - The notification is only a sound, so it reveals nothing.
-- Outside usage hours (Phase 4) messages are stored silently and announced when hours begin.
+- Outside usage hours messages are stored silently and announced when hours begin
+  ([schedules.md](schedules.md)).
+- Urgent alerts: see [emergency.md](emergency.md).
 
 Child to parent:
 

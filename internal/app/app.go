@@ -19,6 +19,7 @@ import (
 	"github.com/juancer/nexo/internal/gpio"
 	"github.com/juancer/nexo/internal/notifications"
 	"github.com/juancer/nexo/internal/permissions"
+	"github.com/juancer/nexo/internal/schedules"
 	"github.com/juancer/nexo/internal/secrets"
 	"github.com/juancer/nexo/internal/store"
 	"github.com/juancer/nexo/internal/system"
@@ -36,11 +37,12 @@ type App struct {
 	Features *features.Manager
 	Actions  *actions.Engine
 
-	Audio    audio.Audio
-	GPIO     gpio.Controller
-	Buttons  *buttons.Engine
-	Notifier *notifications.Notifier
-	Telegram *telegram.Service
+	Audio     audio.Audio
+	GPIO      gpio.Controller
+	Buttons   *buttons.Engine
+	Notifier  *notifications.Notifier
+	Telegram  *telegram.Service
+	Schedules *schedules.Service
 
 	// Set only when NEXO_HARDWARE=mock, for tests and the simulator.
 	MockAudio *audio.Mock
@@ -69,6 +71,8 @@ func New(ctx context.Context, cfg system.Config, log *slog.Logger, st *store.Sto
 		cancel()
 		return nil, err
 	}
+	a.Schedules = schedules.New(st)
+	a.Actions.SetSchedules(a.Schedules)
 	a.registerCoreActions()
 	if err := a.initTelegram(runCtx); err != nil {
 		cancel()
@@ -192,6 +196,7 @@ func (a *App) initTelegram(ctx context.Context) error {
 		Store: a.Store, Vault: a.Vault, Audio: a.Audio, Codec: codec, Notify: a.Notifier,
 		Actions: a.Actions, Perms: a.Perms, Audit: a.Audit, Log: a.Log, BaseURL: a.Cfg.TelegramAPIURL,
 	})
+	a.Telegram.SetSchedules(a.Schedules)
 	a.Telegram.RegisterActions(a.Actions)
 	return a.Features.Register(ctx, a.Telegram)
 }
