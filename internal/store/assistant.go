@@ -24,10 +24,15 @@ type GPTSettings struct {
 	MaxTurnsPerHour   int
 	LLMBaseURL        string
 	LLMModel          string
+	STTEngine         string
 	STTBaseURL        string
 	STTModel          string
+	STTModelPath      string
 	TTSEngine         string
 	TTSModelPath      string
+	TTSBaseURL        string
+	TTSModel          string
+	TTSVoice          string
 }
 
 // GetGPTSettings returns the assistant settings.
@@ -35,10 +40,12 @@ func (s *Store) GetGPTSettings(ctx context.Context) (GPTSettings, error) {
 	var g GPTSettings
 	err := s.db.QueryRowContext(ctx, `SELECT child_name, age, personality, language, max_response_words, extra_instructions,
 		retention_days, input_moderation, output_moderation, alert_parents, follow_up, max_turns_per_hour,
-		llm_base_url, llm_model, stt_base_url, stt_model, tts_engine, tts_model_path FROM gpt_settings WHERE id = 1`).
+		llm_base_url, llm_model, stt_engine, stt_base_url, stt_model, stt_model_path,
+		tts_engine, tts_model_path, tts_base_url, tts_model, tts_voice FROM gpt_settings WHERE id = 1`).
 		Scan(&g.ChildName, &g.Age, &g.Personality, &g.Language, &g.MaxResponseWords, &g.ExtraInstructions,
 			&g.RetentionDays, &g.InputModeration, &g.OutputModeration, &g.AlertParents, &g.FollowUp, &g.MaxTurnsPerHour,
-			&g.LLMBaseURL, &g.LLMModel, &g.STTBaseURL, &g.STTModel, &g.TTSEngine, &g.TTSModelPath)
+			&g.LLMBaseURL, &g.LLMModel, &g.STTEngine, &g.STTBaseURL, &g.STTModel, &g.STTModelPath,
+			&g.TTSEngine, &g.TTSModelPath, &g.TTSBaseURL, &g.TTSModel, &g.TTSVoice)
 	if err != nil {
 		return GPTSettings{}, fmt.Errorf("store: get gpt settings: %w", err)
 	}
@@ -49,11 +56,13 @@ func (s *Store) GetGPTSettings(ctx context.Context) (GPTSettings, error) {
 func (s *Store) UpdateGPTSettings(ctx context.Context, g GPTSettings) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE gpt_settings SET child_name = ?, age = ?, personality = ?, language = ?,
 		max_response_words = ?, extra_instructions = ?, retention_days = ?, input_moderation = ?, output_moderation = ?,
-		alert_parents = ?, follow_up = ?, max_turns_per_hour = ?, llm_base_url = ?, llm_model = ?, stt_base_url = ?,
-		stt_model = ?, tts_engine = ?, tts_model_path = ? WHERE id = 1`,
+		alert_parents = ?, follow_up = ?, max_turns_per_hour = ?, llm_base_url = ?, llm_model = ?, stt_engine = ?,
+		stt_base_url = ?, stt_model = ?, stt_model_path = ?, tts_engine = ?, tts_model_path = ?, tts_base_url = ?,
+		tts_model = ?, tts_voice = ? WHERE id = 1`,
 		g.ChildName, g.Age, g.Personality, g.Language, g.MaxResponseWords, g.ExtraInstructions, g.RetentionDays,
 		g.InputModeration, g.OutputModeration, g.AlertParents, g.FollowUp, g.MaxTurnsPerHour,
-		g.LLMBaseURL, g.LLMModel, g.STTBaseURL, g.STTModel, g.TTSEngine, g.TTSModelPath)
+		g.LLMBaseURL, g.LLMModel, g.STTEngine, g.STTBaseURL, g.STTModel, g.STTModelPath,
+		g.TTSEngine, g.TTSModelPath, g.TTSBaseURL, g.TTSModel, g.TTSVoice)
 	if err != nil {
 		return fmt.Errorf("store: update gpt settings: %w", err)
 	}

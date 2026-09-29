@@ -45,16 +45,22 @@ type assistantDTO struct {
 	MaxTurnsPerHour   int    `json:"max_turns_per_hour"`
 	LLMBaseURL        string `json:"llm_base_url"`
 	LLMModel          string `json:"llm_model"`
+	STTEngine         string `json:"stt_engine"`
 	STTBaseURL        string `json:"stt_base_url"`
 	STTModel          string `json:"stt_model"`
+	STTModelPath      string `json:"stt_model_path"`
 	TTSEngine         string `json:"tts_engine"`
 	TTSModelPath      string `json:"tts_model_path"`
+	TTSBaseURL        string `json:"tts_base_url"`
+	TTSModel          string `json:"tts_model"`
+	TTSVoice          string `json:"tts_voice"`
 }
 
 func toAssistantDTO(g store.GPTSettings) assistantDTO {
 	return assistantDTO{g.ChildName, g.Age, g.Personality, g.Language, g.MaxResponseWords, g.ExtraInstructions,
 		g.RetentionDays, g.InputModeration, g.OutputModeration, g.AlertParents, g.FollowUp, g.MaxTurnsPerHour,
-		g.LLMBaseURL, g.LLMModel, g.STTBaseURL, g.STTModel, g.TTSEngine, g.TTSModelPath}
+		g.LLMBaseURL, g.LLMModel, g.STTEngine, g.STTBaseURL, g.STTModel, g.STTModelPath,
+		g.TTSEngine, g.TTSModelPath, g.TTSBaseURL, g.TTSModel, g.TTSVoice}
 }
 
 func (d assistantDTO) toStore() store.GPTSettings {
@@ -62,7 +68,8 @@ func (d assistantDTO) toStore() store.GPTSettings {
 		MaxResponseWords: d.MaxResponseWords, ExtraInstructions: d.ExtraInstructions, RetentionDays: d.RetentionDays,
 		InputModeration: d.InputModeration, OutputModeration: d.OutputModeration, AlertParents: d.AlertParents,
 		FollowUp: d.FollowUp, MaxTurnsPerHour: d.MaxTurnsPerHour, LLMBaseURL: d.LLMBaseURL, LLMModel: d.LLMModel,
-		STTBaseURL: d.STTBaseURL, STTModel: d.STTModel, TTSEngine: d.TTSEngine, TTSModelPath: d.TTSModelPath}
+		STTEngine: d.STTEngine, STTBaseURL: d.STTBaseURL, STTModel: d.STTModel, STTModelPath: d.STTModelPath,
+		TTSEngine: d.TTSEngine, TTSModelPath: d.TTSModelPath, TTSBaseURL: d.TTSBaseURL, TTSModel: d.TTSModel, TTSVoice: d.TTSVoice}
 }
 
 func (s *server) validAPIURL(raw string) bool {
@@ -98,12 +105,18 @@ func (s *server) validateAssistant(d assistantDTO) string {
 		return "history retention must be 0 (off), 7, 30 or 90 days"
 	case d.MaxTurnsPerHour < 5 || d.MaxTurnsPerHour > 600:
 		return "questions per hour must be 5-600"
-	case !s.validAPIURL(d.LLMBaseURL) || !s.validAPIURL(d.STTBaseURL):
+	case !s.validAPIURL(d.LLMBaseURL) || !s.validAPIURL(d.STTBaseURL) || !s.validAPIURL(d.TTSBaseURL):
 		return "provider addresses must be https:// URLs"
-	case !modelRe.MatchString(d.LLMModel) || !modelRe.MatchString(d.STTModel):
+	case !modelRe.MatchString(d.LLMModel) || !modelRe.MatchString(d.STTModel) || (d.TTSModel != "" && !modelRe.MatchString(d.TTSModel)):
 		return "model names may only contain letters, digits and . _ : / @ + -"
-	case d.TTSEngine != "piper" && d.TTSEngine != "none":
-		return "text-to-speech engine must be piper or none"
+	case len(d.TTSVoice) > 60 || strings.ContainsAny(d.TTSVoice, "\r\n\t"):
+		return "the voice name is too long or invalid"
+	case d.STTEngine != "cloud" && d.STTEngine != "whispercpp":
+		return "speech-to-text engine must be cloud or whispercpp"
+	case d.STTEngine == "whispercpp" && d.STTModelPath != "" && !speech.ValidWhisperModelPath(d.STTModelPath):
+		return "the whisper.cpp model must be a path ending in .bin or .gguf"
+	case d.TTSEngine != "piper" && d.TTSEngine != "cloud" && d.TTSEngine != "none":
+		return "text-to-speech engine must be piper, cloud or none"
 	case d.TTSEngine == "piper" && d.TTSModelPath != "" && !speech.ValidModelPath(d.TTSModelPath):
 		return "the Piper voice must be a path ending in .onnx"
 	}
@@ -133,6 +146,7 @@ func (s *server) getAssistant(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"settings": toAssistantDTO(g), "status": status,
 		"llm_key_configured": s.hasKey(ctx, app.SecretLLMKey), "stt_key_configured": s.hasKey(ctx, app.SecretSTTKey),
+		"tts_key_configured": s.hasKey(ctx, app.SecretTTSKey),
 	})
 }
 
@@ -159,6 +173,7 @@ func (s *server) putKeys(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		LLMKey string `json:"llm_api_key"`
 		STTKey string `json:"stt_api_key"`
+		TTSKey string `json:"tts_api_key"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -179,7 +194,8 @@ func (s *server) putKeys(w http.ResponseWriter, r *http.Request) {
 		s.audit(r, "assistant.key_set", label, nil) // never the value
 		return true
 	}
-	if !set(app.SecretLLMKey, "AI key", body.LLMKey) || !set(app.SecretSTTKey, "speech-to-text key", body.STTKey) {
+	if !set(app.SecretLLMKey, "AI key", body.LLMKey) || !set(app.SecretSTTKey, "speech-to-text key", body.STTKey) ||
+		!set(app.SecretTTSKey, "text-to-speech key", body.TTSKey) {
 		return
 	}
 	s.restartFeature(r.Context(), assistant.FeatureName)
@@ -187,7 +203,7 @@ func (s *server) putKeys(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) deleteKey(w http.ResponseWriter, r *http.Request) {
-	name := map[string]string{"llm": app.SecretLLMKey, "stt": app.SecretSTTKey}[r.PathValue("which")]
+	name := map[string]string{"llm": app.SecretLLMKey, "stt": app.SecretSTTKey, "tts": app.SecretTTSKey}[r.PathValue("which")]
 	if name == "" {
 		writeError(w, http.StatusNotFound, "unknown key")
 		return

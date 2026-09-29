@@ -33,6 +33,7 @@ services:
   dev:
     <<: *go
     command: sh -c "go build -o /tmp/nexo ./cmd/nexo && /tmp/nexo keygen && /tmp/nexo dev-seed && exec /tmp/nexo run"
+    restart: unless-stopped # the admin "Restart Nexo" button exits cleanly, like systemd Restart=always
     depends_on:
       - sim
     ports:

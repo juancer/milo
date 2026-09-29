@@ -2,6 +2,7 @@ package speech
 
 import (
 	"context"
+	"encoding/json"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -137,5 +138,66 @@ func TestMockSpeechRoundTrip(t *testing.T) {
 	text, _ := EmbeddedTextSTT{}.Transcribe(context.Background(), audio.EmbedText(audio.EncodeWAV(nil, 16000), "play frozen"))
 	if text != "play frozen" {
 		t.Fatalf("EmbeddedTextSTT = %q", text)
+	}
+}
+
+func TestOpenAICompatTTS(t *testing.T) {
+	wav := audio.EncodeWAV(audio.Silence(100*time.Millisecond), 16000)
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/audio/speech" || r.Header.Get("Authorization") != "Bearer tts-key" {
+			w.WriteHeader(401)
+			return
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "audio/wav")
+		w.Write(wav)
+	}))
+	defer srv.Close()
+	got, err := NewOpenAICompatTTS(srv.URL, "tts-key", "playai-tts", "Fritz-PlayAI").Synthesize(context.Background(), "hello")
+	if err != nil || len(got) != len(wav) {
+		t.Fatalf("Synthesize = %d bytes, %v", len(got), err)
+	}
+	if body["model"] != "playai-tts" || body["voice"] != "Fritz-PlayAI" || body["input"] != "hello" || body["response_format"] != "wav" {
+		t.Fatalf("request body = %v", body)
+	}
+	if _, err := NewOpenAICompatTTS(srv.URL, "", "m", "").Synthesize(context.Background(), "x"); err == nil {
+		t.Fatal("missing key accepted")
+	}
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("not audio")) }))
+	defer bad.Close()
+	if _, err := NewOpenAICompatTTS(bad.URL, "k", "m", "").Synthesize(context.Background(), "x"); err == nil {
+		t.Fatal("garbage audio accepted")
+	}
+	_, err = NewOpenAICompatTTS("http://127.0.0.1:1", "SECRETKEY", "m", "").Synthesize(context.Background(), "x")
+	if err == nil || strings.Contains(err.Error(), "SECRETKEY") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWhisperCppUsesAFixedCommand(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "whisper-cli")
+	os.WriteFile(bin, []byte("#!/bin/sh\n# args: -m model -f file -nt -np\nif [ \"$1\" != \"-m\" ] || [ \"$3\" != \"-f\" ] || [ \"$5\" != \"-nt\" ] || [ \"$6\" != \"-np\" ]; then exit 3; fi\n[ -s \"$4\" ] || exit 4\nprintf '  hello   from\\n the   device \\n'\n"), 0o755)
+	w, err := NewWhisperCpp(bin, "/models/ggml-tiny.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wav := audio.EncodeWAV(audio.Silence(100*time.Millisecond), 16000)
+	text, err := w.Transcribe(context.Background(), wav)
+	if err != nil || text != "hello from the device" {
+		t.Fatalf("Transcribe = %q, %v", text, err)
+	}
+	for _, bad := range []string{"", "model.txt", "../x.bin", "a b.bin", "$(id).bin"} {
+		if _, err := NewWhisperCpp(bin, bad); err == nil {
+			t.Errorf("model %q accepted", bad)
+		}
+	}
+	if _, err := NewWhisperCpp("bad binary;", "/m/x.bin"); err == nil {
+		t.Error("bad binary accepted")
+	}
+	missing, _ := NewWhisperCpp("/nonexistent/whisper", "/m/x.bin")
+	if _, err := missing.Transcribe(context.Background(), wav); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("missing binary err = %v", err)
 	}
 }

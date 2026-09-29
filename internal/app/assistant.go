@@ -19,6 +19,7 @@ import (
 const (
 	SecretLLMKey = "assistant.llm_api_key"
 	SecretSTTKey = "assistant.stt_api_key"
+	SecretTTSKey = "assistant.tts_api_key"
 )
 
 // backends builds providers from the current settings and secrets on demand.
@@ -41,6 +42,9 @@ func (b backends) LLM(ctx context.Context, s store.GPTSettings) (assistant.AIPro
 }
 
 func (b backends) STT(ctx context.Context, s store.GPTSettings) (speech.STT, error) {
+	if s.STTEngine == "whispercpp" {
+		return speech.NewWhisperCpp(b.a.Setting(ctx, "stt.whisper_binary", "whisper-cli"), s.STTModelPath)
+	}
 	key, err := b.key(ctx, SecretSTTKey)
 	if err != nil {
 		return nil, fmt.Errorf("%w: add the speech-to-text API key in the Assistant tab", err)
@@ -52,8 +56,15 @@ func (b backends) TTS(ctx context.Context, s store.GPTSettings) (speech.TTS, err
 	if b.a.Cfg.Hardware == "mock" {
 		return speech.MockTTS{}, nil
 	}
-	if s.TTSEngine == "none" {
+	switch s.TTSEngine {
+	case "none":
 		return nil, fmt.Errorf("%w: text-to-speech is switched off", assistant.ErrNotConfigured)
+	case "cloud":
+		key, err := b.key(ctx, SecretTTSKey)
+		if err != nil {
+			return nil, fmt.Errorf("%w: add the text-to-speech API key in the Assistant tab", err)
+		}
+		return speech.NewOpenAICompatTTS(s.TTSBaseURL, key, s.TTSModel, s.TTSVoice), nil
 	}
 	return speech.NewPiper(b.a.Setting(ctx, "tts.piper_binary", "piper"), s.TTSModelPath)
 }

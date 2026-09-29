@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/juancer/nexo/internal/actions"
@@ -74,23 +75,43 @@ func (e *Engine) RegisterActions(a *actions.Engine) {
 		Description: "Talk to the assistant: press to start listening, press again to stop.",
 		Feature:     FeatureName, Exposure: actions.ExposeDevice,
 		Handler: func(ctx context.Context, _ actions.Call) (actions.Result, error) {
-			started, err := e.ToggleVoice()
+			state, err := e.ToggleVoice()
 			if err != nil {
 				return actions.Result{}, err
 			}
-			if !started {
-				return actions.Result{Message: "Stopped"}, nil
-			}
-			return actions.Result{Message: "Listening"}, nil
+			return actions.Result{Message: strings.ToUpper(string(state)[:1]) + string(state)[1:]}, nil
 		},
 	})
 }
 
-// ToggleVoice starts a voice conversation, or ends the one in progress. It
-// returns immediately; the conversation runs in the background. The same entry
-// point serves the GPT button and, later, the wake word.
-func (e *Engine) ToggleVoice() (started bool, err error) {
+// Listening reports whether the microphone is currently open for the child.
+func (e *Engine) Listening() bool {
 	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.listening != nil
+}
+
+// VoiceState says what a press of the GPT button did.
+type VoiceState string
+
+const (
+	VoiceListening  VoiceState = "listening"  // a conversation started
+	VoiceProcessing VoiceState = "processing" // the child finished talking early
+	VoiceStopped    VoiceState = "stopped"    // the conversation was interrupted
+)
+
+// ToggleVoice is what the GPT button does. With nothing running it starts a
+// conversation. Pressed again while the microphone is open, it ends the
+// recording early and lets Nexo answer; pressed while Nexo is thinking or
+// speaking, it interrupts. The wake word will use the same entry point.
+func (e *Engine) ToggleVoice() (VoiceState, error) {
+	e.mu.Lock()
+	if e.listening != nil {
+		finish := e.listening
+		e.mu.Unlock()
+		finish()
+		return VoiceProcessing, nil
+	}
 	if e.cancel != nil {
 		cancel := e.cancel
 		e.mu.Unlock()
@@ -98,11 +119,11 @@ func (e *Engine) ToggleVoice() (started bool, err error) {
 		if e.Audio != nil {
 			e.Audio.Stop()
 		}
-		return false, nil
+		return VoiceStopped, nil
 	}
 	if !e.running {
 		e.mu.Unlock()
-		return false, ErrNotConfigured
+		return "", ErrNotConfigured
 	}
 	ctx, cancel := context.WithCancel(e.runCtx)
 	e.cancel = cancel
@@ -114,7 +135,7 @@ func (e *Engine) ToggleVoice() (started bool, err error) {
 		defer func() {
 			cancel()
 			e.mu.Lock()
-			e.cancel = nil
+			e.cancel, e.listening = nil, nil
 			e.mu.Unlock()
 		}()
 		defer func() {
@@ -126,7 +147,7 @@ func (e *Engine) ToggleVoice() (started bool, err error) {
 			e.log.Warn("voice session ended with an error", "error", err)
 		}
 	}()
-	return true, nil
+	return VoiceListening, nil
 }
 
 func (e *Engine) note(ctx context.Context, n audio.Notification) {
@@ -151,7 +172,16 @@ func (e *Engine) RunVoice(ctx context.Context, source string) error {
 
 	for turn := 0; turn < maxVoiceTurns && ctx.Err() == nil; turn++ {
 		e.note(ctx, audio.NotifyRecordStart)
-		wav, err := e.Audio.Record(ctx, audio.RecordOptions{MaxDuration: maxListen, StopOnSilence: true})
+		// Pressing the button again finishes the recording early (not the session).
+		recCtx, finish := context.WithCancel(ctx)
+		e.mu.Lock()
+		e.listening = finish
+		e.mu.Unlock()
+		wav, err := e.Audio.Record(recCtx, audio.RecordOptions{MaxDuration: maxListen, StopOnSilence: true})
+		e.mu.Lock()
+		e.listening = nil
+		e.mu.Unlock()
+		finish()
 		if ctx.Err() != nil {
 			return nil
 		}

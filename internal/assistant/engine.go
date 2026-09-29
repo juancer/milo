@@ -59,6 +59,7 @@ type Engine struct {
 	runCtx    context.Context
 	cancel    context.CancelFunc // set while a voice session is active
 	cancelRun context.CancelFunc // cancels everything the feature started
+	listening context.CancelFunc // set while the microphone is recording
 	wg        sync.WaitGroup
 }
 

@@ -25,6 +25,7 @@ import (
 	"github.com/juancer/nexo/internal/store"
 	"github.com/juancer/nexo/internal/system"
 	"github.com/juancer/nexo/internal/telegram"
+	"github.com/juancer/nexo/internal/wifi"
 )
 
 // App is the assembled application.
@@ -45,6 +46,12 @@ type App struct {
 	Telegram  *telegram.Service
 	Schedules *schedules.Service
 	Assistant *assistant.Engine
+	Wifi      wifi.Manager
+
+	// Logs is the in-memory log buffer shown in the admin (set by the caller).
+	Logs *system.Ring
+	// RestartFunc, when set, gracefully restarts the process (systemd starts it again).
+	RestartFunc func()
 
 	// Set only when NEXO_HARDWARE=mock, for tests and the simulator.
 	MockAudio *audio.Mock
@@ -76,6 +83,11 @@ func New(ctx context.Context, cfg system.Config, log *slog.Logger, st *store.Sto
 	a.Schedules = schedules.New(st)
 	a.Actions.SetSchedules(a.Schedules)
 	a.registerCoreActions()
+	if a.Cfg.Hardware == "mock" {
+		a.Wifi = wifi.NewMock()
+	} else {
+		a.Wifi = wifi.NMCLI{}
+	}
 	a.initAssistant()
 	if err := a.initTelegram(runCtx); err != nil {
 		cancel()
@@ -87,6 +99,11 @@ func New(ctx context.Context, cfg system.Config, log *slog.Logger, st *store.Sto
 		return nil, err
 	}
 	go a.maintenance(runCtx)
+	go func() {
+		if err := a.SyncWifi(runCtx); err != nil && runCtx.Err() == nil {
+			a.Log.Warn("wifi sync failed", "error", err)
+		}
+	}()
 	return a, nil
 }
 

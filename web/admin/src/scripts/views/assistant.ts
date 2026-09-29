@@ -16,16 +16,22 @@ interface Settings {
   max_turns_per_hour: number;
   llm_base_url: string;
   llm_model: string;
+  stt_engine: string;
   stt_base_url: string;
   stt_model: string;
+  stt_model_path: string;
   tts_engine: string;
   tts_model_path: string;
+  tts_base_url: string;
+  tts_model: string;
+  tts_voice: string;
 }
 interface State {
   settings: Settings;
   status: { enabled: boolean; running: boolean; last_error?: string };
   llm_key_configured: boolean;
   stt_key_configured: boolean;
+  tts_key_configured: boolean;
 }
 interface Rule {
   id: number;
@@ -53,6 +59,7 @@ export async function render(root: HTMLElement): Promise<void> {
   const llmKey = h("input", { type: "password", autocomplete: "off", placeholder: state.llm_key_configured ? "(saved - type to replace)" : "sk-or-…", ariaLabel: "AI API key" });
   const sttKey = h("input", { type: "password", autocomplete: "off", placeholder: state.stt_key_configured ? "(saved - type to replace)" : "gsk_…", ariaLabel: "Speech-to-text API key" });
   const st = state.status;
+  const ttsKey = h("input", { type: "password", autocomplete: "off", placeholder: state.tts_key_configured ? "(saved - type to replace)" : "only for cloud voices", ariaLabel: "Text-to-speech API key" });
   root.append(h("section", { class: "card" }, h("h2", {}, "Assistant"),
     h("p", {}, !st.enabled ? badge("feature off", true) : st.running ? badge("running") : badge("not running", true), " ",
       st.enabled ? null : h("span", { class: "muted" }, "Turn the “assistant” feature on in the Dashboard."),
@@ -62,14 +69,14 @@ export async function render(root: HTMLElement): Promise<void> {
       onsubmit: async (ev: Event) => {
         ev.preventDefault();
         try {
-          await api("PUT", "/api/assistant/keys", { llm_api_key: llmKey.value.trim(), stt_api_key: sttKey.value.trim() });
+          await api("PUT", "/api/assistant/keys", { llm_api_key: llmKey.value.trim(), stt_api_key: sttKey.value.trim(), tts_api_key: ttsKey.value.trim() });
           toast("Keys saved");
           await refresh();
         } catch (e) {
           toast(errorMessage(e), true);
         }
       },
-    }, h("div", { class: "fields" }, field("AI key (OpenRouter, Groq…)", llmKey), field("Speech-to-text key (Groq…)", sttKey), h("button", { type: "submit" }, "Save keys")))));
+    }, h("div", { class: "fields" }, field("AI key (OpenRouter, Groq…)", llmKey), field("Speech-to-text key (Groq…)", sttKey), field("Cloud voice key (optional)", ttsKey), h("button", { type: "submit" }, "Save keys")))));
 
   // ---- personality and safety
   const f = {
@@ -89,9 +96,17 @@ export async function render(root: HTMLElement): Promise<void> {
     llmModel: h("input", { type: "text", value: s.llm_model, ariaLabel: "AI model" }),
     sttUrl: h("input", { type: "text", value: s.stt_base_url, ariaLabel: "Speech-to-text address" }),
     sttModel: h("input", { type: "text", value: s.stt_model, ariaLabel: "Speech-to-text model" }),
+    sttEngine: h("select", { ariaLabel: "Speech-to-text engine" },
+      h("option", { value: "cloud", selected: s.stt_engine === "cloud" }, "Cloud (Groq or compatible)"),
+      h("option", { value: "whispercpp", selected: s.stt_engine === "whispercpp" }, "On this device (whisper.cpp, slow)")),
+    sttPath: h("input", { type: "text", value: s.stt_model_path, placeholder: "/opt/whisper/ggml-tiny.bin", ariaLabel: "whisper.cpp model file" }),
     tts: h("select", { ariaLabel: "Text to speech" },
       h("option", { value: "piper", selected: s.tts_engine === "piper" }, "Piper (on this device)"),
+      h("option", { value: "cloud", selected: s.tts_engine === "cloud" }, "Cloud voice (OpenAI-compatible)"),
       h("option", { value: "none", selected: s.tts_engine === "none" }, "Off (tones only)")),
+    ttsUrl: h("input", { type: "text", value: s.tts_base_url, ariaLabel: "Cloud voice address" }),
+    ttsModel: h("input", { type: "text", value: s.tts_model, ariaLabel: "Cloud voice model" }),
+    ttsVoice: h("input", { type: "text", value: s.tts_voice, ariaLabel: "Cloud voice name" }),
     voice: h("input", { type: "text", value: s.tts_model_path, placeholder: "/opt/piper/en_US-lessac-medium.onnx", ariaLabel: "Piper voice file" }),
   };
   root.append(h("form", {
@@ -104,7 +119,8 @@ export async function render(root: HTMLElement): Promise<void> {
           max_response_words: Number(f.words.value), extra_instructions: f.extra.value.trim(), retention_days: Number(f.retention.value),
           input_moderation: f.input.checked, output_moderation: f.output.checked, alert_parents: f.alert.checked, follow_up: f.follow.checked,
           max_turns_per_hour: Number(f.turns.value), llm_base_url: f.llmUrl.value.trim(), llm_model: f.llmModel.value.trim(),
-          stt_base_url: f.sttUrl.value.trim(), stt_model: f.sttModel.value.trim(), tts_engine: f.tts.value, tts_model_path: f.voice.value.trim(),
+          stt_engine: f.sttEngine.value, stt_base_url: f.sttUrl.value.trim(), stt_model: f.sttModel.value.trim(), stt_model_path: f.sttPath.value.trim(),
+          tts_engine: f.tts.value, tts_model_path: f.voice.value.trim(), tts_base_url: f.ttsUrl.value.trim(), tts_model: f.ttsModel.value.trim(), tts_voice: f.ttsVoice.value.trim(),
         });
         toast("Saved");
         await refresh();
@@ -126,7 +142,9 @@ export async function render(root: HTMLElement): Promise<void> {
     h("h2", {}, "Providers"),
     h("p", { class: "muted" }, "Any OpenAI-compatible service works. Defaults: OpenRouter for the AI and Groq for speech recognition. Text-to-speech runs locally with Piper."),
     h("div", { class: "fields" }, field("AI address", f.llmUrl), field("AI model", f.llmModel), field("Speech-to-text address", f.sttUrl), field("Speech-to-text model", f.sttModel)),
+    h("div", { class: "fields" }, field("Speech-to-text engine", f.sttEngine), field("whisper.cpp model file", f.sttPath)),
     h("div", { class: "fields" }, field("Voice (text-to-speech)", f.tts), field("Piper voice file (.onnx)", f.voice)),
+    h("div", { class: "fields" }, field("Cloud voice address", f.ttsUrl), field("Cloud voice model", f.ttsModel), field("Cloud voice name", f.ttsVoice)),
     h("div", { class: "actions" }, h("button", { type: "submit" }, "Save settings"))));
 
   // ---- blocked phrases

@@ -12,8 +12,8 @@ microphone → speech-to-text → moderation → AI model ⇄ actions → modera
 | Job | Default | Where it runs | Setting |
 |---|---|---|---|
 | Language model | `openai/gpt-oss-20b:free` on OpenRouter | cloud | Assistant → Providers |
-| Speech-to-text | `whisper-large-v3-turbo` on Groq | cloud | Assistant → Providers |
-| Text-to-speech | Piper | on the device | Assistant → Providers |
+| Speech-to-text | `whisper-large-v3-turbo` on Groq, or `whisper.cpp` | cloud / on the device | Assistant → Providers |
+| Text-to-speech | Piper, or any OpenAI-compatible `/audio/speech` voice | on the device / cloud | Assistant → Providers |
 
 Both cloud providers use the OpenAI-compatible wire format, so any compatible service works:
 change the address, model name and key. OpenRouter is only an LLM provider; it does not do
@@ -23,6 +23,20 @@ limited: Nexo retries with backoff and, if the service stays unavailable, the ch
 question limit (default 60) protects free-tier quotas.
 
 API keys are stored encrypted (see [security.md](security.md)) and are never shown again.
+
+### Choosing engines
+
+- **Speech-to-text:** *Cloud* sends only the recording to an OpenAI-compatible service (Groq by
+  default). *whisper.cpp* keeps audio on the device: install `whisper-cli`, download a model
+  (`ggml-tiny.bin` is the only one a Raspberry Pi 3B can run, slowly) and set its path.
+- **Text-to-speech:** *Piper* runs on the device. *Cloud voice* calls an OpenAI-compatible
+  `/audio/speech` endpoint (address, model, voice and a key in Assistant → Providers) and is
+  useful when the Pi is too slow for Piper; the text of each answer is then sent to that service.
+
+### Talking to it
+
+Press the GPT button once and speak; it stops listening when you fall silent. Press it again
+while it is listening to finish early. Press it while Nexo is thinking or speaking to interrupt.
 
 ### Text-to-speech with Piper
 

@@ -12,7 +12,7 @@ Environment=NEXO_LISTEN=:8080
 # The master key is readable only by root; systemd hands a copy to the service.
 LoadCredential=master.key:/etc/nexo/master.key
 ExecStart=/usr/local/bin/nexo run
-Restart=on-failure
+Restart=always
 RestartSec=3
 TimeoutStopSec=15
 

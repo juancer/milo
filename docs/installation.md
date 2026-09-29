@@ -16,7 +16,9 @@ See [hardware.md](hardware.md) for the sound card and button wiring.
 It is idempotent. Re-running it upgrades the binary and unit and never deletes the database,
 the master key, contacts, messages or credentials.
 
-Logs: `journalctl -u nexo -f`. Service control: `nexo start|stop|restart|status`.
+Wi-Fi is managed in the admin UI ([wifi.md](wifi.md)); it needs NetworkManager.
+
+Logs: `journalctl -u nexo -f` (the admin **System** tab shows the latest lines too). Service control: `nexo start|stop|restart|status`.
 
 ## Back up
 
