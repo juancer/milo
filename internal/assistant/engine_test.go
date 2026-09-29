@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -548,4 +549,52 @@ func TestScheduleBlocksAssistant(t *testing.T) {
 		t.Fatal("core tools should stay available")
 	}
 	_ = audio.NotifyNone
+}
+
+func TestAssistantCanSetATimerButOnlyWhenTheSkillIsOn(t *testing.T) {
+	h := newHarness(t)
+	h.llm.replies = []assistant.Message{call("c", "set_timer", `{"seconds": 90, "label": "eggs"}`), say("Okay, 90 seconds!")}
+	h.turn("set a timer for ninety seconds") // timer feature is off: the tool is not even offered
+	if toolNames(h.llm.request(0))["set_timer"] {
+		t.Fatal("set_timer offered while the timer feature is off")
+	}
+	if pending, _ := h.app.Store.PendingTimers(h.ctx); len(pending) != 0 {
+		t.Fatal("a timer was created while the feature was off")
+	}
+
+	h.app.Features.SetEnabled(h.ctx, "timer", true)
+	h.llm.mu.Lock()
+	h.llm.reqs = nil
+	h.llm.replies = []assistant.Message{call("c", "set_timer", `{"seconds": 90, "label": "eggs"}`), say("Okay, 90 seconds!")}
+	h.llm.mu.Unlock()
+	if got, err := h.turn("set a timer for ninety seconds"); err != nil || got != "Okay, 90 seconds!" {
+		t.Fatalf("reply = %q, %v", got, err)
+	}
+	pending, _ := h.app.Store.PendingTimers(h.ctx)
+	if len(pending) != 1 || pending[0].Label != "eggs" {
+		t.Fatalf("timers = %+v", pending)
+	}
+}
+
+func TestStartingMusicEndsTheConversation(t *testing.T) {
+	h := newHarness(t)
+	h.app.Features.SetEnabled(h.ctx, "assistant", true)
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "Twinkle.wav"), append([]byte("RIFF"), make([]byte, 60)...), 0o644)
+	h.app.Store.SetSetting(h.ctx, "music.dir", dir)
+	h.app.Features.SetEnabled(h.ctx, "music", true)
+	h.llm.replies = []assistant.Message{call("c", "play_music", `{"query":"twinkle"}`), say("Playing it!")}
+	h.app.MockAudio.SetUtterance("play twinkle")
+	h.app.Actions.Execute(h.ctx, device(), "gpt", nil)
+	h.waitSpoken("Playing it!")
+	time.Sleep(300 * time.Millisecond)
+	starts := 0
+	for _, p := range h.app.MockAudio.Played() {
+		if p.Label == "record_start" {
+			starts++
+		}
+	}
+	if starts != 1 {
+		t.Fatalf("the microphone was opened %d times; it must not listen over the music", starts)
+	}
 }

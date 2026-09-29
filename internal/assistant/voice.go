@@ -223,7 +223,7 @@ func (e *Engine) RunVoice(ctx context.Context, source string) error {
 		if err := e.say(ctx, reply); err != nil {
 			return err
 		}
-		if !sess.settings.FollowUp {
+		if !sess.settings.FollowUp || sess.finished {
 			return nil
 		}
 	}

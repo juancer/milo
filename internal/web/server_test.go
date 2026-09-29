@@ -15,6 +15,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/juancer/nexo/internal/actions"
 	"github.com/juancer/nexo/internal/app"
 	"github.com/juancer/nexo/internal/auth"
 	"github.com/juancer/nexo/internal/features"
@@ -999,6 +1000,127 @@ func TestWakeWordSettingsAndSimulatedTrigger(t *testing.T) {
 		t.Errorf("wake while feature off = %d, want 409", resp.StatusCode)
 	}
 	for _, r := range [][2]string{{"GET", "/api/wakeword"}, {"PUT", "/api/wakeword"}, {"POST", "/api/wakeword/samples"}, {"POST", "/api/sim/wake"}} {
+		if resp := e.do(t, r[0], r[1], "{}", nil, nil); resp.StatusCode != 401 {
+			t.Errorf("%s %s without login = %d", r[0], r[1], resp.StatusCode)
+		}
+	}
+}
+
+func TestSkillsAPI(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	ctx := context.Background()
+
+	// Reminders: created by the admin, validated, blocked words honoured, cancellable.
+	future := time.Now().Add(48 * time.Hour).Format("2006-01-02T15:04")
+	if resp := e.do(t, "POST", "/api/reminders", `{"text":"Grandma visits","due":"`+future+`"}`, cookie, nil); resp.StatusCode != 201 {
+		t.Fatalf("create reminder = %d", resp.StatusCode)
+	}
+	e.store.CreateModerationRule(ctx, store.ModerationRule{Pattern: "badword", AppliesTo: "both", Enabled: true})
+	for name, bad := range map[string]string{
+		"past":    `{"text":"x","due":"2001-01-01T10:00"}`,
+		"garbage": `{"text":"x","due":"tomorrow"}`,
+		"empty":   `{"text":" ","due":"` + future + `"}`,
+		"blocked": `{"text":"a badword here","due":"` + future + `"}`,
+	} {
+		if resp := e.do(t, "POST", "/api/reminders", bad, cookie, nil); resp.StatusCode != 400 {
+			t.Errorf("%s = %d, want 400", name, resp.StatusCode)
+		}
+	}
+	got := decode[struct {
+		Reminders []struct {
+			ID     int64  `json:"id"`
+			Text   string `json:"text"`
+			Source string `json:"source"`
+		}
+		Timers []struct {
+			ID int64 `json:"id"`
+		}
+		CalendarConfigured bool `json:"calendar_configured"`
+	}](t, e.do(t, "GET", "/api/skills", "", cookie, nil))
+	if len(got.Reminders) != 1 || got.Reminders[0].Source != "admin" || got.CalendarConfigured {
+		t.Fatalf("skills = %+v", got)
+	}
+	if resp := e.do(t, "DELETE", "/api/reminders/"+itoa(got.Reminders[0].ID), "", cookie, nil); resp.StatusCode != 204 {
+		t.Fatalf("cancel reminder = %d", resp.StatusCode)
+	}
+	if resp := e.do(t, "DELETE", "/api/reminders/999", "", cookie, nil); resp.StatusCode != 404 {
+		t.Fatalf("cancel missing = %d", resp.StatusCode)
+	}
+
+	// Timers set by the assistant show up and can be cancelled.
+	e.app.Features.SetEnabled(ctx, "timer", true)
+	e.app.Actions.Execute(ctx, actions.Actor{Kind: actions.ActorAssistant}, "set_timer", map[string]any{"seconds": float64(120), "label": "pasta"})
+	got.Timers = nil
+	tm := decode[struct{ Timers []struct{ ID int64 } }](t, e.do(t, "GET", "/api/skills", "", cookie, nil))
+	if len(tm.Timers) != 1 {
+		t.Fatalf("timers = %+v", tm)
+	}
+	if resp := e.do(t, "DELETE", "/api/timers/"+itoa(tm.Timers[0].ID), "", cookie, nil); resp.StatusCode != 204 {
+		t.Fatalf("cancel timer = %d", resp.StatusCode)
+	}
+
+	// Music: folder validation, feature switch required to play.
+	dir := t.TempDir()
+	for name, bad := range map[string]string{
+		"relative": `{"dir":"music"}`, "dotdot": `{"dir":"/tmp/../etc"}`, "missing": `{"dir":"/nonexistent/folder"}`, "shell": `{"dir":"/tmp; rm -rf /"}`,
+	} {
+		if resp := e.do(t, "PUT", "/api/music", bad, cookie, nil); resp.StatusCode != 400 {
+			t.Errorf("music %s = %d, want 400", name, resp.StatusCode)
+		}
+	}
+	if resp := e.do(t, "POST", "/api/music/play", `{"query":"frozen"}`, cookie, nil); resp.StatusCode != 409 {
+		t.Errorf("play with the feature off = %d, want 409", resp.StatusCode)
+	}
+	_ = dir
+
+	// Weather: place lookup goes to the (fake) service; units validated.
+	weather := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/search" {
+			w.Write([]byte(`{"results":[{"name":"Lisbon","country":"Portugal","latitude":38.72,"longitude":-9.14}]}`))
+			return
+		}
+		w.Write([]byte(`{"current":{"temperature_2m":20,"weather_code":0},"daily":{"weather_code":[0,1],"temperature_2m_max":[24,25],"temperature_2m_min":[15,16],"precipitation_probability_max":[0,0]}}`))
+	}))
+	defer weather.Close()
+	e.store.SetSetting(ctx, "weather.api_base", weather.URL)
+	e.store.SetSetting(ctx, "weather.geo_base", weather.URL)
+	if resp := e.do(t, "PUT", "/api/weather", `{"place":"Lisbon","units":"celsius"}`, cookie, nil); resp.StatusCode != 200 {
+		t.Fatalf("set place = %d", resp.StatusCode)
+	}
+	if resp := e.do(t, "PUT", "/api/weather", `{"place":"x","units":"kelvin"}`, cookie, nil); resp.StatusCode != 400 {
+		t.Fatalf("bad units = %d", resp.StatusCode)
+	}
+	e.app.Features.SetEnabled(ctx, "weather", true)
+	res := decode[map[string]any](t, e.do(t, "POST", "/api/weather/test", "", cookie, nil))
+	if msg, _ := res["message"].(string); !strings.Contains(msg, "Lisbon, Portugal") || !strings.Contains(msg, "clear") {
+		t.Fatalf("weather test = %v", res)
+	}
+
+	// Calendar: the secret address is validated, stored encrypted and never returned.
+	if resp := e.do(t, "PUT", "/api/calendar", `{"url":"ftp://calendar.example/x.ics"}`, cookie, nil); resp.StatusCode != 400 {
+		t.Errorf("ftp calendar = %d", resp.StatusCode)
+	}
+	secret := "https://calendar.example/private-9f8e7d6c/basic.ics"
+	resp := e.do(t, "PUT", "/api/calendar", `{"url":"`+secret+`"}`, cookie, nil)
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 || strings.Contains(string(raw), "private-9f8e") || !strings.Contains(string(raw), `"calendar_configured":true`) {
+		t.Fatalf("set calendar = %d %s", resp.StatusCode, raw)
+	}
+	stored, _ := e.store.GetSecret(ctx, "calendar.ics_url")
+	if strings.Contains(string(stored), "private-9f8e") {
+		t.Fatal("calendar address stored in plaintext")
+	}
+	entries, _ := e.store.ListAudit(ctx, 60)
+	for _, en := range entries {
+		if strings.Contains(en.Details+en.Target, "private-9f8e") {
+			t.Fatal("calendar address in the audit log")
+		}
+	}
+	if resp := e.do(t, "DELETE", "/api/calendar", "", cookie, nil); resp.StatusCode != 204 {
+		t.Fatalf("remove calendar = %d", resp.StatusCode)
+	}
+	for _, r := range [][2]string{{"GET", "/api/skills"}, {"POST", "/api/reminders"}, {"POST", "/api/music/play"}, {"PUT", "/api/calendar"}, {"POST", "/api/weather/test"}} {
 		if resp := e.do(t, r[0], r[1], "{}", nil, nil); resp.StatusCode != 401 {
 			t.Errorf("%s %s without login = %d", r[0], r[1], resp.StatusCode)
 		}

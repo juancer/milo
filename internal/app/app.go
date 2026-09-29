@@ -22,6 +22,7 @@ import (
 	"github.com/juancer/nexo/internal/permissions"
 	"github.com/juancer/nexo/internal/schedules"
 	"github.com/juancer/nexo/internal/secrets"
+	"github.com/juancer/nexo/internal/skills"
 	"github.com/juancer/nexo/internal/store"
 	"github.com/juancer/nexo/internal/system"
 	"github.com/juancer/nexo/internal/telegram"
@@ -49,6 +50,11 @@ type App struct {
 	Assistant *assistant.Engine
 	Wifi      wifi.Manager
 	Wake      *wakeword.Service
+	Timers    *skills.Timers
+	Reminders *skills.Reminders
+	Music     *skills.Music
+	Weather   *skills.Weather
+	Calendar  *skills.Calendar
 
 	// Logs is the in-memory log buffer shown in the admin (set by the caller).
 	Logs *system.Ring
@@ -116,6 +122,9 @@ func (a *App) Close() {
 	}
 	if a.Buttons != nil {
 		a.Buttons.Stop()
+	}
+	if a.Music != nil {
+		a.Music.Halt()
 	}
 	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -231,5 +240,8 @@ func (a *App) initTelegram(ctx context.Context) error {
 		Store: a.Store, Audio: a.Audio, Actions: a.Actions, Assistant: a.Assistant, Log: a.Log,
 		Simulated: a.Cfg.Hardware == "mock",
 	})
-	return a.Features.Register(ctx, a.Wake)
+	if err := a.Features.Register(ctx, a.Wake); err != nil {
+		return err
+	}
+	return a.initSkills(ctx)
 }

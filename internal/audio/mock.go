@@ -3,6 +3,7 @@ package audio
 import (
 	"bytes"
 	"context"
+	"io"
 	"sync"
 	"time"
 )
@@ -18,12 +19,16 @@ type Played struct {
 // Mock is an in-memory Audio used in tests and the development simulator.
 // Nothing is actually played; playback is logged and returns immediately.
 type Mock struct {
-	mu        sync.Mutex
-	volume    int
-	played    []Played
-	utterance string // what the "child" says on the next recording
-	listeners map[int]func([]byte)
-	nextID    int
+	mu           sync.Mutex
+	volume       int
+	played       []Played
+	utterance    string // what the "child" says on the next recording
+	listeners    map[int]func([]byte)
+	nextID       int
+	streamCancel context.CancelFunc
+	pending      int
+	// StreamSpeed makes simulated music play faster than real time (tests).
+	StreamSpeed float64
 }
 
 // NewMock returns a Mock at 70% volume.
@@ -115,8 +120,60 @@ func (m *Mock) Listening() bool {
 	return len(m.listeners) > 0
 }
 
+func (m *Mock) interruptStream() {
+	m.mu.Lock()
+	if m.streamCancel != nil {
+		m.streamCancel()
+	}
+	m.mu.Unlock()
+}
+
+// Busy implements Audio. Mock playback is instantaneous, so it is never busy.
+func (m *Mock) Busy() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.pending > 0
+}
+
+// PlayStream implements Audio. It "plays" in real time (or StreamSpeed times
+// faster) so the simulator shows music playing for as long as it would.
+func (m *Mock) PlayStream(ctx context.Context, s Stream) error {
+	sctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.mu.Lock()
+	m.streamCancel = cancel
+	speed := m.StreamSpeed
+	m.mu.Unlock()
+	if speed <= 0 {
+		speed = 1
+	}
+	defer func() {
+		m.mu.Lock()
+		m.streamCancel = nil
+		m.mu.Unlock()
+	}()
+	m.log(Played{Kind: "music", Label: s.Label})
+	chunk := s.SampleRate * s.Channels * 2 / 10 // 100 ms
+	buf := make([]byte, chunk)
+	for sctx.Err() == nil {
+		n, err := io.ReadFull(s.Reader, buf)
+		if n > 0 {
+			select {
+			case <-sctx.Done():
+				return nil
+			case <-time.After(time.Duration(float64(n) / float64(s.SampleRate*s.Channels*2) * float64(time.Second) / speed)):
+			}
+		}
+		if err != nil {
+			return nil
+		}
+	}
+	return nil
+}
+
 // Play implements Audio.
 func (m *Mock) Play(_ context.Context, wav []byte) error {
+	m.interruptStream()
 	label := "audio"
 	if t := ExtractText(wav); t != "" {
 		label = t
@@ -127,6 +184,7 @@ func (m *Mock) Play(_ context.Context, wav []byte) error {
 
 // PlayNotification implements Audio.
 func (m *Mock) PlayNotification(_ context.Context, n Notification, _ int) error {
+	m.interruptStream()
 	m.log(Played{Kind: "notification", Label: string(n), Duration: Duration(NotificationWAV(n))})
 	return nil
 }

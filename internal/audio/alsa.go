@@ -61,6 +61,9 @@ type ALSA struct {
 	playMu        sync.Mutex // one playback at a time
 	cancelMu      sync.Mutex
 	cancel        context.CancelFunc
+	streamMu      sync.Mutex // guards streamCancel
+	streamCancel  context.CancelFunc
+	pending       atomic.Int32 // non-stream playbacks running or waiting
 
 	volMu  sync.Mutex
 	volume int
@@ -196,6 +199,9 @@ func (a *ALSA) listenOnce(ctx context.Context, handler func([]byte)) error {
 
 // Play implements Audio using `aplay` reading the WAV from stdin.
 func (a *ALSA) Play(ctx context.Context, wav []byte) error {
+	a.pending.Add(1)
+	defer a.pending.Add(-1)
+	a.interruptStream() // sounds and speech always win over music
 	a.playMu.Lock()
 	defer a.playMu.Unlock()
 
@@ -212,6 +218,52 @@ func (a *ALSA) Play(ctx context.Context, wav []byte) error {
 	if err := cmd.Run(); err != nil {
 		if pctx.Err() != nil {
 			return nil // stopped on purpose
+		}
+		return fmt.Errorf("audio: aplay failed: %s", strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+func (a *ALSA) interruptStream() {
+	a.streamMu.Lock()
+	if a.streamCancel != nil {
+		a.streamCancel()
+	}
+	a.streamMu.Unlock()
+}
+
+// Busy implements Audio.
+func (a *ALSA) Busy() bool { return a.pending.Load() > 0 }
+
+// PlayStream implements Audio by feeding raw PCM to `aplay`.
+func (a *ALSA) PlayStream(ctx context.Context, s Stream) error {
+	if s.SampleRate < 8000 || s.SampleRate > 192000 || (s.Channels != 1 && s.Channels != 2) {
+		return fmt.Errorf("audio: unsupported stream format (%d Hz, %d channels)", s.SampleRate, s.Channels)
+	}
+	a.playMu.Lock()
+	defer a.playMu.Unlock()
+	sctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	a.streamMu.Lock()
+	a.streamCancel = cancel
+	a.streamMu.Unlock()
+	defer func() {
+		a.streamMu.Lock()
+		a.streamCancel = nil
+		a.streamMu.Unlock()
+	}()
+	a.cancelMu.Lock()
+	a.cancel = cancel // Stop() ends music too
+	a.cancelMu.Unlock()
+
+	cmd := exec.CommandContext(sctx, "aplay", "-q", "-D", a.cfg.PlaybackDevice, "-t", "raw", "-f", "S16_LE",
+		"-r", fmt.Sprint(s.SampleRate), "-c", fmt.Sprint(s.Channels), "-")
+	cmd.Stdin = s.Reader
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if sctx.Err() != nil {
+			return nil // interrupted on purpose
 		}
 		return fmt.Errorf("audio: aplay failed: %s", strings.TrimSpace(stderr.String()))
 	}
