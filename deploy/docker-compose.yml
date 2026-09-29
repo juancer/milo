@@ -1,0 +1,66 @@
+name: nexo
+
+x-user: &user "${NEXO_UID:-1000}:${NEXO_GID:-1000}"
+
+x-go: &go
+  build:
+    context: .
+    dockerfile: Dockerfile.dev
+  image: nexo-dev-go
+  user: *user
+  working_dir: /src
+  volumes:
+    - ..:/src
+    - gocache:/cache
+
+services:
+  # One-shot Go toolchain (tests, vet, cross-compilation).
+  go:
+    <<: *go
+
+  # One-shot Node toolchain (Astro build).
+  node:
+    image: node:24-slim
+    user: *user
+    working_dir: /src/web/admin
+    environment:
+      HOME: /tmp
+      COREPACK_HOME: /tmp/corepack
+    volumes:
+      - ..:/src
+
+  # Long-running Nexo with mocked hardware. Open http://localhost:8080
+  dev:
+    <<: *go
+    command: sh -c "go run ./cmd/nexo keygen && go run ./cmd/nexo run"
+    ports:
+      - "8080:8080"
+    environment:
+      NEXO_DATA_DIR: /data
+      NEXO_LISTEN: ":8080"
+      NEXO_HARDWARE: mock
+      NEXO_LOG_LEVEL: debug
+      NEXO_MASTER_KEY_FILE: /data/master.key
+    volumes:
+      - ..:/src
+      - gocache:/cache
+      - devdata:/data
+
+  # Astro dev server with hot reload, proxying the API to the `dev` service.
+  web-dev:
+    image: node:24-slim
+    user: *user
+    working_dir: /src/web/admin
+    command: corepack pnpm run dev --host 0.0.0.0
+    environment:
+      HOME: /tmp
+      COREPACK_HOME: /tmp/corepack
+      NEXO_API_URL: http://dev:8080
+    ports:
+      - "4321:4321"
+    volumes:
+      - ..:/src
+
+volumes:
+  gocache:
+  devdata:

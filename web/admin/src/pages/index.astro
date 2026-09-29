@@ -1,0 +1,65 @@
+---
+import "../styles/global.css";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Nexo admin</title>
+  </head>
+  <body>
+    <header class="bar">
+      <h1>Nexo</h1>
+      <button id="logout" class="ghost" hidden>Sign out</button>
+    </header>
+
+    <main>
+      <p id="loading" class="muted">Loading…</p>
+
+      <section id="setup" class="card" hidden>
+        <h2>Set the admin password</h2>
+        <p>
+          For safety this is done on the device itself, so nobody else on the
+          network can claim it. Run this on the Raspberry Pi, then reload:
+        </p>
+        <pre><code>sudo -u nexo nexo admin-password</code></pre>
+      </section>
+
+      <section id="login" class="card narrow" hidden>
+        <h2>Sign in</h2>
+        <form id="login-form">
+          <label for="password">Admin password</label>
+          <input id="password" type="password" autocomplete="current-password" required />
+          <p id="login-error" class="error" role="alert" hidden></p>
+          <button type="submit">Sign in</button>
+        </form>
+      </section>
+
+      <div id="dashboard" hidden>
+        <section class="card">
+          <h2>Device</h2>
+          <dl id="status" class="grid"></dl>
+        </section>
+
+        <section class="card">
+          <h2>Features</h2>
+          <p id="features-empty" class="muted" hidden>No features are available yet.</p>
+          <ul id="features" class="list"></ul>
+        </section>
+
+        <section class="card">
+          <h2>Recent activity</h2>
+          <p id="audit-empty" class="muted" hidden>Nothing recorded yet.</p>
+          <ul id="audit" class="list"></ul>
+        </section>
+      </div>
+    </main>
+
+    <script>
+      import "../scripts/app";
+    </script>
+  </body>
+</html>

@@ -1,0 +1,21 @@
+# Build output
+/dist/
+/bin/
+
+# Frontend
+web/admin/node_modules/
+web/admin/.astro/
+web/admin/dist/*
+!web/admin/dist/.gitkeep
+
+# Local state and secrets - never commit these
+*.db
+*.db-wal
+*.db-shm
+master.key
+.env
+.env.*
+!.env.example
+
+# Tooling
+graphify-out/
