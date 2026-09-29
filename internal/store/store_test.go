@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 func openTemp(t *testing.T) (*Store, string) {
@@ -241,5 +242,220 @@ func TestFeatureEnabledLookup(t *testing.T) {
 	s.SetFeatureEnabled(ctx, "x", true)
 	if on, _ := s.FeatureEnabled(ctx, "x"); !on {
 		t.Fatal("enabled feature reported off")
+	}
+}
+
+func TestInvitationsAreSingleUseExpiringAndRevocable(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTemp(t)
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	if _, err := s.ConsumeInvitation(ctx, "unknown", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown token = %v", err)
+	}
+	s.CreateInvitation(ctx, "h-valid", "FAMILY", "grandma", now.Add(time.Hour))
+	inv, err := s.ConsumeInvitation(ctx, "h-valid", now)
+	if err != nil || inv.Role != "FAMILY" || inv.Note != "grandma" {
+		t.Fatalf("consume = %+v, %v", inv, err)
+	}
+	if _, err := s.ConsumeInvitation(ctx, "h-valid", now); !errors.Is(err, ErrNotFound) {
+		t.Fatal("invitation redeemed twice")
+	}
+
+	s.CreateInvitation(ctx, "h-old", "PARENT", "", now.Add(time.Hour))
+	if _, err := s.ConsumeInvitation(ctx, "h-old", now.Add(time.Hour)); !errors.Is(err, ErrNotFound) {
+		t.Fatal("expired invitation accepted (boundary)")
+	}
+	if _, err := s.ConsumeInvitation(ctx, "h-old", now.Add(48*time.Hour)); !errors.Is(err, ErrNotFound) {
+		t.Fatal("expired invitation accepted")
+	}
+
+	id, _ := s.CreateInvitation(ctx, "h-revoked", "CHILD", "", now.Add(time.Hour))
+	if err := s.RevokeInvitation(ctx, id, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ConsumeInvitation(ctx, "h-revoked", now); !errors.Is(err, ErrNotFound) {
+		t.Fatal("revoked invitation accepted")
+	}
+	if err := s.RevokeInvitation(ctx, id, now); !errors.Is(err, ErrNotFound) {
+		t.Fatal("revoking twice must report not found")
+	}
+	if _, err := s.CreateInvitation(ctx, "h-owner", "OWNER", "", now); err == nil {
+		t.Fatal("an invitation must never be able to grant OWNER")
+	}
+
+	list, _ := s.ListInvitations(ctx, 10)
+	statuses := map[string]string{}
+	for _, i := range list {
+		statuses[i.Note+i.Role] = i.Status(now.Add(2 * time.Hour))
+	}
+	if statuses["grandmaFAMILY"] != "used" || statuses["CHILD"] != "revoked" || statuses["PARENT"] != "expired" {
+		t.Fatalf("statuses = %v", statuses)
+	}
+}
+
+func TestConcurrentConsumeOnlyOneWins(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTemp(t)
+	now := time.Now()
+	s.CreateInvitation(ctx, "race", "FAMILY", "", now.Add(time.Hour))
+	results := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		go func() { _, err := s.ConsumeInvitation(ctx, "race", now); results <- err }()
+	}
+	wins := 0
+	for i := 0; i < 8; i++ {
+		if err := <-results; err == nil {
+			wins++
+		}
+	}
+	if wins != 1 {
+		t.Fatalf("%d goroutines redeemed a single-use invitation", wins)
+	}
+}
+
+func TestPendingAuthorizationApproveAndReject(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTemp(t)
+	now := time.Now()
+	invID, _ := s.CreateInvitation(ctx, "h", "PARENT", "", now.Add(time.Hour))
+	pid, err := s.CreatePending(ctx, PendingAuthorization{TelegramID: 111, Username: "mum", FirstName: "Mami", Role: "PARENT", InvitationID: invID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreatePending(ctx, PendingAuthorization{TelegramID: 111, Role: "PARENT"}); err == nil {
+		t.Fatal("a person can have only one pending request")
+	}
+	if ok, _ := s.HasPending(ctx, 111); !ok {
+		t.Fatal("HasPending false")
+	}
+	if u, err := s.GetUserByTelegramID(ctx, 111); err == nil {
+		t.Fatalf("user exists before approval: %+v", u)
+	}
+
+	user, err := s.ApprovePending(ctx, pid, "", now)
+	if err != nil || user.DisplayName != "Mami" || user.Role != "PARENT" || !user.Active {
+		t.Fatalf("approve = %+v, %v", user, err)
+	}
+	if _, err := s.ApprovePending(ctx, pid, "", now); !errors.Is(err, ErrNotFound) {
+		t.Fatal("approved twice")
+	}
+	got, err := s.GetUserByTelegramID(ctx, 111)
+	if err != nil || got.ID != user.ID {
+		t.Fatalf("lookup = %+v, %v", got, err)
+	}
+
+	pid2, _ := s.CreatePending(ctx, PendingAuthorization{TelegramID: 222, Role: "FAMILY"})
+	tg, err := s.RejectPending(ctx, pid2, now)
+	if err != nil || tg != 222 {
+		t.Fatalf("reject = %d, %v", tg, err)
+	}
+	if _, err := s.GetUserByTelegramID(ctx, 222); !errors.Is(err, ErrNotFound) {
+		t.Fatal("rejected person became a user")
+	}
+	if list, _ := s.ListPending(ctx); len(list) != 0 {
+		t.Fatalf("pending = %+v", list)
+	}
+}
+
+func TestChatsCRUD(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTemp(t)
+	uid, _ := s.CreateTelegramUser(ctx, "Dad", "PARENT", 5, "dad")
+	id, err := s.CreateChat(ctx, Chat{Name: "Dad", Kind: "user", UserID: uid, TelegramChatID: 5, Favorite: true, Position: 2, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.CreateChat(ctx, Chat{Name: "Family", Kind: "group", TelegramChatID: -100, Favorite: true, Position: 1, Enabled: true})
+	list, _ := s.ListChats(ctx)
+	if len(list) != 2 || list[0].Name != "Family" {
+		t.Fatalf("order = %+v", list)
+	}
+	if _, err := s.CreateChat(ctx, Chat{Name: "Dad", Kind: "group", TelegramChatID: 1}); err == nil {
+		t.Fatal("duplicate name accepted")
+	}
+	if _, err := s.CreateChat(ctx, Chat{Name: "X", Kind: "channel", TelegramChatID: 1}); err == nil {
+		t.Fatal("bad kind accepted")
+	}
+	c, _ := s.GetChat(ctx, id)
+	c.Name = "Daddy"
+	if err := s.UpdateChat(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetChat(ctx, id); got.Name != "Daddy" {
+		t.Fatalf("got %+v", got)
+	}
+	if err := s.DeleteChat(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetChat(ctx, id); !errors.Is(err, ErrNotFound) {
+		t.Fatal("chat not deleted")
+	}
+}
+
+func TestMessagesPendingOrderOutboxAndPrune(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTemp(t)
+	now := time.Now()
+
+	if _, err := s.NextPending(ctx, false); !errors.Is(err, ErrNotFound) {
+		t.Fatal("empty inbox must report not found")
+	}
+	a, _ := s.InsertMessage(ctx, Message{Direction: "in", Kind: "text", Body: "first"})
+	b, _ := s.InsertMessage(ctx, Message{Direction: "in", Kind: "text", Body: "second"})
+	e, _ := s.InsertMessage(ctx, Message{Direction: "in", Kind: "text", Body: "help", Type: "emergency", Priority: "critical"})
+
+	if m, _ := s.NextPending(ctx, false); m.ID != e {
+		t.Fatalf("emergency must come first, got %d", m.ID)
+	}
+	if m, _ := s.NextPending(ctx, true); m.ID != e {
+		t.Fatal("emergencyOnly returned wrong message")
+	}
+	s.MarkPlayed(ctx, e, now)
+	if _, err := s.NextPending(ctx, true); !errors.Is(err, ErrNotFound) {
+		t.Fatal("emergencyOnly returned a non-emergency message")
+	}
+	if m, _ := s.NextPending(ctx, false); m.ID != a {
+		t.Fatalf("oldest first, got %d", m.ID)
+	}
+	if total, emg, _ := s.PendingCounts(ctx); total != 2 || emg != 0 {
+		t.Fatalf("counts = %d, %d", total, emg)
+	}
+	if un, _ := s.UnnotifiedPending(ctx); len(un) != 2 {
+		t.Fatalf("unnotified = %d", len(un))
+	}
+	s.MarkNotified(ctx, a, now)
+	if un, _ := s.UnnotifiedPending(ctx); len(un) != 1 || un[0].ID != b {
+		t.Fatalf("unnotified = %+v", un)
+	}
+
+	// Outbox with retry.
+	q, _ := s.InsertMessage(ctx, Message{Direction: "out", Kind: "text", Body: "hi"})
+	if m, err := s.NextQueued(ctx, now); err != nil || m.ID != q || m.Status != "queued" {
+		t.Fatalf("queued = %+v, %v", m, err)
+	}
+	retry := now.Add(time.Minute)
+	s.MarkAttemptFailed(ctx, q, "network down", &retry)
+	if _, err := s.NextQueued(ctx, now); !errors.Is(err, ErrNotFound) {
+		t.Fatal("message retried before its backoff elapsed")
+	}
+	if m, err := s.NextQueued(ctx, now.Add(2*time.Minute)); err != nil || m.Attempts != 1 || m.LastError != "network down" {
+		t.Fatalf("after backoff = %+v, %v", m, err)
+	}
+	s.MarkSent(ctx, q)
+	if _, err := s.NextQueued(ctx, now.Add(time.Hour)); !errors.Is(err, ErrNotFound) {
+		t.Fatal("sent message still queued")
+	}
+
+	// Prune keeps unfinished messages.
+	n, _ := s.PruneMessages(ctx, now.Add(time.Hour))
+	if n != 2 { // the played emergency and the sent outgoing one
+		t.Fatalf("pruned %d, want 2", n)
+	}
+	if total, _, _ := s.PendingCounts(ctx); total != 2 {
+		t.Fatal("pending messages were pruned")
+	}
+	if list, _ := s.RecentMessages(ctx, 10); len(list) != 2 {
+		t.Fatalf("recent = %d", len(list))
 	}
 }

@@ -166,8 +166,8 @@ func (a *ALSA) Play(ctx context.Context, wav []byte) error {
 }
 
 // PlayNotification implements Audio.
-func (a *ALSA) PlayNotification(ctx context.Context, n Notification) error {
-	return a.Play(ctx, NotificationWAV(n))
+func (a *ALSA) PlayNotification(ctx context.Context, n Notification, volume int) error {
+	return a.Play(ctx, Scale(NotificationWAV(n), volume))
 }
 
 // Stop implements Audio.

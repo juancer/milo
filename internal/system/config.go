@@ -17,6 +17,10 @@ type Config struct {
 	LogFormat string
 	KeyPath   string // master key file
 	Hardware  string // "real" or "mock"
+
+	// TelegramAPIURL overrides the Bot API address. For development and tests
+	// only (it points Nexo at the simulator); leave empty in production.
+	TelegramAPIURL string
 }
 
 const (
@@ -40,6 +44,8 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		LogLevel:  get("NEXO_LOG_LEVEL", "info"),
 		LogFormat: get("NEXO_LOG_FORMAT", "text"),
 		Hardware:  get("NEXO_HARDWARE", "real"),
+
+		TelegramAPIURL: getenv("NEXO_TELEGRAM_API_URL"),
 	}
 	switch {
 	case getenv("NEXO_MASTER_KEY_FILE") != "":

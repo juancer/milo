@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexo simulator - family phones</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f0f2f5; --panel:#fff; --line:#d8dce3; --text:#16181d; --muted:#667085; --me:#d8f0ff; --bot:#eceff3; --accent:#2a7de1; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1115; --panel:#181b21; --line:#2a2f39; --text:#eceef2; --muted:#98a2b3; --me:#173a56; --bot:#242933; --accent:#5b9dff; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.45 system-ui,sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:.8rem 1rem; background:var(--panel); border-bottom:1px solid var(--line); display:flex; gap:1rem; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:1.05rem; margin:0; }
+  header .muted { color:var(--muted); font-size:.85rem; }
+  main { display:grid; grid-template-columns: 14rem 1fr; gap:1rem; padding:1rem; max-width:64rem; margin:0 auto; }
+  @media (max-width:640px) { main { grid-template-columns:1fr; } }
+  .people, .chat { background:var(--panel); border:1px solid var(--line); border-radius:.75rem; }
+  .people button { display:block; width:100%; text-align:left; padding:.7rem .9rem; border:0; border-bottom:1px solid var(--line); background:none; color:inherit; font:inherit; cursor:pointer; }
+  .people button.active { background:var(--me); font-weight:600; }
+  .people small { color:var(--muted); display:block; }
+  .add { padding:.7rem; display:grid; gap:.4rem; }
+  .chat { display:flex; flex-direction:column; min-height:28rem; }
+  .log { flex:1; padding:1rem; display:flex; flex-direction:column; gap:.5rem; overflow-y:auto; max-height:32rem; }
+  .b { max-width:80%; padding:.5rem .75rem; border-radius:.9rem; white-space:pre-wrap; word-break:break-word; }
+  .b.user { align-self:flex-end; background:var(--me); }
+  .b.bot { align-self:flex-start; background:var(--bot); }
+  .b small { display:block; color:var(--muted); font-size:.72rem; margin-top:.15rem; }
+  .kb { display:flex; flex-wrap:wrap; gap:.4rem; margin-top:.45rem; }
+  .kb button { padding:.4rem .7rem; border:1px solid var(--accent); background:none; color:var(--accent); border-radius:.5rem; cursor:pointer; font:inherit; }
+  form { display:flex; gap:.5rem; padding:.75rem; border-top:1px solid var(--line); flex-wrap:wrap; }
+  input[type=text] { flex:1 1 12rem; padding:.55rem .7rem; border:1px solid var(--line); border-radius:.5rem; background:var(--bg); color:inherit; font:inherit; }
+  button.send { padding:.55rem .9rem; border:0; border-radius:.5rem; background:var(--accent); color:#fff; font:inherit; cursor:pointer; }
+  button.alt { background:none; color:var(--accent); border:1px solid var(--accent); }
+  .empty { color:var(--muted); margin:auto; }
+  label { display:flex; gap:.4rem; align-items:center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📱 Nexo simulator - family phones</h1>
+  <span class="muted">Fake Telegram: talk to the bot as each person. Bot: <b id="bot"></b></span>
+  <label><input type="checkbox" id="outage"> Simulate Telegram outage</label>
+</header>
+<main>
+  <div class="people"><div id="people"></div>
+    <form class="add" id="add"><input type="text" id="newname" placeholder="Add a person (name)" required><button class="send alt" type="submit">Add</button></form>
+  </div>
+  <div class="chat">
+    <div class="log" id="log"><p class="empty">Choose a person.</p></div>
+    <form id="send">
+      <input type="text" id="text" placeholder="Type a message, or paste an invitation link" autocomplete="off">
+      <button class="send" type="submit">Send</button>
+      <button class="send alt" type="button" id="voice" title="Sends a voice note whose words are the text in the box">🎤 Send as voice</button>
+    </form>
+  </div>
+</main>
+<script>
+let current = null, people = [];
+const $ = (id) => document.getElementById(id);
+async function j(url, method, body) {
+  const r = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: body ? JSON.stringify(body) : undefined });
+  return r.headers.get('content-type')?.includes('json') ? r.json() : null;
+}
+async function loadPeople() {
+  const s = await j('/sim/api/state');
+  people = s.people.sort((a,b)=>a.id-b.id);
+  $('bot').textContent = '@' + s.bot;
+  const box = $('people'); box.replaceChildren();
+  for (const p of people) {
+    const b = document.createElement('button');
+    b.className = current === p.id ? 'active' : '';
+    b.append(p.first_name);
+    const sm = document.createElement('small'); sm.textContent = `Telegram id ${p.id}`; b.append(sm);
+    b.onclick = () => { current = p.id; loadPeople(); refresh(); };
+    box.append(b);
+  }
+}
+async function refresh() {
+  if (current === null) return;
+  const bubbles = await j('/sim/api/chat/' + current);
+  const log = $('log'); const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  log.replaceChildren();
+  if (!bubbles || bubbles.length === 0) { const p = document.createElement('p'); p.className='empty'; p.textContent='No messages yet.'; log.append(p); return; }
+  for (const b of bubbles) {
+    const d = document.createElement('div'); d.className = 'b ' + b.from;
+    if (b.kind === 'voice') {
+      d.append(`🎤 voice note (${b.seconds || '?'} s)`);
+      if (b.transcript) d.append(` - "${b.transcript}"`);
+    } else d.append(b.text);
+    const t = document.createElement('small'); t.textContent = new Date(b.at).toLocaleTimeString(); d.append(t);
+    if (b.buttons) {
+      const kb = document.createElement('div'); kb.className = 'kb';
+      for (const row of b.buttons) for (const btn of row) {
+        const x = document.createElement('button'); x.textContent = btn.text;
+        x.onclick = async () => { await j('/sim/api/chat/'+current+'/press','POST',{data:btn.data}); setTimeout(refresh, 300); };
+        kb.append(x);
+      }
+      d.append(kb);
+    }
+    log.append(d);
+  }
+  if (atBottom) log.scrollTop = log.scrollHeight;
+}
+$('send').onsubmit = async (e) => { e.preventDefault(); if (current===null) return;
+  const v = $('text').value; $('text').value = ''; await j('/sim/api/chat/'+current+'/text','POST',{text:v}); setTimeout(refresh,300); };
+$('voice').onclick = async () => { if (current===null || !$('text').value.trim()) return;
+  const v = $('text').value; $('text').value = ''; await j('/sim/api/chat/'+current+'/voice','POST',{text:v}); setTimeout(refresh,300); };
+$('add').onsubmit = async (e) => { e.preventDefault();
+  const name = $('newname').value.trim(); $('newname').value = '';
+  const id = 2000 + Math.floor(Math.random()*7000);
+  await j('/sim/api/people','POST',{id, first_name:name, username:name.toLowerCase().replace(/\W/g,'')}); loadPeople(); };
+$('outage').onchange = (e) => fetch('/sim/api/outage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({failing:e.target.checked})});
+loadPeople(); setInterval(refresh, 1000);
+</script>
+</body>
+</html>

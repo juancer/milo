@@ -22,11 +22,10 @@ type Mock struct {
 	volume    int
 	played    []Played
 	utterance string // what the "child" says on the next recording
-	recDur    time.Duration
 }
 
 // NewMock returns a Mock at 70% volume.
-func NewMock() *Mock { return &Mock{volume: 70, recDur: 300 * time.Millisecond} }
+func NewMock() *Mock { return &Mock{volume: 70} }
 
 // SetUtterance sets the text the next recording "contains". The mock embeds it
 // in the WAV so the development STT stub can transcribe it.
@@ -56,19 +55,21 @@ func (m *Mock) log(p Played) {
 // Record implements Audio. It "listens" until ctx ends or the mock duration passes.
 func (m *Mock) Record(ctx context.Context, opts RecordOptions) ([]byte, error) {
 	opts = opts.withDefaults()
-	wait := m.recDur
+	// Like a real microphone the mock records until it is stopped (ctx) or the
+	// maximum length passes. With StopOnSilence it "hears the sentence end" quickly.
+	wait := opts.MaxDuration
 	if opts.StopOnSilence {
-		wait = 100 * time.Millisecond
+		wait = 200 * time.Millisecond
 	}
 	select {
 	case <-ctx.Done():
-	case <-time.After(min(wait, opts.MaxDuration)):
+	case <-time.After(wait):
 	}
 	m.mu.Lock()
 	text := m.utterance
 	m.utterance = ""
 	m.mu.Unlock()
-	wav := EncodeWAV(Silence(300*time.Millisecond), SampleRate)
+	wav := EncodeWAV(Silence(time.Second), SampleRate)
 	if text != "" {
 		wav = EmbedText(wav, text)
 	}
@@ -86,7 +87,7 @@ func (m *Mock) Play(_ context.Context, wav []byte) error {
 }
 
 // PlayNotification implements Audio.
-func (m *Mock) PlayNotification(_ context.Context, n Notification) error {
+func (m *Mock) PlayNotification(_ context.Context, n Notification, _ int) error {
 	m.log(Played{Kind: "notification", Label: string(n), Duration: Duration(NotificationWAV(n))})
 	return nil
 }

@@ -92,3 +92,15 @@ func TestValidators(t *testing.T) {
 		t.Fatal("Defaults wrong")
 	}
 }
+
+func TestDeactivatedUserHasNoPermissions(t *testing.T) {
+	ctx := context.Background()
+	c, st := setup(t)
+	id := user(t, st, RoleOwner)
+	if err := st.UpdateUser(ctx, id, "x", "OWNER", false); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := c.Has(ctx, id, SendMessage); ok {
+		t.Fatal("deactivated OWNER still has permissions")
+	}
+}

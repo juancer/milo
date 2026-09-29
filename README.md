@@ -7,7 +7,8 @@ device through their own Telegram bot; parents configure everything from a local
 Nexo is the name of the software, not of any child. Nothing about a specific family,
 Telegram account or bot is hardcoded: each installation is configured on its own.
 
-> **Status: Phase 2 of 8.** Foundation, configurable buttons, audio and the Action Engine work.
+> **Status: Phase 3 of 8.** Foundation, configurable buttons, audio, the Action Engine and the
+> Telegram family channel (invitations, approvals, roles, voice and text) work.
 
 ## Design in one minute
 
@@ -29,7 +30,7 @@ You need Docker and Docker Compose. No Go, Node or Python on the host.
 ```sh
 make test         # go vet + go test, inside Docker
 make build-arm64  # builds the UI, then dist/nexo-linux-arm64 (CGO_ENABLED=0)
-make dev          # Nexo with mocked hardware on http://localhost:8080
+make dev          # Nexo (http://localhost:8080) + simulator of family phones (http://localhost:8090)
 make web-dev      # Astro dev server with hot reload on http://localhost:4321
 make help
 ```

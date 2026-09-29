@@ -53,8 +53,8 @@ type Audio interface {
 	// Play plays a WAV file and blocks until it finishes, ctx is cancelled or
 	// Stop is called.
 	Play(ctx context.Context, wav []byte) error
-	// PlayNotification plays a built-in sound.
-	PlayNotification(ctx context.Context, n Notification) error
+	// PlayNotification plays a built-in sound at volume percent (100 = full).
+	PlayNotification(ctx context.Context, n Notification, volume int) error
 	// Stop interrupts current playback, if any.
 	Stop()
 	SetVolume(ctx context.Context, percent int) error

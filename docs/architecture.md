@@ -27,6 +27,8 @@ configuration, persistence, UI.
 | `actions` | Action Engine: the security boundary for buttons, Telegram, voice and the LLM | 2 |
 | `app` | Assembles everything; owns lifecycles | 2 |
 | `telegram`, `schedules`, `notifications` | Transport and rules | 3-4 |
+| `telegram` | Bot API client, authorization, invitations, inbox/outbox, Telegram actions | 3 |
+| `notifications` | Notification sounds honouring parent settings | 3 |
 | `assistant`, `openrouter` | LLM and conversation | 5 |
 
 Packages are created when the phase that needs them starts, not before.
