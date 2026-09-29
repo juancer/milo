@@ -25,6 +25,7 @@ import (
 	"github.com/juancer/nexo/internal/store"
 	"github.com/juancer/nexo/internal/system"
 	"github.com/juancer/nexo/internal/telegram"
+	"github.com/juancer/nexo/internal/wakeword"
 	"github.com/juancer/nexo/internal/wifi"
 )
 
@@ -47,6 +48,7 @@ type App struct {
 	Schedules *schedules.Service
 	Assistant *assistant.Engine
 	Wifi      wifi.Manager
+	Wake      *wakeword.Service
 
 	// Logs is the in-memory log buffer shown in the admin (set by the caller).
 	Logs *system.Ring
@@ -222,5 +224,12 @@ func (a *App) initTelegram(ctx context.Context) error {
 	if err := a.Features.Register(ctx, a.Telegram); err != nil {
 		return err
 	}
-	return a.Features.Register(ctx, a.Assistant)
+	if err := a.Features.Register(ctx, a.Assistant); err != nil {
+		return err
+	}
+	a.Wake = wakeword.New(wakeword.Deps{
+		Store: a.Store, Audio: a.Audio, Actions: a.Actions, Assistant: a.Assistant, Log: a.Log,
+		Simulated: a.Cfg.Hardware == "mock",
+	})
+	return a.Features.Register(ctx, a.Wake)
 }

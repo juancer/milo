@@ -60,6 +60,7 @@ func New(a *app.App, version string, assets fs.FS) http.Handler {
 	s.assistantRoutes(mux)
 	s.wifiRoutes(mux)
 	s.systemRoutes(mux)
+	s.wakeRoutes(mux)
 	s.simRoutes(mux)
 	mux.Handle("/", http.FileServerFS(assets))
 	return securityHeaders(csrfGuard(mux))

@@ -84,6 +84,13 @@ func (e *Engine) RegisterActions(a *actions.Engine) {
 	})
 }
 
+// Busy reports whether a conversation is in progress.
+func (e *Engine) Busy() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.cancel != nil
+}
+
 // Listening reports whether the microphone is currently open for the child.
 func (e *Engine) Listening() bool {
 	e.mu.Lock()

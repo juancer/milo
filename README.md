@@ -7,9 +7,9 @@ device through their own Telegram bot; parents configure everything from a local
 Nexo is the name of the software, not of any child. Nothing about a specific family,
 Telegram account or bot is hardcoded: each installation is configured on its own.
 
-> **Status: Phase 6 of 8.** Foundation, configurable buttons, audio, the Action Engine, the
-> Telegram family channel, usage schedules, the emergency channel, the voice assistant, Wi-Fi
-> management and the system pages work.
+> **Status: Phase 7 of 8.** Foundation, configurable buttons, audio, the Action Engine, the
+> Telegram family channel, usage schedules, the emergency channel, the voice assistant, Wi-Fi,
+> the system pages and a local wake word work.
 
 ## Design in one minute
 
@@ -21,7 +21,7 @@ Telegram account or bot is hardcoded: each installation is configured on its own
   can only call registered, validated actions and never runs shell commands.
 - Docker is a **development and build** tool only. The Pi runs the binary under systemd.
 
-More: [assistant](docs/assistant.md) · [telegram](docs/telegram.md) · [architecture](docs/architecture.md) · [security](docs/security.md) ·
+More: [assistant](docs/assistant.md) · [wake word](docs/wakeword.md) · [telegram](docs/telegram.md) · [architecture](docs/architecture.md) · [security](docs/security.md) ·
 [configuration](docs/configuration.md)
 
 ## Develop (Docker only)
