@@ -104,6 +104,8 @@ func (a *App) alertParents(ctx context.Context, quote string) {
 func (a *App) maintenance(ctx context.Context) {
 	for {
 		a.Assistant.PruneHistory(ctx)
+		a.Store.PruneSkills(ctx, time.Now().AddDate(0, 0, -30)) //nolint:errcheck
+		a.backupIfDue(ctx)
 		select {
 		case <-ctx.Done():
 			return

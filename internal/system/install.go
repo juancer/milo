@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 
+	"github.com/juancer/nexo/internal/auth"
 	"github.com/juancer/nexo/internal/secrets"
 	"github.com/juancer/nexo/internal/store"
 	"github.com/juancer/nexo/systemd"
@@ -84,7 +85,12 @@ func Install(ctx context.Context, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// The first administrator gets a generated password, shown once below.
+	created, adminUser, adminPass, err := auth.NewAccounts(st).EnsureFirstAdmin(ctx)
 	st.Close()
+	if err != nil {
+		return err
+	}
 	if err := chownTree(DefaultDataDir, uid, gid); err != nil {
 		return err
 	}
@@ -103,8 +109,11 @@ func Install(ctx context.Context, out io.Writer) error {
 	}
 
 	fmt.Fprintln(out, "\nNexo installed successfully.")
-	fmt.Fprintf(out, "\nOpen:\n\n  http://%s:8080\n", localIP())
-	fmt.Fprintln(out, "\nFirst, set the admin password:\n\n  sudo -u nexo nexo admin-password")
+	if created {
+		PrintFirstAdmin(out, fmt.Sprintf("http://%s:8080", localIP()), adminUser, adminPass)
+	} else {
+		fmt.Fprintf(out, "\nOpen:\n\n  http://%s:8080\n\nSign in with your existing account. Forgot the password?\n  sudo -u nexo nexo admin-reset\n", localIP())
+	}
 	return nil
 }
 
@@ -209,4 +218,22 @@ func localIP() string {
 		}
 	}
 	return "<device-ip>"
+}
+
+// PrintFirstAdmin shows the generated administrator credentials. This is the
+// only time the password exists in clear text; it is written to the terminal of
+// the person installing, never to a log.
+func PrintFirstAdmin(out io.Writer, address, username, password string) {
+	fmt.Fprintf(out, `
+==================== YOUR ADMIN ACCOUNT ====================
+  Open:      %s
+  Username:  %s
+  Password:  %s
+
+  Write this down now: it is shown only once.
+  You will be asked to choose your own password when you
+  first sign in. Then add mom, dad... under the Admins tab.
+  Lost it?   sudo -u nexo nexo admin-reset
+============================================================
+`, address, username, password)
 }

@@ -69,7 +69,7 @@ export async function render(root: HTMLElement): Promise<void> {
             toast(errorMessage(e), true);
           }
         },
-      }, "🗣 Say “Hey Nexo”")),
+      }, "Say “Hey Nexo”")),
     h("section", { class: "card" },
       h("h2", {}, "Microphone"),
       h("form", {
@@ -97,7 +97,7 @@ export async function render(root: HTMLElement): Promise<void> {
       if (data.played.length === 0) log.append(h("li", { class: "muted" }, "Nothing played yet."));
       for (const p of data.played.slice(0, 30)) {
         log.append(h("li", { class: "row" },
-          h("span", {}, p.kind === "notification" ? `♪ ${p.label}` : `🔊 ${p.label}`),
+          h("span", {}, p.kind === "notification" ? `♪ ${p.label}` : p.kind === "music" ? `♫ ${p.label}` : `▶ ${p.label}`),
           h("span", { class: "muted" }, `${new Date(p.at).toLocaleTimeString()} · ${p.duration_ms} ms`)));
       }
     } catch {

@@ -89,3 +89,31 @@ func parseTime(s string) time.Time {
 	}
 	return t
 }
+
+// Snapshot writes a consistent copy of the database to dest (which must not
+// exist), safe to run while Nexo is working. Uses SQLite's VACUUM INTO.
+func (s *Store) Snapshot(ctx context.Context, dest string) error {
+	if _, err := s.db.ExecContext(ctx, `VACUUM INTO ?`, dest); err != nil {
+		return fmt.Errorf("store: snapshot: %w", err)
+	}
+	return nil
+}
+
+// IntegrityCheck runs SQLite's integrity check and reports any damage.
+func (s *Store) IntegrityCheck(ctx context.Context) error {
+	var res string
+	if err := s.db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&res); err != nil {
+		return fmt.Errorf("store: integrity check: %w", err)
+	}
+	if res != "ok" {
+		return fmt.Errorf("store: database is damaged: %s", res)
+	}
+	return nil
+}
+
+// ForceMigrationRow records a migration version as applied without running it.
+// It exists so tests can imitate a database written by a newer Nexo.
+func (s *Store) ForceMigrationRow(ctx context.Context, version int) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO schema_migrations (version, name) VALUES (?, 'forced')`, version)
+	return err
+}

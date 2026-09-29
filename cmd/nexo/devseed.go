@@ -46,7 +46,21 @@ func devSeed(ctx context.Context, cfg system.Config) error {
 	if err != nil {
 		return err
 	}
-	st.SetSetting(ctx, "admin.password_hash", hash) //nolint:errcheck
+	// Demo accounts with a well-known password. Real devices never get these:
+	// dev-seed refuses to run unless the hardware is mocked.
+	for _, a := range []struct {
+		name  string
+		owner bool
+	}{{"admin", true}, {"mom", false}} {
+		if _, err := st.GetAdminByName(ctx, a.name); err != nil {
+			if _, err := st.CreateAdmin(ctx, a.name, hash, a.owner, false); err != nil {
+				return err
+			}
+		} else if a.owner {
+			owner, _ := st.GetAdminByName(ctx, a.name)
+			st.SetAdminPassword(ctx, owner.ID, hash, false) //nolint:errcheck
+		}
+	}
 
 	// A fake token that only the simulator accepts.
 	token := getenv("NEXO_SIM_BOT_TOKEN", "123456:DEMO-TOKEN-NOT-A-REAL-BOT-abcdefghijk")
@@ -114,7 +128,7 @@ func devSeed(ctx context.Context, cfg system.Config) error {
 		st.SetFeatureEnabled(ctx, name, true) //nolint:errcheck
 	}
 	st.SetSetting(ctx, "dev.seeded", "1") //nolint:errcheck
-	fmt.Printf("dev-seed: admin password %q, demo family Dad/Mum/Grandma, features enabled\n", password)
+	fmt.Printf("dev-seed: sign in as admin or mom with password %q; demo family Dad/Mum/Grandma; features enabled\n", password)
 	return nil
 }
 

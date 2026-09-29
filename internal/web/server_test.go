@@ -1,13 +1,17 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -18,6 +22,7 @@ import (
 	"github.com/juancer/nexo/internal/actions"
 	"github.com/juancer/nexo/internal/app"
 	"github.com/juancer/nexo/internal/auth"
+	"github.com/juancer/nexo/internal/backup"
 	"github.com/juancer/nexo/internal/features"
 	"github.com/juancer/nexo/internal/secrets"
 	"github.com/juancer/nexo/internal/store"
@@ -34,6 +39,7 @@ func (f *fakeFeature) Start(context.Context) error { f.started = true; return ni
 func (f *fakeFeature) Stop(context.Context) error  { f.started = false; return nil }
 
 type env struct {
+	impl    *server
 	srv     *httptest.Server
 	app     *app.App
 	store   *store.Store
@@ -50,11 +56,16 @@ func newEnv(t *testing.T, setPassword bool) *env {
 	}
 	t.Cleanup(func() { st.Close() })
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	vault, err := secrets.New(make([]byte, 32), st)
+	keyPath := filepath.Join(t.TempDir(), "master.key")
+	if _, err := secrets.GenerateKeyFile(keyPath); err != nil {
+		t.Fatal(err)
+	}
+	key, _ := secrets.LoadKey(keyPath)
+	vault, err := secrets.New(key, st)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := app.New(ctx, system.Config{Hardware: "mock", DataDir: t.TempDir()}, log, st, vault)
+	a, err := app.New(ctx, system.Config{Hardware: "mock", DataDir: t.TempDir(), KeyPath: keyPath}, log, st, vault)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,12 +76,15 @@ func newEnv(t *testing.T, setPassword bool) *env {
 	}
 	if setPassword {
 		hash, _ := auth.HashPassword(testPassword)
-		st.SetSetting(ctx, settingPasswordHash, hash)
+		if _, err := st.CreateAdmin(ctx, "admin", hash, true, false); err != nil {
+			t.Fatal(err)
+		}
 	}
 	assets := fstest.MapFS{"index.html": {Data: []byte("<h1>Nexo</h1>")}}
-	srv := httptest.NewServer(New(a, "test", assets))
+	impl := newServer(a, "test")
+	srv := httptest.NewServer(impl.handler(assets))
 	t.Cleanup(srv.Close)
-	return &env{srv: srv, app: a, store: st, feature: ff}
+	return &env{srv: srv, app: a, store: st, feature: ff, impl: impl}
 }
 
 func (e *env) do(t *testing.T, method, path, body string, cookie *http.Cookie, headers map[string]string) *http.Response {
@@ -96,7 +110,13 @@ func (e *env) do(t *testing.T, method, path, body string, cookie *http.Cookie, h
 
 func (e *env) login(t *testing.T) *http.Cookie {
 	t.Helper()
-	resp := e.do(t, "POST", "/api/login", `{"password":"`+testPassword+`"}`, nil, nil)
+	return e.loginAs(t, "admin", testPassword)
+}
+
+func (e *env) loginAs(t *testing.T, user, pass string) *http.Cookie {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{"username": user, "password": pass})
+	resp := e.do(t, "POST", "/api/login", string(body), nil, nil)
 	if resp.StatusCode != 200 {
 		t.Fatalf("login status = %d", resp.StatusCode)
 	}
@@ -147,21 +167,22 @@ func TestProtectedEndpointsRequireLogin(t *testing.T) {
 	}
 }
 
-func TestSetupRequiredUntilPasswordSet(t *testing.T) {
-	e := newEnv(t, false)
-	var info map[string]bool
-	json.NewDecoder(e.do(t, "GET", "/api/session", "", nil, nil).Body).Decode(&info)
-	if !info["setup_required"] || info["authenticated"] {
-		t.Fatalf("session info = %v", info)
+func TestSessionInfoReportsWhoIsSignedIn(t *testing.T) {
+	e := newEnv(t, true)
+	info := decode[map[string]any](t, e.do(t, "GET", "/api/session", "", nil, nil))
+	if info["authenticated"] != false || info["username"] != nil {
+		t.Fatalf("anonymous session info = %v", info)
 	}
-	if resp := e.do(t, "POST", "/api/login", `{"password":"anything at all"}`, nil, nil); resp.StatusCode != 409 {
-		t.Fatalf("login before setup = %d, want 409", resp.StatusCode)
+	cookie := e.login(t)
+	info = decode[map[string]any](t, e.do(t, "GET", "/api/session", "", cookie, nil))
+	if info["authenticated"] != true || info["username"] != "admin" || info["is_owner"] != true || info["must_change_password"] != false {
+		t.Fatalf("session info = %v", info)
 	}
 }
 
 func TestLoginFlow(t *testing.T) {
 	e := newEnv(t, true)
-	if resp := e.do(t, "POST", "/api/login", `{"password":"wrong password!"}`, nil, nil); resp.StatusCode != 401 {
+	if resp := e.do(t, "POST", "/api/login", `{"username":"admin","password":"wrong password!"}`, nil, nil); resp.StatusCode != 401 {
 		t.Fatalf("wrong password = %d", resp.StatusCode)
 	}
 	cookie := e.login(t)
@@ -192,10 +213,10 @@ func TestLoginFlow(t *testing.T) {
 func TestLoginIsRateLimited(t *testing.T) {
 	e := newEnv(t, true)
 	for i := 0; i < 5; i++ {
-		e.do(t, "POST", "/api/login", `{"password":"wrong password!"}`, nil, nil)
+		e.do(t, "POST", "/api/login", `{"username":"admin","password":"wrong password!"}`, nil, nil)
 	}
 	// Even the right password is refused while throttled.
-	if resp := e.do(t, "POST", "/api/login", `{"password":"`+testPassword+`"}`, nil, nil); resp.StatusCode != 429 {
+	if resp := e.do(t, "POST", "/api/login", `{"username":"admin","password":"`+testPassword+`"}`, nil, nil); resp.StatusCode != 429 {
 		t.Fatalf("throttled login = %d, want 429", resp.StatusCode)
 	}
 }
@@ -204,7 +225,8 @@ func TestPasswordChangeInvalidatesSessions(t *testing.T) {
 	e := newEnv(t, true)
 	cookie := e.login(t)
 	newHash, _ := auth.HashPassword("another-long-password")
-	e.store.SetSetting(context.Background(), settingPasswordHash, newHash)
+	admin, _ := e.store.GetAdminByName(context.Background(), "admin")
+	e.store.SetAdminPassword(context.Background(), admin.ID, newHash, false)
 	if resp := e.do(t, "GET", "/api/status", "", cookie, nil); resp.StatusCode != 401 {
 		t.Fatalf("old session survived password change: %d", resp.StatusCode)
 	}
@@ -1124,5 +1146,386 @@ func TestSkillsAPI(t *testing.T) {
 		if resp := e.do(t, r[0], r[1], "{}", nil, nil); resp.StatusCode != 401 {
 			t.Errorf("%s %s without login = %d", r[0], r[1], resp.StatusCode)
 		}
+	}
+}
+
+// ---------------------------------------------------------------- multiple administrators
+
+func (e *env) post(t *testing.T, path string, body any, cookie *http.Cookie) *http.Response {
+	t.Helper()
+	b, _ := json.Marshal(body)
+	return e.do(t, "POST", path, string(b), cookie, nil)
+}
+
+func TestOwnerAddsAdministratorsWhoMustChooseTheirOwnPassword(t *testing.T) {
+	e := newEnv(t, true)
+	owner := e.login(t)
+
+	resp := e.post(t, "/api/admins", map[string]string{"username": "mom"}, owner)
+	created := decode[map[string]any](t, resp)
+	pw, _ := created["generated_password"].(string)
+	if resp.StatusCode != 201 || len(pw) != 24 {
+		t.Fatalf("create = %d %v", resp.StatusCode, created)
+	}
+	// Second administrator with a password chosen by the owner: nothing is generated.
+	resp = e.post(t, "/api/admins", map[string]string{"username": "dad", "password": "dads-first-password-1"}, owner)
+	if c := decode[map[string]any](t, resp); resp.StatusCode != 201 || c["generated_password"] != "" {
+		t.Fatalf("create dad = %d %v", resp.StatusCode, c)
+	}
+
+	// Mom signs in with the generated password: everything is locked until she changes it.
+	mom := e.loginAs(t, "mom", pw)
+	info := decode[map[string]any](t, e.do(t, "GET", "/api/session", "", mom, nil))
+	if info["must_change_password"] != true || info["is_owner"] != false {
+		t.Fatalf("mom's session = %v", info)
+	}
+	for _, path := range []string{"/api/status", "/api/buttons", "/api/chats", "/api/admins", "/api/system"} {
+		r := e.do(t, "GET", path, "", mom, nil)
+		body, _ := io.ReadAll(r.Body)
+		if r.StatusCode != 403 || !strings.Contains(string(body), "password_change_required") {
+			t.Errorf("GET %s before changing the password = %d %s", path, r.StatusCode, body)
+		}
+	}
+	if r := e.post(t, "/api/account/password", map[string]string{"current_password": "wrong", "new_password": "a-brand-new-password"}, mom); r.StatusCode != 401 {
+		t.Fatalf("wrong current password = %d", r.StatusCode)
+	}
+	if r := e.post(t, "/api/account/password", map[string]string{"current_password": pw, "new_password": "short"}, mom); r.StatusCode != 400 {
+		t.Fatalf("weak new password = %d", r.StatusCode)
+	}
+	r := e.post(t, "/api/account/password", map[string]string{"current_password": pw, "new_password": "moms-own-password-42"}, mom)
+	var fresh *http.Cookie
+	for _, c := range r.Cookies() {
+		if c.Name == cookieName {
+			fresh = c
+		}
+	}
+	if r.StatusCode != 200 || fresh == nil {
+		t.Fatalf("change = %d", r.StatusCode)
+	}
+	// The old session died, the new one works and the lock is gone.
+	if r := e.do(t, "GET", "/api/status", "", mom, nil); r.StatusCode != 401 {
+		t.Fatalf("old session after password change = %d", r.StatusCode)
+	}
+	if r := e.do(t, "GET", "/api/status", "", fresh, nil); r.StatusCode != 200 {
+		t.Fatalf("new session = %d", r.StatusCode)
+	}
+	if _, err := e.app.Store.GetAdminByName(context.Background(), "mom"); err != nil {
+		t.Fatal(err)
+	}
+	if r := e.do(t, "POST", "/api/login", `{"username":"mom","password":"`+pw+`"}`, nil, nil); r.StatusCode != 401 {
+		t.Fatalf("the generated password still works: %d", r.StatusCode)
+	}
+}
+
+func TestOnlyTheOwnerManagesAdministratorsAndOwnerIsProtected(t *testing.T) {
+	e := newEnv(t, true)
+	owner := e.login(t)
+	e.post(t, "/api/admins", map[string]string{"username": "mom", "password": "moms-first-password-1"}, owner)
+	// Mom completes her first sign-in so she is not locked.
+	mom := e.loginAs(t, "mom", "moms-first-password-1")
+	r := e.post(t, "/api/account/password", map[string]string{"current_password": "moms-first-password-1", "new_password": "moms-own-password-42"}, mom)
+	for _, c := range r.Cookies() {
+		mom = c
+	}
+
+	// A regular administrator can see the list and manage everything else, but not the administrators.
+	if r := e.do(t, "GET", "/api/admins", "", mom, nil); r.StatusCode != 200 {
+		t.Fatalf("mom lists admins = %d", r.StatusCode)
+	}
+	if r := e.do(t, "GET", "/api/buttons", "", mom, nil); r.StatusCode != 200 {
+		t.Fatalf("mom manages buttons = %d", r.StatusCode)
+	}
+	if r := e.post(t, "/api/admins", map[string]string{"username": "sneaky"}, mom); r.StatusCode != 403 {
+		t.Fatalf("mom creates an admin = %d, want 403", r.StatusCode)
+	}
+	list := decode[[]adminDTO](t, e.do(t, "GET", "/api/admins", "", owner, nil))
+	var ownerID, momID int64
+	for _, a := range list {
+		if a.IsOwner {
+			ownerID = a.ID
+		} else if a.Username == "mom" {
+			momID = a.ID
+		}
+	}
+	if len(list) != 2 || !list[0].IsOwner || !list[0].You {
+		t.Fatalf("list = %+v", list)
+	}
+	if r := e.do(t, "DELETE", "/api/admins/"+itoa(ownerID), "", mom, nil); r.StatusCode != 403 {
+		t.Fatalf("mom deletes the owner = %d, want 403", r.StatusCode)
+	}
+	if r := e.do(t, "DELETE", "/api/admins/"+itoa(ownerID), "", owner, nil); r.StatusCode != 409 {
+		t.Fatalf("owner deletes self = %d, want 409", r.StatusCode)
+	}
+	if r := e.post(t, "/api/admins/"+itoa(momID)+"/reset", nil, mom); r.StatusCode != 403 {
+		t.Fatalf("mom resets herself via the owner endpoint = %d", r.StatusCode)
+	}
+
+	// Reset signs mom out and demands a new password; deleting removes her at once.
+	rr := e.post(t, "/api/admins/"+itoa(momID)+"/reset", nil, owner)
+	reset := decode[map[string]any](t, rr)
+	if rr.StatusCode != 200 || len(reset["generated_password"].(string)) != 24 {
+		t.Fatalf("reset = %d %v", rr.StatusCode, reset)
+	}
+	if r := e.do(t, "GET", "/api/status", "", mom, nil); r.StatusCode != 401 {
+		t.Fatalf("mom's session survived the reset: %d", r.StatusCode)
+	}
+	mom2 := e.loginAs(t, "mom", reset["generated_password"].(string))
+	if r := e.do(t, "DELETE", "/api/admins/"+itoa(momID), "", owner, nil); r.StatusCode != 204 {
+		t.Fatalf("delete mom = %d", r.StatusCode)
+	}
+	if r := e.do(t, "GET", "/api/session", "", mom2, nil); decode[map[string]any](t, r)["authenticated"] != false {
+		t.Fatal("a deleted administrator's session still works")
+	}
+	if r := e.do(t, "DELETE", "/api/admins/"+itoa(momID), "", owner, nil); r.StatusCode != 404 {
+		t.Fatalf("delete twice = %d", r.StatusCode)
+	}
+}
+
+func TestAdminValidationAuditAndSecrecy(t *testing.T) {
+	e := newEnv(t, true)
+	owner := e.login(t)
+	for name, body := range map[string]map[string]string{
+		"empty": {"username": ""}, "capital": {"username": "Mom!"}, "space": {"username": "big mom"}, "digit first": {"username": "1mom"},
+		"weak password": {"username": "mom", "password": "short"},
+	} {
+		if r := e.post(t, "/api/admins", body, owner); r.StatusCode != 400 {
+			t.Errorf("%s = %d, want 400", name, r.StatusCode)
+		}
+	}
+	e.post(t, "/api/admins", map[string]string{"username": "mom"}, owner)
+	if r := e.post(t, "/api/admins", map[string]string{"username": "mom"}, owner); r.StatusCode != 400 {
+		t.Errorf("duplicate = %d", r.StatusCode)
+	}
+	e.do(t, "POST", "/api/login", `{"username":"mom","password":"wrong-password-here"}`, nil, nil)
+	entries, _ := e.store.ListAudit(context.Background(), 50)
+	seen := map[string]string{}
+	for _, en := range entries {
+		seen[en.Action] = en.Actor
+		if strings.Contains(en.Details+en.Target, "-") && len(en.Target) > 24 {
+			t.Errorf("suspicious audit target %q (looks like a password)", en.Target)
+		}
+	}
+	if seen["admin.created"] != "admin" || seen["admin.login"] != "admin" {
+		t.Fatalf("audit actors = %v (entries must name the person who acted)", seen)
+	}
+}
+
+func TestLoginAttemptsAreThrottledPerAccountToo(t *testing.T) {
+	e := newEnv(t, true)
+	// Spread over "addresses" is not possible in a test, but the per-account limit must trip
+	// on its own: 8 failures for one username block even a correct password.
+	for i := 0; i < 8; i++ {
+		e.impl.userLimiter.Fail("admin")
+	}
+	if r := e.do(t, "POST", "/api/login", `{"username":"admin","password":"`+testPassword+`"}`, nil, nil); r.StatusCode != 429 {
+		t.Fatalf("throttled account = %d, want 429", r.StatusCode)
+	}
+	if r := e.do(t, "POST", "/api/login", `{"username":"other","password":"whatever-it-is"}`, nil, nil); r.StatusCode == 429 {
+		t.Fatal("another account was throttled")
+	}
+}
+
+// ---------------------------------------------------------------- backups
+
+func multipartBody(fields [][2]string, fileName string, file []byte) (*bytes.Buffer, string) {
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for _, f := range fields {
+		mw.WriteField(f[0], f[1])
+	}
+	if file != nil {
+		part, _ := mw.CreateFormFile("file", fileName)
+		part.Write(file)
+	}
+	mw.Close()
+	return &buf, mw.FormDataContentType()
+}
+
+func (e *env) upload(t *testing.T, path string, body *bytes.Buffer, contentType string, cookie *http.Cookie) *http.Response {
+	t.Helper()
+	req, _ := http.NewRequest("POST", e.srv.URL+path, body)
+	req.Header.Set(clientHeader, clientHeaderValue)
+	req.Header.Set("Content-Type", contentType)
+	req.AddCookie(cookie)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { resp.Body.Close() })
+	return resp
+}
+
+const backupPass = "a-good-backup-passphrase"
+
+func downloadBackup(t *testing.T, e *env, cookie *http.Cookie, includeKey bool) []byte {
+	t.Helper()
+	body, _ := json.Marshal(map[string]any{"passphrase": backupPass, "include_key": includeKey})
+	resp := e.do(t, "POST", "/api/backup/download", string(body), cookie, nil)
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 || !strings.Contains(resp.Header.Get("Content-Disposition"), "nexo-backup-") {
+		t.Fatalf("download = %d %s", resp.StatusCode, data[:min(len(data), 200)])
+	}
+	return data
+}
+
+func TestBackupDownloadIsEncryptedAndComplete(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	ctx := context.Background()
+	e.app.Vault.Put(ctx, "telegram.bot_token", []byte("123456:PLAIN-TEXT-CHECK-abcdefghijklmnop"))
+	e.store.InsertMessage(ctx, store.Message{Direction: "in", Kind: "text", Body: "private family message"})
+
+	for _, weak := range []string{"", "short", strings.Repeat("x", 300)} {
+		body, _ := json.Marshal(map[string]any{"passphrase": weak})
+		if resp := e.do(t, "POST", "/api/backup/download", string(body), cookie, nil); resp.StatusCode != 400 {
+			t.Errorf("passphrase %q = %d, want 400", weak, resp.StatusCode)
+		}
+	}
+	withKey := downloadBackup(t, e, cookie, true)
+	if bytes.Contains(withKey, []byte("private family message")) || bytes.Contains(withKey, []byte("PLAIN-TEXT-CHECK")) {
+		t.Fatal("the downloaded backup is not encrypted")
+	}
+	c, err := backup.Open(ctx, bytes.NewReader(withKey), backupPass, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if !c.Manifest.IncludesKey || len(c.Key) == 0 {
+		t.Fatalf("manifest = %+v", c.Manifest)
+	}
+	if _, err := backup.Open(ctx, bytes.NewReader(withKey), "not the passphrase!!", t.TempDir()); err == nil {
+		t.Fatal("opened with the wrong passphrase")
+	}
+	if c2, err := backup.Open(ctx, bytes.NewReader(downloadBackup(t, e, cookie, false)), backupPass, t.TempDir()); err != nil || c2.Key != nil {
+		t.Fatalf("no-key backup: %v", err)
+	} else {
+		c2.Close()
+	}
+	entries, _ := e.store.ListAudit(ctx, 40)
+	for _, en := range entries {
+		if strings.Contains(en.Details+en.Target, backupPass) {
+			t.Fatal("the backup passphrase was written to the audit log")
+		}
+	}
+	if resp := e.do(t, "POST", "/api/backup/download", `{"passphrase":"`+backupPass+`"}`, nil, nil); resp.StatusCode != 401 {
+		t.Fatalf("download without login = %d", resp.StatusCode)
+	}
+}
+
+func TestRestoreUploadIsStagedThenAppliedAtRestart(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	ctx := context.Background()
+	e.store.SetSetting(ctx, "family.motto", "before")
+	file := downloadBackup(t, e, cookie, true)
+	e.store.SetSetting(ctx, "family.motto", "after the backup")
+
+	// Wrong passphrase, wrong order and garbage are refused without touching anything.
+	body, ct := multipartBody([][2]string{{"passphrase", "not the right one!!"}}, "b.nexo", file)
+	if resp := e.upload(t, "/api/backup/restore", body, ct, cookie); resp.StatusCode != 422 {
+		t.Fatalf("wrong passphrase = %d", resp.StatusCode)
+	}
+	body, ct = multipartBody(nil, "b.nexo", file) // no passphrase at all
+	if resp := e.upload(t, "/api/backup/restore", body, ct, cookie); resp.StatusCode != 400 {
+		t.Fatalf("missing passphrase = %d", resp.StatusCode)
+	}
+	body, ct = multipartBody([][2]string{{"passphrase", backupPass}}, "b.nexo", []byte("garbage that is not a backup file at all"))
+	if resp := e.upload(t, "/api/backup/restore", body, ct, cookie); resp.StatusCode != 422 {
+		t.Fatalf("garbage = %d", resp.StatusCode)
+	}
+	if _, err := os.Stat(filepath.Join(e.app.Cfg.DataDir, "restore-pending")); err == nil {
+		t.Fatal("something was staged by a refused upload")
+	}
+
+	body, ct = multipartBody([][2]string{{"passphrase", backupPass}}, "b.nexo", file)
+	resp := e.upload(t, "/api/backup/restore", body, ct, cookie)
+	staged := decode[map[string]any](t, resp)
+	if resp.StatusCode != 202 || staged["restart_required"] != true {
+		t.Fatalf("stage = %d %v", resp.StatusCode, staged)
+	}
+	if v, _ := e.store.GetSetting(ctx, "family.motto"); v != "after the backup" {
+		t.Fatal("the live database changed before the restart")
+	}
+	// What the next start does:
+	applied, prev, err := backup.ApplyPending(e.app.Cfg.DataDir)
+	if err != nil || !applied {
+		t.Fatalf("apply = %v %q %v", applied, prev, err)
+	}
+	restored, err := store.Open(ctx, filepath.Join(e.app.Cfg.DataDir, "nexo.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	if v, _ := restored.GetSetting(ctx, "family.motto"); v != "before" {
+		t.Fatalf("restored motto = %q", v)
+	}
+}
+
+func TestRestoreRefusesABackupFromAnotherDevice(t *testing.T) {
+	other := newEnv(t, true) // has its own master key
+	otherCookie := other.login(t)
+	file := downloadBackup(t, other, otherCookie, true)
+
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	body, ct := multipartBody([][2]string{{"passphrase", backupPass}}, "b.nexo", file)
+	resp := e.upload(t, "/api/backup/restore", body, ct, cookie)
+	msg := decode[map[string]string](t, resp)["error"]
+	if resp.StatusCode != 422 || !strings.Contains(msg, "different master key") || !strings.Contains(msg, "command line") {
+		t.Fatalf("foreign backup = %d %q", resp.StatusCode, msg)
+	}
+}
+
+func TestRestorePassphraseGuessingIsThrottled(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	file := downloadBackup(t, e, cookie, false)
+	for i := 0; i < 5; i++ {
+		body, ct := multipartBody([][2]string{{"passphrase", "wrong passphrase " + fmt.Sprint(i)}}, "b.nexo", file)
+		e.upload(t, "/api/backup/restore", body, ct, cookie)
+	}
+	body, ct := multipartBody([][2]string{{"passphrase", backupPass}}, "b.nexo", file)
+	if resp := e.upload(t, "/api/backup/restore", body, ct, cookie); resp.StatusCode != 429 {
+		t.Fatalf("after 5 wrong guesses = %d, want 429", resp.StatusCode)
+	}
+}
+
+func TestLocalBackupSettingsRunAndListing(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	dir := filepath.Join(t.TempDir(), "snapshots")
+
+	got := decode[struct {
+		Settings app.BackupSettings `json:"settings"`
+		Files    []backup.File      `json:"files"`
+	}](t, e.do(t, "GET", "/api/backup", "", cookie, nil))
+	// Automatic backups are on by default, and the first one is taken right after the first start.
+	if !got.Settings.Auto || got.Settings.Keep != 7 || got.Settings.EveryHours != 24 {
+		t.Fatalf("defaults = %+v", got)
+	}
+	for name, bad := range map[string]string{
+		"relative": `{"auto":true,"dir":"backups","keep":3,"every_hours":24}`, "dotdot": `{"auto":true,"dir":"/tmp/../etc","keep":3,"every_hours":24}`,
+		"keep 0": `{"auto":true,"dir":"` + dir + `","keep":0,"every_hours":24}`, "every 999": `{"auto":true,"dir":"` + dir + `","keep":3,"every_hours":999}`,
+		"unwritable": `{"auto":true,"dir":"/proc/nexo-backups","keep":3,"every_hours":24}`,
+	} {
+		if resp := e.do(t, "PUT", "/api/backup", bad, cookie, nil); resp.StatusCode != 400 {
+			t.Errorf("%s = %d, want 400", name, resp.StatusCode)
+		}
+	}
+	if resp := e.do(t, "PUT", "/api/backup", `{"auto":true,"dir":"`+dir+`","keep":2,"every_hours":12}`, cookie, nil); resp.StatusCode != 200 {
+		t.Fatalf("save = %d", resp.StatusCode)
+	}
+	for i := 0; i < 3; i++ {
+		if resp := e.do(t, "POST", "/api/backup/run", "", cookie, nil); resp.StatusCode != 200 {
+			t.Fatalf("run = %d", resp.StatusCode)
+		}
+		time.Sleep(1100 * time.Millisecond) // snapshot names have one-second resolution
+	}
+	got = decode[struct {
+		Settings app.BackupSettings `json:"settings"`
+		Files    []backup.File      `json:"files"`
+	}](t, e.do(t, "GET", "/api/backup", "", cookie, nil))
+	if len(got.Files) != 2 || got.Settings.LastAt.IsZero() || got.Settings.LastError != "" {
+		t.Fatalf("after runs = %+v", got)
 	}
 }

@@ -12,6 +12,7 @@ import (
 
 type session struct {
 	expires     time.Time
+	userID      int64
 	fingerprint string
 }
 
@@ -36,8 +37,8 @@ func Fingerprint(passwordHash string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Create issues a new session token.
-func (s *Sessions) Create(fingerprint string) (string, error) {
+// Create issues a new session token for a user.
+func (s *Sessions) Create(userID int64, fingerprint string) (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
@@ -51,26 +52,33 @@ func (s *Sessions) Create(fingerprint string) (string, error) {
 			delete(s.m, t)
 		}
 	}
-	s.m[token] = session{expires: now.Add(s.ttl), fingerprint: fingerprint}
+	s.m[token] = session{expires: now.Add(s.ttl), userID: userID, fingerprint: fingerprint}
 	return token, nil
 }
 
-// Valid reports whether token is a live session for the given fingerprint.
-func (s *Sessions) Valid(token, fingerprint string) bool {
+// Lookup returns the user and password fingerprint a live token belongs to.
+// The caller must compare the fingerprint with the user's current password so
+// that changing a password signs that user out everywhere.
+func (s *Sessions) Lookup(token string) (userID int64, fingerprint string, ok bool) {
 	if token == "" {
-		return false
+		return 0, "", false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sess, ok := s.m[token]
-	if !ok {
-		return false
+	sess, found := s.m[token]
+	if !found {
+		return 0, "", false
 	}
-	if s.now().After(sess.expires) || subtle.ConstantTimeCompare([]byte(sess.fingerprint), []byte(fingerprint)) != 1 {
+	if s.now().After(sess.expires) {
 		delete(s.m, token)
-		return false
+		return 0, "", false
 	}
-	return true
+	return sess.userID, sess.fingerprint, true
+}
+
+// Matches reports whether fp equals the fingerprint of the given hash, in constant time.
+func Matches(fp, passwordHash string) bool {
+	return subtle.ConstantTimeCompare([]byte(fp), []byte(Fingerprint(passwordHash))) == 1
 }
 
 // Delete ends a session.

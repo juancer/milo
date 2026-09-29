@@ -36,7 +36,7 @@ func (s *server) skillRoutes(mux *http.ServeMux) {
 // runAction runs an action as the authenticated administrator and maps its
 // errors to HTTP answers. Feature switches and parameter checks still apply.
 func (s *server) runAction(w http.ResponseWriter, r *http.Request, name string, args map[string]any) (actions.Result, bool) {
-	res, err := s.app.Actions.Execute(r.Context(), actions.Actor{Kind: actions.ActorAdmin, Label: "admin"}, name, args)
+	res, err := s.app.Actions.Execute(r.Context(), actions.Actor{Kind: actions.ActorAdmin, Label: adminFrom(r).Username}, name, args)
 	switch {
 	case err == nil:
 		return res, true

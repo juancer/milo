@@ -29,11 +29,44 @@ func keygen(cfg system.Config) error {
 	return nil
 }
 
-// adminPassword sets the web admin password. It is done from the device
-// (not the web UI) so nobody on the network can claim an unconfigured admin.
+// parseUserFlag reads "--user name" and returns the remaining options.
+func parseUserFlag(args []string) (user string, rest []string, err error) {
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--user" {
+			if i+1 >= len(args) {
+				return "", nil, fmt.Errorf("%w: --user needs a name", errUsage)
+			}
+			user = args[i+1]
+			i++
+			continue
+		}
+		rest = append(rest, args[i])
+	}
+	return user, rest, nil
+}
+
+// targetAdmin resolves --user (default: the owner).
+func targetAdmin(ctx context.Context, st *store.Store, accounts *auth.Accounts, name string) (store.AdminUser, error) {
+	if name == "" {
+		return accounts.Owner(ctx)
+	}
+	u, err := st.GetAdminByName(ctx, name)
+	if err != nil {
+		return store.AdminUser{}, fmt.Errorf("no administrator called %q", name)
+	}
+	return u, nil
+}
+
+// adminPassword sets an administrator's password from the device's own shell,
+// for someone who has lost access. It is done here rather than in the browser
+// so nobody on the network can take over an account.
 func adminPassword(ctx context.Context, cfg system.Config, args []string) error {
+	user, rest, err := parseUserFlag(args)
+	if err != nil {
+		return err
+	}
 	fromStdin := false
-	for _, a := range args {
+	for _, a := range rest {
 		if a != "--password-stdin" {
 			return fmt.Errorf("%w: unknown option %q", errUsage, a)
 		}
@@ -47,35 +80,62 @@ func adminPassword(ctx context.Context, cfg system.Config, args []string) error 
 			return fmt.Errorf("read password from stdin: %w", err)
 		}
 		pw = strings.TrimRight(line, "\r\n")
-	} else {
-		var err error
-		if pw, err = promptPassword(); err != nil {
-			return err
-		}
+	} else if pw, err = promptPassword(); err != nil {
+		return err
 	}
 	if err := auth.ValidatePassword(pw); err != nil {
 		return err
 	}
-	hash, err := auth.HashPassword(pw)
-	if err != nil {
-		return err
-	}
-
 	st, err := store.Open(ctx, cfg.DBPath())
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-	if err := st.SetSetting(ctx, "admin.password_hash", hash); err != nil {
-		return err
-	}
-	log, err := system.NewLogger(os.Stderr, cfg.LogLevel, cfg.LogFormat)
+	accounts := auth.NewAccounts(st)
+	target, err := targetAdmin(ctx, st, accounts, user)
 	if err != nil {
 		return err
 	}
-	audit.New(st, log).Record(ctx, "cli", "admin.password_set", "", nil)
-	fmt.Println("admin password updated (existing web sessions are signed out)")
+	if err := accounts.SetPassword(ctx, target.ID, pw, false); err != nil {
+		return err
+	}
+	auditCLI(ctx, cfg, st, "admin.password_set", target.Username)
+	fmt.Printf("password for %q updated (their web sessions are signed out)\n", target.Username)
 	return nil
+}
+
+// adminReset gives an administrator a new generated password, printed once.
+func adminReset(ctx context.Context, cfg system.Config, args []string) error {
+	user, rest, err := parseUserFlag(args)
+	if err != nil {
+		return err
+	}
+	if len(rest) > 0 {
+		return fmt.Errorf("%w: unknown option %q", errUsage, rest[0])
+	}
+	st, err := store.Open(ctx, cfg.DBPath())
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	accounts := auth.NewAccounts(st)
+	target, err := targetAdmin(ctx, st, accounts, user)
+	if err != nil {
+		return err
+	}
+	pw, err := accounts.Reset(ctx, target.ID)
+	if err != nil {
+		return err
+	}
+	auditCLI(ctx, cfg, st, "admin.password_reset", target.Username)
+	system.PrintFirstAdmin(os.Stdout, "http://<this-device>"+cfg.Listen, target.Username, pw)
+	return nil
+}
+
+func auditCLI(ctx context.Context, cfg system.Config, st *store.Store, action, target string) {
+	if log, err := system.NewLogger(os.Stderr, cfg.LogLevel, cfg.LogFormat); err == nil {
+		audit.New(st, log).Record(ctx, "cli", action, target, nil)
+	}
 }
 
 func promptPassword() (string, error) {

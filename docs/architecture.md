@@ -11,13 +11,14 @@ configuration, persistence, UI.
 
 | Package | Responsibility | Phase |
 |---|---|---|
-| `cmd/nexo` | CLI entry point: `run`, `install`, `keygen`, `admin-password`, service control | 1 |
+| `cmd/nexo` | CLI entry point: `run`, `install`, `keygen`, `admin-password`, `admin-reset`, `backup`, `restore`, service control | 1 |
 | `internal/store` | **The only package that talks to SQLite.** Embedded, transactional migrations | 1 |
 | `internal/secrets` | XChaCha20-Poly1305 vault over the `secrets` table; master key handling | 1 |
 | `internal/permissions` | Roles + explicit permissions, shared by web, Telegram and actions | 1 |
 | `internal/audit` | Audit trail of administrative actions, with secret redaction | 1 |
 | `internal/features` | Feature lifecycle: only enabled features start | 1 |
-| `internal/auth` | Argon2id passwords, sessions, login throttling | 1 |
+| `internal/auth` | Admin accounts (generated first password, several administrators), Argon2id, sessions, login throttling | 1, 9 |
+| `internal/backup` | Encrypted backup/restore (Argon2id + XChaCha20-Poly1305), local snapshots | 9 |
 | `internal/system` | Bootstrap config (`NEXO_*`), structured logging, `install` | 1 |
 | `internal/web` | Admin API + embedded UI | 1 |
 | `web/admin` | Astro + TypeScript UI, built to static files and embedded with `go:embed` | 1 |
@@ -48,8 +49,8 @@ Packages are created when the phase that needs them starts, not before.
   resilience but does not make an unprotected SD card immune to power-loss corruption.
 - **Migrations** are `internal/store/migrations/NNNN_name.sql`, applied in order, each in a
   transaction. A database newer than the binary is refused, so a downgrade cannot damage data.
-- **Admin password is set on the device** (`nexo admin-password`), not in the browser, so
-  nobody on the LAN can claim an unconfigured admin.
+- **The first administrator is generated at install time** and shown once on the installer's
+  terminal, so nobody on the LAN can claim an unconfigured admin and no default password exists.
 - **Hardware in development** is selected with `NEXO_HARDWARE=mock`: GPIO and audio become
   in-memory mocks and the web admin gains a *Simulator* tab (virtual buttons, microphone and a
   speaker log). The mocks are also what the tests use.

@@ -7,10 +7,10 @@ device through their own Telegram bot; parents configure everything from a local
 Nexo is the name of the software, not of any child. Nothing about a specific family,
 Telegram account or bot is hardcoded: each installation is configured on its own.
 
-> **Status: all 8 phases done.** Foundation, configurable buttons, audio, the Action Engine, the
+> **Status: all planned phases done.** Foundation, configurable buttons, audio, the Action Engine, the
 > Telegram family channel, usage schedules, the emergency channel, the voice assistant, Wi-Fi,
-> the system pages, a local wake word and optional skills (timers, reminders, music, weather,
-> calendar) work.
+> the system pages, a local wake word, optional skills (timers, reminders, music, weather,
+> calendar), multiple administrators and encrypted backups work.
 
 ## Design in one minute
 
@@ -22,7 +22,7 @@ Telegram account or bot is hardcoded: each installation is configured on its own
   can only call registered, validated actions and never runs shell commands.
 - Docker is a **development and build** tool only. The Pi runs the binary under systemd.
 
-More: [skills](docs/skills.md) · [assistant](docs/assistant.md) · [wake word](docs/wakeword.md) · [telegram](docs/telegram.md) · [architecture](docs/architecture.md) · [security](docs/security.md) ·
+More: [backup](docs/backup.md) · [skills](docs/skills.md) · [assistant](docs/assistant.md) · [wake word](docs/wakeword.md) · [telegram](docs/telegram.md) · [architecture](docs/architecture.md) · [security](docs/security.md) ·
 [configuration](docs/configuration.md)
 
 ## Develop (Docker only)
@@ -37,14 +37,8 @@ make web-dev      # Astro dev server with hot reload on http://localhost:4321
 make help
 ```
 
-Set the admin password for the dev instance (the password is chosen on the device, never in
-the browser):
-
-```sh
-echo 'choose-a-long-password' | docker compose -f deploy/docker-compose.yml run --rm -T \
-  -e NEXO_DATA_DIR=/data -e NEXO_MASTER_KEY_FILE=/data/master.key \
-  dev go run ./cmd/nexo admin-password --password-stdin
-```
+`make dev` seeds a demo installation: sign in as `admin` (or `mom`) with password
+`nexo-demo-password`. (Real devices get a generated password at install time.)
 
 Details: [docs/development.md](docs/development.md).
 
@@ -55,7 +49,7 @@ Target: Raspberry Pi 3B, Raspberry Pi OS 64-bit.
 ```sh
 make build-arm64
 scp dist/nexo-linux-arm64 pi@raspberrypi:nexo
-ssh pi@raspberrypi 'sudo ./nexo install && sudo -u nexo nexo admin-password'
+ssh pi@raspberrypi 'sudo ./nexo install'   # prints your admin username and a generated password, once
 ```
 
 `install` is idempotent and never deletes data. Details: [docs/installation.md](docs/installation.md).

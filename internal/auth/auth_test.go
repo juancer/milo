@@ -46,33 +46,34 @@ func TestValidatePassword(t *testing.T) {
 	}
 }
 
-func TestSessionsExpireAndBindToPassword(t *testing.T) {
+func TestSessionsExpireAndBindToUserAndPassword(t *testing.T) {
 	s := NewSessions(time.Hour)
 	now := time.Unix(1000, 0)
 	s.now = func() time.Time { return now }
 
-	fp := Fingerprint("hash-1")
-	tok, err := s.Create(fp)
+	tok, err := s.Create(7, Fingerprint("hash-1"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !s.Valid(tok, fp) {
-		t.Fatal("fresh session invalid")
+	uid, fp, ok := s.Lookup(tok)
+	if !ok || uid != 7 || !Matches(fp, "hash-1") {
+		t.Fatalf("lookup = %d %v %v", uid, fp, ok)
 	}
-	if s.Valid(tok, Fingerprint("hash-2")) {
-		t.Fatal("session survived a password change")
+	if Matches(fp, "hash-2") {
+		t.Fatal("a session must not match another password")
 	}
-	tok, _ = s.Create(fp)
 	now = now.Add(2 * time.Hour)
-	if s.Valid(tok, fp) {
+	if _, _, ok := s.Lookup(tok); ok {
 		t.Fatal("expired session accepted")
 	}
-	if s.Valid("", fp) || s.Valid("unknown", fp) {
-		t.Fatal("bogus tokens accepted")
+	for _, bad := range []string{"", "unknown"} {
+		if _, _, ok := s.Lookup(bad); ok {
+			t.Fatalf("bogus token %q accepted", bad)
+		}
 	}
-	tok, _ = s.Create(fp)
+	tok, _ = s.Create(7, "x")
 	s.Delete(tok)
-	if s.Valid(tok, fp) {
+	if _, _, ok := s.Lookup(tok); ok {
 		t.Fatal("deleted session accepted")
 	}
 }

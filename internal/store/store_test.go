@@ -459,3 +459,63 @@ func TestMessagesPendingOrderOutboxAndPrune(t *testing.T) {
 		t.Fatalf("recent = %d", len(list))
 	}
 }
+
+func TestLegacySharedAdminPasswordBecomesTheOwnerAccount(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTemp(t)
+	// Put the database back into its pre-0009 state: one shared password in settings.
+	for _, q := range []string{
+		`DROP TABLE admin_users`,
+		`DELETE FROM schema_migrations WHERE version = 9`,
+		`INSERT INTO system_settings (key, value) VALUES ('admin.password_hash', '$argon2id$legacy-hash')`,
+	} {
+		if _, err := s.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := migrate(ctx, s.db, migrationFiles); err != nil {
+		t.Fatal(err)
+	}
+	admins, err := s.ListAdmins(ctx)
+	if err != nil || len(admins) != 1 {
+		t.Fatalf("admins = %+v, %v", admins, err)
+	}
+	if a := admins[0]; a.Username != "admin" || !a.IsOwner || a.MustChange || a.PasswordHash != "$argon2id$legacy-hash" {
+		t.Fatalf("migrated admin = %+v", a)
+	}
+	if _, err := s.GetSetting(ctx, "admin.password_hash"); !errors.Is(err, ErrNotFound) {
+		t.Fatal("the old setting was not removed")
+	}
+}
+
+func TestAdminUsersCRUD(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTemp(t)
+	id, err := s.CreateAdmin(ctx, "mom", "hash", false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateAdmin(ctx, "mom", "hash2", false, false); err == nil {
+		t.Fatal("duplicate username accepted")
+	}
+	if _, err := s.CreateAdmin(ctx, "x", "hash", false, false); err == nil {
+		t.Fatal("too-short username accepted by the schema")
+	}
+	s.CreateAdmin(ctx, "owner", "h", true, false)
+	list, _ := s.ListAdmins(ctx)
+	if len(list) != 2 || !list[0].IsOwner {
+		t.Fatalf("list = %+v (owner first)", list)
+	}
+	s.SetAdminPassword(ctx, id, "new", false)
+	s.TouchAdminLogin(ctx, id, time.Now())
+	a, _ := s.GetAdmin(ctx, id)
+	if a.PasswordHash != "new" || a.MustChange || a.LastLogin == nil {
+		t.Fatalf("admin = %+v", a)
+	}
+	if err := s.DeleteAdmin(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetAdminByName(ctx, "mom"); !errors.Is(err, ErrNotFound) {
+		t.Fatal("deleted admin still found")
+	}
+}

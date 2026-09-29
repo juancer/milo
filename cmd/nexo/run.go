@@ -8,9 +8,12 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/juancer/nexo/internal/app"
+	"github.com/juancer/nexo/internal/auth"
+	"github.com/juancer/nexo/internal/backup"
 	"github.com/juancer/nexo/internal/secrets"
 	"github.com/juancer/nexo/internal/store"
 	"github.com/juancer/nexo/internal/system"
@@ -29,11 +32,27 @@ func runServer(ctx context.Context, cfg system.Config) error {
 	defer restart()
 	log.Info("starting nexo", "version", version, "hardware", cfg.Hardware, "listen", cfg.Listen)
 
+	// A restore chosen in the admin UI waits for this moment: the database is
+	// not open yet, so it can be swapped safely.
+	if applied, previous, err := backup.ApplyPending(cfg.DataDir); err != nil {
+		return fmt.Errorf("cannot apply the pending restore: %w", err)
+	} else if applied {
+		log.Info("restored from a backup", "previous_database_kept_as", filepath.Base(previous))
+	}
+
 	st, err := store.Open(ctx, cfg.DBPath())
 	if err != nil {
 		return err
 	}
 	defer st.Close()
+
+	// Started without `nexo install` (for example by hand): still never run
+	// without an administrator, and never with a well-known password.
+	if created, user, pass, err := auth.NewAccounts(st).EnsureFirstAdmin(ctx); err != nil {
+		return err
+	} else if created {
+		system.PrintFirstAdmin(os.Stderr, "http://<this-device>"+cfg.Listen, user, pass)
+	}
 
 	key, err := secrets.LoadKey(cfg.KeyPath)
 	if err != nil {
