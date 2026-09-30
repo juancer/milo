@@ -307,14 +307,21 @@ func swapDatabase(src, dataDir string) (previous string, err error) {
 	// Keep the files usable by the service user when a root shell restored them.
 	if info, err := os.Stat(dataDir); err == nil {
 		if st, ok := info.Sys().(*syscall.Stat_t); ok {
-			os.Chown(live, int(st.Uid), int(st.Gid))
+			// Through the open file, not the path: the service user owns the folder and could
+			// swap the name for a symlink between the copy and this call.
+			if f, err := os.OpenFile(live, os.O_RDONLY|syscall.O_NOFOLLOW, 0); err == nil {
+				f.Chown(int(st.Uid), int(st.Gid)) //nolint:errcheck
+				f.Close()
+			}
 		}
 	}
 	return previous, nil
 }
 
 func copyFile(src, dst string) error {
-	in, err := os.Open(src)
+	// A symlink in the source position (the service user can rename entries in the data
+	// folder) must not make a root restore read some other file.
+	in, err := os.OpenFile(src, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return err
 	}

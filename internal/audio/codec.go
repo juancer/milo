@@ -20,20 +20,46 @@ type Transcoder interface {
 // stdin/stdout. Install with: sudo apt install opus-tools
 type Opus struct{}
 
+// maxOutput caps what a converter may write. Two minutes of 16 kHz mono speech is under 4 MiB, so
+// this leaves room while stopping a crafted file from filling the device's memory.
+const maxOutput = 16 << 20
+
+var errOutputTooLarge = fmt.Errorf("output larger than %d MiB", maxOutput>>20)
+
+// limitedBuffer collects output and stops the process once it has produced too much.
+type limitedBuffer struct {
+	buf  bytes.Buffer // a named field: embedding it would promote ReadFrom and skip the check
+	stop func()
+	over bool
+}
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	if b.buf.Len()+len(p) > maxOutput {
+		b.over = true
+		b.stop()
+		return 0, errOutputTooLarge
+	}
+	return b.buf.Write(p)
+}
+
 func run(ctx context.Context, name string, in []byte, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin = bytes.NewReader(in)
-	var out, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &stderr
+	out := &limitedBuffer{stop: cancel}
+	var stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = out, &stderr
 	if err := cmd.Run(); err != nil {
+		if out.over {
+			return nil, fmt.Errorf("audio: %s: %w", name, errOutputTooLarge)
+		}
 		if _, lookErr := exec.LookPath(name); lookErr != nil {
 			return nil, fmt.Errorf("audio: %s not found (sudo apt install opus-tools)", name)
 		}
 		return nil, fmt.Errorf("audio: %s failed: %s", name, strings.TrimSpace(stderr.String()))
 	}
-	return out.Bytes(), nil
+	return out.buf.Bytes(), nil
 }
 
 // OggToWAV implements Transcoder.

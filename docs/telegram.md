@@ -72,6 +72,10 @@ Child to parent:
 - Messages wait in an outbox and are retried with backoff until Telegram accepts them, so a
   Wi-Fi outage delays them but never loses them.
 
+Each person can have at most 50 unheard messages waiting on the device; further ones are refused
+with a reply saying so (emergency follow-ups are not counted). A voice note that cannot be decoded
+is tried three times and then marked failed, so it never blocks the messages behind it.
+
 The **Message activity** list shows who and when, never the content.
 
 ## Group chats

@@ -504,3 +504,24 @@ func TestSnapshotsAreKeptNewestFirstAndPruned(t *testing.T) {
 		t.Fatalf("missing folder: %v %v", list, err)
 	}
 }
+
+// The restore may run as root inside a folder the service user can modify. A symlink in the
+// place of the extracted database must not make it copy some other file into the live database.
+func TestSwapDatabaseRefusesASymlinkedSource(t *testing.T) {
+	dir := t.TempDir()
+	secret := filepath.Join(t.TempDir(), "secret")
+	os.WriteFile(secret, []byte("root-only contents"), 0o600)
+	src := filepath.Join(dir, "extracted.db")
+	if err := os.Symlink(secret, src); err != nil {
+		t.Fatal(err)
+	}
+	live := filepath.Join(dir, "nexo.db")
+	os.WriteFile(live, []byte("current database"), 0o600)
+
+	if _, err := swapDatabase(src, dir); err == nil {
+		t.Fatal("a symlinked source was accepted")
+	}
+	if got, _ := os.ReadFile(live); string(got) != "current database" {
+		t.Fatalf("the live database was replaced by %q", got)
+	}
+}

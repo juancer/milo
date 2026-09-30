@@ -40,7 +40,9 @@ Skills → Calendar: paste the secret iCalendar address (Google Calendar: *Setti
 calendar → Secret address in iCal format*; Nextcloud and iCloud have equivalents). It works like a
 password, so it is stored encrypted and never shown again. Nexo reads it (cached for 10 minutes),
 expands repeating events and honours cancellations and exceptions. Unusual repeat rules may be
-missed. Event titles are spoken and, when the assistant reads them, sent to the AI service.
+missed. Event titles are spoken and, when the assistant reads them, sent to the AI service. Titles are
+written by other people, so in the turn where the assistant reads the calendar it cannot also send
+a Telegram message or create a reminder.
 
 ## Ideas that are deliberately not here
 

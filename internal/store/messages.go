@@ -102,6 +102,13 @@ func (s *Store) NextPending(ctx context.Context, emergencyOnly bool) (Message, e
 	return m, err
 }
 
+// PendingFrom counts the unplayed incoming messages from one sender.
+func (s *Store) PendingFrom(ctx context.Context, userID int64) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages WHERE direction = 'in' AND status = 'pending' AND user_id = ?`, userID).Scan(&n)
+	return n, err
+}
+
 // MarkPlayed records that a pending message was played.
 func (s *Store) MarkPlayed(ctx context.Context, id int64, now time.Time) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE messages SET status = 'played', played_at = ? WHERE id = ? AND status = 'pending'`, ts(now), id)
