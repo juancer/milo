@@ -57,7 +57,10 @@ func (s *Service) pollLoop(ctx context.Context, c *Client) {
 		for _, u := range ups {
 			s.safeHandle(ctx, c, u)
 			offset = u.UpdateID + 1
-			s.Store.SetSetting(ctx, settingUpdateOffset, strconv.FormatInt(offset, 10)) //nolint:errcheck
+			// At-least-once: a crash between handling and this write repeats one update.
+			if err := s.Store.SetSetting(ctx, settingUpdateOffset, strconv.FormatInt(offset, 10)); err != nil {
+				s.Log.Warn("telegram: cannot save update offset", "error", err)
+			}
 		}
 	}
 }
@@ -122,18 +125,17 @@ func (s *Service) handleStranger(ctx context.Context, c *Client, m *Message) {
 
 	// A valid invitation is always honoured, even right after other chatter;
 	// only the replies to bad guesses are rate-limited.
-	inv, err := s.Store.ConsumeInvitation(ctx, HashToken(token), s.now())
-	if err != nil {
-		s.Log.Warn("telegram: invalid invitation used", "telegram_id", from.ID)
-		if !s.strangerCoolingDown(from.ID) {
+	// The invitation is only burned if the request is recorded.
+	inv, err := s.Store.RedeemInvitation(ctx, HashToken(token), s.now(), store.PendingAuthorization{
+		TelegramID: from.ID, Username: from.Username, FirstName: from.FirstName,
+	})
+	if errors.Is(err, store.ErrNotFound) {
+		if !s.strangerCoolingDown(from.ID) { // one log line and one reply per cooldown
+			s.Log.Warn("telegram: invalid invitation used", "telegram_id", from.ID)
 			s.reply(ctx, c, from.ID, msgBadInvite, nil)
 		}
 		return
 	}
-	_, err = s.Store.CreatePending(ctx, store.PendingAuthorization{
-		TelegramID: from.ID, Username: from.Username, FirstName: from.FirstName,
-		Role: inv.Role, InvitationID: inv.ID,
-	})
 	if err != nil {
 		s.reply(ctx, c, from.ID, msgAwaiting, nil)
 		return
@@ -161,6 +163,10 @@ func (s *Service) strangerCoolingDown(id int64) bool {
 				delete(s.replyAt, k)
 			}
 		}
+		if len(s.replyAt) > 1000 { // all entries are recent: start over
+			clear(s.replyAt)
+			s.replyAt[id] = now
+		}
 	}
 	return false
 }
@@ -184,8 +190,12 @@ func (s *Service) handleKnown(ctx context.Context, c *Client, user store.User, m
 }
 
 func (s *Service) receiveVoice(ctx context.Context, c *Client, user store.User, m *Message) {
-	if m.Voice.Duration > maxVoiceSeconds {
+	if m.Voice.Duration > maxVoiceSeconds || m.Voice.FileSize > MaxVoiceBytes {
 		s.reply(ctx, c, m.From.ID, "Voice messages can be up to 2 minutes long.", nil)
+		return
+	}
+	if ok, _ := s.Perms.Has(ctx, user.ID, permissions.SendMessage); !ok {
+		s.reply(ctx, c, m.From.ID, explain(actions.ErrForbidden), nil) // before any download
 		return
 	}
 	dctx, cancel := context.WithTimeout(ctx, 30*time.Second)

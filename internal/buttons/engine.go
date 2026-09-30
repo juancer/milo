@@ -127,11 +127,13 @@ func (e *Engine) stopLocked() {
 }
 
 func (e *Engine) reloadLocked() error {
-	e.stopLocked()
+	// Read the configuration first: a store error must leave the running
+	// buttons watched rather than stop them all.
 	configs, err := e.src.ListButtons(e.ctx)
 	if err != nil {
 		return err
 	}
+	e.stopLocked()
 	watchCtx, cancel := context.WithCancel(e.ctx)
 	e.cancel = cancel
 	var firstErr error
@@ -232,8 +234,9 @@ func (e *Engine) emit(b *buttonState, eventType string) {
 	}
 	e.mu.Lock()
 	ctx, dispatch := e.ctx, e.dispatch
+	current := e.buttons[b.cfg.ID] == b // false once a Reload or Stop replaced it
 	e.mu.Unlock()
-	if ctx == nil || ctx.Err() != nil {
+	if !current || ctx == nil || ctx.Err() != nil {
 		return
 	}
 	dispatch(ctx, Event{ButtonID: b.cfg.ID, ButtonName: b.cfg.Name, Type: eventType, Action: a.Action, Params: params})

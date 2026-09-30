@@ -25,6 +25,13 @@ ProtectControlGroups=true
 ProtectKernelTunables=true
 RestrictSUIDSGID=true
 LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectClock=true
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target

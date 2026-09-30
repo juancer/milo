@@ -89,6 +89,22 @@ func runServer(ctx context.Context, cfg system.Config) error {
 		IdleTimeout:       60 * time.Second,
 	}
 
+	// Keep the audit log from growing without bound on the SD card.
+	go func() {
+		t := time.NewTicker(24 * time.Hour)
+		defer t.Stop()
+		for {
+			if err := application.Audit.Prune(ctx); err != nil {
+				log.Warn("audit prune", "error", err)
+			}
+			select {
+			case <-t.C:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
 

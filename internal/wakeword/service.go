@@ -61,6 +61,7 @@ type Status struct {
 type Service struct {
 	Deps
 	mu       sync.Mutex
+	enrollMu sync.Mutex // makes Enroll's sample-count check and insert atomic
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
 	running  bool
@@ -88,7 +89,9 @@ func (s *Service) setting(ctx context.Context, key, def string) string {
 // buildDetector creates the detector for the current settings.
 func (s *Service) buildDetector(ctx context.Context) (Detector, string, error) {
 	sens, _ := strconv.Atoi(s.setting(ctx, SettingSensitivity, "5"))
+	s.mu.Lock()
 	s.thresh = ThresholdFor(sens)
+	s.mu.Unlock()
 	if s.Simulated {
 		return &Mock{}, "simulated", nil
 	}
@@ -172,12 +175,20 @@ func (s *Service) loop(ctx context.Context) {
 		s.mu.Lock()
 		det := s.det
 		s.mu.Unlock()
+		if det == nil || ctx.Err() != nil {
+			return // Stop ran
+		}
 		if ext, ok := det.(*External); ok && !ext.Alive() {
 			if d, _, err := s.buildDetector(ctx); err == nil {
-				det.Close()
 				s.mu.Lock()
+				if ctx.Err() != nil {
+					s.mu.Unlock()
+					d.Close() // stopped meanwhile: do not leave a helper running
+					return
+				}
 				s.det, det = d, d
 				s.mu.Unlock()
+				ext.Close()
 			}
 		}
 		err := s.Audio.Listen(ctx, func(pcm []byte) {
@@ -254,6 +265,8 @@ func (s *Service) Status(ctx context.Context) Status {
 // Enroll records the wake phrase from the microphone and stores it as a
 // template. Call it while the parent stands near the device and says the phrase.
 func (s *Service) Enroll(ctx context.Context) error {
+	s.enrollMu.Lock()
+	defer s.enrollMu.Unlock()
 	rows, err := s.Store.ListWakeTemplates(ctx)
 	if err != nil {
 		return err

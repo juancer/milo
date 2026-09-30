@@ -22,6 +22,9 @@ type Network struct {
 	SSID     string
 	Password string
 	Priority int // higher is preferred
+	// Keep leaves an existing profile untouched (its password was unavailable
+	// this time) instead of deleting it; nothing else in the struct is used.
+	Keep bool
 }
 
 // Status describes the current connection.
@@ -88,6 +91,8 @@ func profileName(ssid string) string {
 //
 // Note: nmcli receives the Wi-Fi password as a command-line argument, so it is
 // briefly visible to other local users of the device through the process list.
+// nmcli has no stdin option for it that is documented well enough to rely on;
+// see docs/wifi.md.
 type NMCLI struct{ Binary string }
 
 func (n NMCLI) bin() string {
@@ -110,6 +115,13 @@ func (n NMCLI) run(ctx context.Context, args ...string) (string, error) {
 	return out.String(), nil
 }
 
+// secured reports whether the profile has a Wi-Fi security setting. If that
+// cannot be read it assumes it does, which only costs a recreated profile.
+func (n NMCLI) secured(ctx context.Context, name string) bool {
+	out, err := n.run(ctx, "-g", "802-11-wireless-security.key-mgmt", "connection", "show", name)
+	return err != nil || strings.TrimSpace(out) != ""
+}
+
 // Apply implements Manager.
 func (n NMCLI) Apply(ctx context.Context, networks []Network) error {
 	out, err := n.run(ctx, "-t", "-f", "NAME,TYPE", "connection", "show")
@@ -128,6 +140,20 @@ func (n NMCLI) Apply(ctx context.Context, networks []Network) error {
 	for _, nw := range networks {
 		name := profileName(nw.SSID)
 		keep[name] = true
+		if nw.Keep {
+			continue
+		}
+		if existing[name] && nw.Password == "" && n.secured(ctx, name) {
+			// Editing a secured profile into an open one would leave its old
+			// key-mgmt and PSK behind, so start again from a clean profile.
+			if _, err := n.run(ctx, "connection", "delete", name); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+			existing[name] = false
+		}
 		prio := strconv.Itoa(nw.Priority)
 		var args []string
 		if existing[name] {
@@ -211,7 +237,7 @@ func (m *Mock) Apply(_ context.Context, networks []Network) error {
 	m.connected = ""
 	best := -1
 	for _, n := range networks {
-		if n.Priority > best {
+		if !n.Keep && n.Priority > best {
 			best, m.connected = n.Priority, n.SSID
 		}
 	}

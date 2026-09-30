@@ -201,3 +201,18 @@ func TestWhisperCppUsesAFixedCommand(t *testing.T) {
 		t.Fatalf("missing binary err = %v", err)
 	}
 }
+
+func TestBinaryMustBeAbsoluteOrBare(t *testing.T) {
+	good := "/opt/piper/voices/en_US-lessac-medium.onnx"
+	for _, bad := range []string{"./piper", "bin/piper", "sub/dir/piper"} {
+		if _, err := NewPiper(bad, good); err == nil {
+			t.Errorf("piper binary %q accepted", bad)
+		}
+		if _, err := NewWhisperCpp(bad, "/m/ggml.bin"); err == nil {
+			t.Errorf("whisper binary %q accepted", bad)
+		}
+	}
+	if _, err := NewPiper("/usr/bin/piper", good); err != nil {
+		t.Error(err)
+	}
+}

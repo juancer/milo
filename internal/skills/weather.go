@@ -77,7 +77,7 @@ func (w *Weather) client() *http.Client {
 	if w.Client != nil {
 		return w.Client
 	}
-	return &http.Client{Timeout: 15 * time.Second}
+	return &http.Client{Timeout: 15 * time.Second, CheckRedirect: w.checkRedirect}
 }
 
 func (w *Weather) fetchJSON(ctx context.Context, base, path string, q url.Values, out any) error {

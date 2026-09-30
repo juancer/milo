@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/juancer/nexo/internal/secrets"
@@ -108,5 +109,26 @@ func TestBackupArgumentParsing(t *testing.T) {
 	a, err := parseBackupArgs([]string{"f.nexo", "--no-key", "--passphrase-stdin"})
 	if err != nil || a.file != "f.nexo" || !a.noKey || !a.stdin {
 		t.Fatalf("args = %+v %v", a, err)
+	}
+}
+
+// Run as root before nexo.db exists, the CLI must leave the files to the folder's owner.
+func TestOpenCLIStoreLeavesFilesToTheFolderOwner(t *testing.T) {
+	ctx := context.Background()
+	cfg := system.Config{DataDir: t.TempDir()}
+	st, err := openCLIStore(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	dir, _ := os.Stat(cfg.DataDir)
+	for _, ext := range []string{"", "-wal", "-shm"} {
+		info, err := os.Stat(cfg.DBPath() + ext)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Sys().(*syscall.Stat_t).Uid != dir.Sys().(*syscall.Stat_t).Uid {
+			t.Fatalf("nexo.db%s is owned by another user than the data folder", ext)
+		}
 	}
 }

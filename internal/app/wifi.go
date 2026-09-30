@@ -21,7 +21,8 @@ func (a *App) SyncWifi(ctx context.Context) error {
 		if n.SecretName != "" {
 			v, err := a.Vault.Get(ctx, n.SecretName)
 			if err != nil {
-				a.Log.Warn("wifi password unavailable; network skipped", "ssid", n.SSID)
+				a.Log.Warn("wifi password unavailable; network left as it is", "ssid", n.SSID)
+				list = append(list, wifi.Network{SSID: n.SSID, Keep: true})
 				continue
 			}
 			pw = string(v)

@@ -2,6 +2,7 @@ package assistant_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -640,5 +641,45 @@ func TestReminderRequestWithoutTheCalendarIsNotRefusedByThatRule(t *testing.T) {
 	}
 	if got := h.toolResult(1, "c1"); strings.Contains(got, readCalendarRefusal) {
 		t.Fatalf("a plain reminder was refused: %s", got)
+	}
+}
+
+func TestToolCallsInTheFinalRoundAreNotExecuted(t *testing.T) {
+	h := newHarness(t)
+	for i := 0; i < 20; i++ {
+		h.llm.replies = append(h.llm.replies, call("c", "set_volume", `{"change": 1}`))
+	}
+	// The scripted model asks for a change every round; the final round offers
+	// no tools, so its request must not run.
+	before := h.app.MockAudio.Status(h.ctx).Volume
+	if _, err := h.turn("louder"); !errors.Is(err, assistant.ErrUnavailable) {
+		t.Fatalf("err = %v, want ErrUnavailable", err)
+	}
+	rounds := h.llm.calls()
+	if got := h.app.MockAudio.Status(h.ctx).Volume; got != before+rounds-1 {
+		t.Fatalf("volume %d -> %d after %d rounds: the final round's call ran", before, got, rounds)
+	}
+}
+
+func TestInvalidParamsReachTheModelGenerically(t *testing.T) {
+	h := newHarness(t)
+	h.llm.replies = []assistant.Message{call("x", "set_volume", `{"level": 10, "change": 5}`), say("hm")}
+	if _, err := h.turn("volume"); err != nil {
+		t.Fatal(err)
+	}
+	msgs := h.llm.request(1).Messages
+	if last := msgs[len(msgs)-1]; strings.Contains(last.Content, "level") {
+		t.Errorf("model saw the detailed error: %s", last.Content)
+	}
+}
+
+func TestToolResultTruncationKeepsValidJSON(t *testing.T) {
+	out := assistant.ToolOK(strings.Repeat("é\"", 2000))
+	var v map[string]any
+	if err := json.Unmarshal([]byte(out), &v); err != nil {
+		t.Fatalf("invalid JSON after truncation: %v", err)
+	}
+	if len(out) > 800 {
+		t.Fatalf("len = %d", len(out))
 	}
 }

@@ -12,11 +12,24 @@ type Limiter struct {
 	window time.Duration
 	fails  map[string][]time.Time
 	now    func() time.Time
+	swept  time.Time
 }
 
 // NewLimiter allows max failures per key within window.
 func NewLimiter(max int, window time.Duration) *Limiter {
 	return &Limiter{max: max, window: window, fails: map[string][]time.Time{}, now: time.Now}
+}
+
+// sweep drops every key whose failures have all expired, at most once per window, so keys
+// that are never asked about again do not linger. Call it with l.mu held.
+func (l *Limiter) sweep() {
+	if l.now().Sub(l.swept) < l.window {
+		return
+	}
+	l.swept = l.now()
+	for key := range l.fails {
+		l.recent(key)
+	}
 }
 
 func (l *Limiter) recent(key string) []time.Time {
@@ -49,6 +62,7 @@ func (l *Limiter) Allowed(key string) bool {
 func (l *Limiter) Try(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.sweep()
 	recent := l.recent(key)
 	if len(recent) >= l.max {
 		return false
@@ -61,6 +75,7 @@ func (l *Limiter) Try(key string) bool {
 func (l *Limiter) Fail(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.sweep()
 	l.fails[key] = append(l.recent(key), l.now())
 }
 

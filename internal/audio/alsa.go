@@ -31,9 +31,9 @@ var DefaultALSAConfig = ALSAConfig{
 }
 
 var (
-	deviceRe  = regexp.MustCompile(`^[A-Za-z0-9_:,=.\-]{1,64}$`)
-	cardRe    = regexp.MustCompile(`^[A-Za-z0-9_\-]{1,64}$`)
-	controlRe = regexp.MustCompile(`^[A-Za-z0-9 _\-]{1,64}$`)
+	deviceRe  = regexp.MustCompile(`^[A-Za-z0-9_:,=.][A-Za-z0-9_:,=.\-]{0,63}$`)
+	cardRe    = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_\-]{0,63}$`)
+	controlRe = regexp.MustCompile(`^[A-Za-z0-9 _][A-Za-z0-9 _\-]{0,63}$`)
 )
 
 // Validate rejects values that could confuse the fixed alsa-utils invocations.

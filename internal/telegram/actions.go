@@ -117,7 +117,7 @@ func (s *Service) deliverMessage(ctx context.Context, c actions.Call) (actions.R
 		return actions.Result{}, fmt.Errorf("%w: audio is required", actions.ErrInvalidParams)
 	}
 	msg := store.Message{Direction: "in", Kind: kind, Body: text, Audio: audioData, UserID: c.Actor.UserID}
-	if s.urgentActive(c.Actor.UserID) { // follows an emergency alert from the same person
+	if s.urgentActive(ctx, c.Actor.UserID) { // follows an emergency alert from the same person
 		msg.Type, msg.Priority = "emergency", "critical"
 	}
 	if msg.Priority != "critical" {

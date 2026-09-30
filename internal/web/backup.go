@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/juancer/nexo/internal/app"
@@ -15,6 +16,10 @@ import (
 )
 
 const maxUpload = 1 << 30 // 1 GiB
+
+// restoreBusy allows one restore upload at a time: each one holds a decrypted copy of the
+// database on the SD card and up to 64 MiB of Argon2 memory.
+var restoreBusy sync.Mutex
 
 func (s *server) backupRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/backup", s.requireAuth(s.getBackup))
@@ -119,6 +124,11 @@ func (s *server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusTooManyRequests, "too many failed attempts, try again later")
 		return
 	}
+	if !restoreBusy.TryLock() {
+		writeError(w, http.StatusConflict, "another restore is being checked, try again in a moment")
+		return
+	}
+	defer restoreBusy.Unlock()
 	r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
 	mr, err := r.MultipartReader()
 	if err != nil {
@@ -160,7 +170,7 @@ func (s *server) stageRestore(w http.ResponseWriter, r *http.Request, file io.Re
 	defer c.Close()
 	if err := backup.Stage(c, s.app.Cfg.DataDir, s.app.Cfg.KeyPath); err != nil {
 		msg := err.Error()
-		if errors.Is(err, backup.ErrKeyMismatch) {
+		if errors.Is(err, backup.ErrKeyMismatch) && c.Manifest.IncludesKey {
 			msg += ". Restore it from the command line instead (sudo nexo restore FILE --replace-key)"
 		}
 		writeError(w, http.StatusUnprocessableEntity, msg)

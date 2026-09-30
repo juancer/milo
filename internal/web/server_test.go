@@ -1510,6 +1510,23 @@ func TestRestoreRefusesABackupFromAnotherDevice(t *testing.T) {
 	}
 }
 
+func TestOnlyOneRestoreIsCheckedAtATime(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	file := downloadBackup(t, e, cookie, true)
+	body, ct := multipartBody([][2]string{{"passphrase", backupPass}}, "b.nexo", file)
+	restoreBusy.Lock() // another upload is being checked
+	resp := e.upload(t, "/api/backup/restore", body, ct, cookie)
+	restoreBusy.Unlock()
+	if resp.StatusCode != 409 {
+		t.Fatalf("parallel restore = %d, want 409", resp.StatusCode)
+	}
+	body, ct = multipartBody([][2]string{{"passphrase", backupPass}}, "b.nexo", file)
+	if resp := e.upload(t, "/api/backup/restore", body, ct, cookie); resp.StatusCode != 202 {
+		t.Fatalf("restore after the other finished = %d", resp.StatusCode)
+	}
+}
+
 func TestRestorePassphraseGuessingIsThrottled(t *testing.T) {
 	e := newEnv(t, true)
 	cookie := e.login(t)
@@ -1584,5 +1601,79 @@ func TestBackupDownloadAndRestoreAreOwnerOnly(t *testing.T) {
 	form, ctype := multipartBody([][2]string{{"passphrase", backupPass}}, "b.nexo", archive)
 	if r := e.upload(t, "/api/backup/restore", form, ctype, mom); r.StatusCode != 403 {
 		t.Fatalf("restore by a non-owner = %d, want 403", r.StatusCode)
+	}
+}
+
+func TestFeatureToggleIsAuditedPerAccountAndBounded(t *testing.T) {
+	e := newEnv(t, true)
+	cookie := e.login(t)
+	e.do(t, "PUT", "/api/features/demo", `{"enabled":true}`, cookie, nil)
+	entries, _ := e.store.ListAudit(context.Background(), 5)
+	if entries[0].Action != "feature.enabled" || entries[0].Actor != "admin" {
+		t.Fatalf("entry = %+v", entries[0])
+	}
+	if _, err := e.store.CreateAdmin(context.Background(), "mom", mustHash(t), false, false); err != nil {
+		t.Fatal(err)
+	}
+	mom := e.loginAs(t, "mom", testPassword)
+	e.do(t, "PUT", "/api/features/demo", `{"enabled":false}`, mom, nil)
+	entries, _ = e.store.ListAudit(context.Background(), 5)
+	if entries[0].Actor != "mom" {
+		t.Fatalf("actor = %q, want mom", entries[0].Actor)
+	}
+}
+
+func mustHash(t *testing.T) string {
+	t.Helper()
+	h, err := auth.HashPassword(testPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+func TestLoginFailureOnlyNamesExistingAccounts(t *testing.T) {
+	e := newEnv(t, true)
+	e.do(t, "POST", "/api/login", `{"username":"my secret pass","password":"wrong password!"}`, nil, nil)
+	e.do(t, "POST", "/api/login", `{"username":"admin","password":"wrong password!"}`, nil, nil)
+	entries, _ := e.store.ListAudit(context.Background(), 5)
+	if entries[0].Target != "admin" || entries[1].Target != "" {
+		t.Fatalf("targets = %q, %q", entries[0].Target, entries[1].Target)
+	}
+}
+
+func TestNoDirectoryListing(t *testing.T) {
+	e := newEnv(t, false)
+	srv := httptest.NewServer(e.impl.handler(fstest.MapFS{"index.html": {Data: []byte("x")}, "_astro/a.js": {Data: []byte("x")}}))
+	defer srv.Close()
+	for path, want := range map[string]int{"/_astro/": 404, "/_astro/a.js": 200, "/": 200} {
+		resp, err := http.Get(srv.URL + path)
+		if err != nil || resp.StatusCode != want {
+			t.Errorf("%s = %v, %v; want %d", path, resp, err, want)
+		}
+	}
+}
+
+type slowFeature struct{}
+
+func (slowFeature) Name() string                    { return "slow" }
+func (slowFeature) Start(ctx context.Context) error { <-ctx.Done(); return ctx.Err() }
+func (slowFeature) Stop(context.Context) error      { return nil }
+
+func TestSlowFeatureStartIsBounded(t *testing.T) {
+	old := featureTimeout
+	featureTimeout = 50 * time.Millisecond
+	defer func() { featureTimeout = old }()
+	e := newEnv(t, true)
+	if err := e.app.Features.Register(context.Background(), slowFeature{}); err != nil {
+		t.Fatal(err)
+	}
+	cookie := e.login(t)
+	done := make(chan struct{})
+	go func() { e.do(t, "PUT", "/api/features/slow", `{"enabled":true}`, cookie, nil); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("feature switch was not bounded")
 	}
 }

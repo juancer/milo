@@ -4,7 +4,9 @@ package gpio
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"syscall"
 	"time"
 
 	"github.com/warthog618/go-gpiocdev"
@@ -31,11 +33,15 @@ func (c *Chip) Watch(ctx context.Context, pin int, pullUp bool, debounce time.Du
 	if pullUp {
 		bias = gpiocdev.WithPullUp
 	}
-	line, err := c.chip.RequestLine(pin,
-		gpiocdev.AsInput, bias, gpiocdev.WithBothEdges, gpiocdev.WithDebounce(debounce),
-		gpiocdev.WithEventHandler(func(e gpiocdev.LineEvent) {
-			handler(Event{Pin: pin, High: e.Type == gpiocdev.LineEventRisingEdge, At: time.Now()})
-		}))
+	var line *gpiocdev.Line
+	err := retryBusy(func() (err error) {
+		line, err = c.chip.RequestLine(pin,
+			gpiocdev.AsInput, bias, gpiocdev.WithBothEdges, gpiocdev.WithDebounce(debounce),
+			gpiocdev.WithEventHandler(func(e gpiocdev.LineEvent) {
+				handler(Event{Pin: pin, High: e.Type == gpiocdev.LineEventRisingEdge, At: time.Now()})
+			}))
+		return err
+	}, 10, 20*time.Millisecond)
 	if err != nil {
 		return fmt.Errorf("gpio: request line %d: %w", pin, err)
 	}
@@ -44,6 +50,18 @@ func (c *Chip) Watch(ctx context.Context, pin int, pullUp bool, debounce time.Du
 		line.Close()
 	}()
 	return nil
+}
+
+// retryBusy retries request while it fails with EBUSY. A reload cancels the old
+// watch and requests the same pin at once, while the old line is still being
+// closed in its goroutine.
+func retryBusy(request func() error, attempts int, wait time.Duration) error {
+	err := request()
+	for i := 1; i < attempts && errors.Is(err, syscall.EBUSY); i++ {
+		time.Sleep(wait)
+		err = request()
+	}
+	return err
 }
 
 // Close implements Controller.

@@ -81,12 +81,13 @@ type Service struct {
 	emergencyConfirm map[int64]time.Time // user id -> confirmation expiry
 	emergencyAt      map[int64]time.Time // user id -> last alert
 	urgentUntil      map[int64]time.Time // user id -> follow-up window end
+	urgentLeft       map[int64]int       // user id -> follow-ups still marked urgent
 }
 
 // New creates the (not yet running) service.
 func New(d Deps) *Service {
 	return &Service{Deps: d, replyAt: map[int64]time.Time{}, wake: make(chan struct{}, 1), now: time.Now,
-		emergencyConfirm: map[int64]time.Time{}, emergencyAt: map[int64]time.Time{}, urgentUntil: map[int64]time.Time{}}
+		emergencyConfirm: map[int64]time.Time{}, emergencyAt: map[int64]time.Time{}, urgentUntil: map[int64]time.Time{}, urgentLeft: map[int64]int{}}
 }
 
 // Name implements features.Feature.

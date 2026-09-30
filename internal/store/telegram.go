@@ -142,6 +142,43 @@ func (s *Store) ConsumeInvitation(ctx context.Context, tokenHash string, now tim
 	return inv, nil
 }
 
+// RedeemInvitation consumes an invitation and records the pending request for
+// p (role and invitation id come from the invitation) in one transaction, so an
+// invitation is not burned when the request cannot be created, for example
+// because the person already has one pending. It returns ErrNotFound if the
+// token is unknown, used, revoked or expired.
+func (s *Store) RedeemInvitation(ctx context.Context, tokenHash string, now time.Time, p PendingAuthorization) (Invitation, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Invitation{}, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	var inv Invitation
+	var created, expires string
+	err = tx.QueryRowContext(ctx, `UPDATE invitations SET used_at = ?
+		WHERE token_hash = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?
+		RETURNING id, role, note, created_at, expires_at`, ts(now), tokenHash, ts(now)).
+		Scan(&inv.ID, &inv.Role, &inv.Note, &created, &expires)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Invitation{}, ErrNotFound
+	}
+	if err != nil {
+		return Invitation{}, fmt.Errorf("store: redeem invitation: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO pending_authorizations
+		(telegram_id, username, first_name, role, invitation_id) VALUES (?, ?, ?, ?, ?)`,
+		p.TelegramID, p.Username, p.FirstName, inv.Role, inv.ID); err != nil {
+		return Invitation{}, fmt.Errorf("store: create pending authorization: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return Invitation{}, err
+	}
+	inv.CreatedAt, inv.ExpiresAt = parseTime(created), parseTime(expires)
+	used := now
+	inv.UsedAt = &used
+	return inv, nil
+}
+
 // RevokeInvitation revokes an unused invitation.
 func (s *Store) RevokeInvitation(ctx context.Context, id int64, now time.Time) error {
 	res, err := s.db.ExecContext(ctx,

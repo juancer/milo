@@ -149,7 +149,7 @@ func newDecReader(r io.Reader, passphrase string) (io.Reader, error) {
 		return nil, ErrNotABackup
 	}
 	t, m, p := binary.BigEndian.Uint32(header[24:]), binary.BigEndian.Uint32(header[28:]), header[32]
-	if t < 1 || t > 10 || m < 8*1024 || m > 256*1024 || p < 1 || p > 4 { // bounds stop a crafted file from exhausting memory
+	if t < 1 || t > 10 || m < 8*1024 || m > 64*1024 || p < 1 || p > 4 { // bounds stop a crafted file from exhausting memory
 		return nil, ErrNotABackup
 	}
 	aead, err := chacha20poly1305.NewX(deriveKey(passphrase, header[8:24], t, m, p))

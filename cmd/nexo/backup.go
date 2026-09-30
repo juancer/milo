@@ -12,7 +12,6 @@ import (
 	"golang.org/x/term"
 
 	"github.com/juancer/nexo/internal/backup"
-	"github.com/juancer/nexo/internal/store"
 	"github.com/juancer/nexo/internal/system"
 )
 
@@ -92,7 +91,7 @@ func backupCmd(ctx context.Context, cfg system.Config, args []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := store.Open(ctx, cfg.DBPath())
+	st, err := openCLIStore(ctx, cfg)
 	if err != nil {
 		return err
 	}

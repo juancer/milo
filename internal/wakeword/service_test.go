@@ -215,3 +215,34 @@ func TestEnrollErrorsAndLimit(t *testing.T) {
 		t.Fatalf("err = %v, want the sample limit", err)
 	}
 }
+
+func TestLoopReturnsWhenStopClearedTheDetector(t *testing.T) {
+	r := newRig(t, false) // never started: det is nil, as after Stop
+	done := make(chan struct{})
+	go func() { r.svc.loop(context.Background()); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("loop kept running without a detector")
+	}
+}
+
+func TestEnrollIsSerialised(t *testing.T) {
+	r := newRig(t, false)
+	f := EncodeFeatures([][]float64{make([]float64, numCoeffs)})
+	for i := 0; i < MaxTemplates; i++ {
+		r.store.AddWakeTemplate(context.Background(), f, 1)
+	}
+	r.svc.enrollMu.Lock() // another Enroll is in flight
+	done := make(chan error, 1)
+	go func() { done <- r.svc.Enroll(context.Background()) }()
+	select {
+	case <-done:
+		t.Fatal("Enroll ran while another Enroll held the lock")
+	case <-time.After(100 * time.Millisecond):
+	}
+	r.svc.enrollMu.Unlock()
+	if err := <-done; err == nil {
+		t.Fatal("want the sample limit error")
+	}
+}

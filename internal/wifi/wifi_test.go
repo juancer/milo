@@ -138,3 +138,42 @@ func TestMockPicksHighestPriority(t *testing.T) {
 		t.Fatal("applied networks not recorded")
 	}
 }
+
+func TestApplyKeepLeavesTheProfileAlone(t *testing.T) {
+	kept := profileName("Kept")
+	bin, log := fakeNM(t, kept+":802-11-wireless\n")
+	if err := (NMCLI{Binary: bin}).Apply(context.Background(), []Network{{SSID: "Kept", Keep: true}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range calls(t, log) {
+		if len(c) > 1 && c[0] == "connection" {
+			t.Fatalf("a kept profile was touched: %v", c)
+		}
+	}
+}
+
+func TestApplyRecreatesASecuredProfileThatBecomesOpen(t *testing.T) {
+	home := profileName("Home")
+	dir := t.TempDir()
+	log := filepath.Join(dir, "calls.log")
+	bin := filepath.Join(dir, "nmcli")
+	script := "#!/bin/sh\n{ echo '---'; for a in \"$@\"; do echo \"$a\"; done; } >> " + log + "\n" +
+		"if [ \"$1\" = \"-t\" ]; then echo '" + home + ":802-11-wireless'; fi\n" +
+		"if [ \"$1\" = \"-g\" ]; then echo wpa-psk; fi\n"
+	os.WriteFile(bin, []byte(script), 0o755)
+	if err := (NMCLI{Binary: bin}).Apply(context.Background(), []Network{{SSID: "Home", Priority: 3}}); err != nil {
+		t.Fatal(err)
+	}
+	var seq []string
+	for _, c := range calls(t, log) {
+		if len(c) > 1 && c[0] == "connection" {
+			seq = append(seq, c[1])
+			if c[1] == "add" && contains(c, "wifi-sec.psk") {
+				t.Fatalf("recreated profile still has a key: %v", c)
+			}
+		}
+	}
+	if strings.Join(seq, ",") != "delete,add" {
+		t.Fatalf("connection calls = %v, want delete then add", seq)
+	}
+}

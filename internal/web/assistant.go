@@ -128,7 +128,11 @@ func (s *server) hasKey(ctx context.Context, name string) bool {
 	return err == nil && len(v) > 0
 }
 
-func (s *server) getAssistant(w http.ResponseWriter, r *http.Request) {
+func (s *server) getAssistant(w http.ResponseWriter, r *http.Request) { s.writeAssistant(w, r, nil) }
+
+// writeAssistant answers with the settings; cleared names the keys that were
+// removed because their provider address changed.
+func (s *server) writeAssistant(w http.ResponseWriter, r *http.Request, cleared []string) {
 	ctx := r.Context()
 	g, err := s.app.Store.GetGPTSettings(ctx)
 	if err != nil {
@@ -143,11 +147,23 @@ func (s *server) getAssistant(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"settings": toAssistantDTO(g), "status": status,
 		"llm_key_configured": s.hasKey(ctx, app.SecretLLMKey), "stt_key_configured": s.hasKey(ctx, app.SecretSTTKey),
 		"tts_key_configured": s.hasKey(ctx, app.SecretTTSKey),
-	})
+	}
+	if len(cleared) > 0 {
+		resp["keys_cleared"] = cleared
+		resp["notice"] = "The provider address changed, so the stored key was removed for: " + strings.Join(cleared, ", ") + ". Enter the key again."
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// sameHost reports whether two provider addresses point at the same host.
+func sameHost(a, b string) bool {
+	ua, ea := url.Parse(a)
+	ub, eb := url.Parse(b)
+	return ea == nil && eb == nil && strings.EqualFold(ua.Host, ub.Host)
 }
 
 func (s *server) putAssistant(w http.ResponseWriter, r *http.Request) {
@@ -160,13 +176,38 @@ func (s *server) putAssistant(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
+	old, err := s.app.Store.GetGPTSettings(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
 	if err := s.app.Store.UpdateGPTSettings(r.Context(), d.toStore()); err != nil {
 		writeError(w, http.StatusInternalServerError, "could not save the settings")
 		return
 	}
+	// A stored key must never be sent to a different host than the one it was
+	// entered for: drop it when the address changes (keys are set separately).
+	var cleared []string
+	for _, k := range []struct{ label, secret, oldURL, newURL string }{
+		{"AI", app.SecretLLMKey, old.LLMBaseURL, d.LLMBaseURL},
+		{"speech-to-text", app.SecretSTTKey, old.STTBaseURL, d.STTBaseURL},
+		{"text-to-speech", app.SecretTTSKey, old.TTSBaseURL, d.TTSBaseURL},
+	} {
+		if !sameHost(k.oldURL, k.newURL) && s.hasKey(r.Context(), k.secret) {
+			if err := s.app.Store.DeleteSecret(r.Context(), k.secret); err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error")
+				return
+			}
+			s.audit(r, "assistant.key_removed", k.label+" (address changed)", nil)
+			cleared = append(cleared, k.label)
+		}
+	}
+	if len(cleared) > 0 {
+		s.restartFeature(r.Context(), assistant.FeatureName)
+	}
 	s.audit(r, "assistant.settings_updated", "", nil)
 	s.app.Assistant.PruneHistory(r.Context()) // apply a shorter retention right away
-	s.getAssistant(w, r)
+	s.writeAssistant(w, r, cleared)
 }
 
 func (s *server) putKeys(w http.ResponseWriter, r *http.Request) {

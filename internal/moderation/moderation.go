@@ -108,17 +108,36 @@ func phrase(p string) *regexp.Regexp {
 
 // Check evaluates text travelling in the given direction.
 func (c *Checker) Check(text string, dir Direction) Verdict {
+	// Zero-width and other format characters (Cf) split words without being
+	// visible; drop them. No golang.org/x/text here, so no NFKC: homoglyphs
+	// from other scripts are not folded.
+	text = strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, text)
+	concern := func() bool {
+		if dir != Input {
+			return false
+		}
+		for _, re := range c.concern {
+			if re.MatchString(text) {
+				return true
+			}
+		}
+		return false
+	}
 	for _, r := range c.custom {
 		if (dir == Input && r.input || dir == Output && r.output) && r.re.MatchString(text) {
+			if concern() { // a parent rule must not hide a concern from the parents
+				return Verdict{Blocked: true, Concern: true, Rule: "concern", Reply: ReplyConcern}
+			}
 			return Verdict{Blocked: true, Rule: r.pattern, Reply: ReplyBlocked}
 		}
 	}
-	if dir == Input {
-		for _, re := range c.concern {
-			if re.MatchString(text) {
-				return Verdict{Blocked: true, Concern: true, Rule: "concern", Reply: ReplyConcern}
-			}
-		}
+	if concern() {
+		return Verdict{Blocked: true, Concern: true, Rule: "concern", Reply: ReplyConcern}
 	}
 	for _, re := range c.blocked {
 		if re.MatchString(text) {

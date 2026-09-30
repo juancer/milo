@@ -7,8 +7,11 @@ package skills
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
@@ -110,6 +113,25 @@ func (c Common) checkURL(raw string) error {
 		return nil
 	}
 	return fmt.Errorf("the address must start with https://")
+}
+
+// checkRedirect is the CheckRedirect of the skills' HTTP clients: a redirect
+// must keep to https (see checkURL) and may not point at a loopback, link-local
+// or unspecified address given as an IP literal or "localhost". Host names that
+// resolve to such addresses are not caught.
+func (c Common) checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 5 {
+		return errors.New("too many redirects")
+	}
+	if err := c.checkURL(req.URL.String()); err != nil {
+		return err
+	}
+	h := req.URL.Hostname()
+	if ip, err := netip.ParseAddr(h); strings.EqualFold(h, "localhost") ||
+		err == nil && (ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()) {
+		return errors.New("redirect to a local address refused")
+	}
+	return nil
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) bool {

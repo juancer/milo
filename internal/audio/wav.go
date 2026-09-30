@@ -37,7 +37,7 @@ func DecodeWAV(wav []byte) (pcm []byte, rate int, err error) {
 	pos := 12
 	for pos+8 <= len(wav) {
 		id := string(wav[pos : pos+4])
-		size := int(binary.LittleEndian.Uint32(wav[pos+4 : pos+8]))
+		size := int64(binary.LittleEndian.Uint32(wav[pos+4 : pos+8])) // int64: int is 32 bits on ARMv7
 		body := pos + 8
 		switch id {
 		case "fmt ":
@@ -52,16 +52,20 @@ func DecodeWAV(wav []byte) (pcm []byte, rate int, err error) {
 				return nil, 0, fmt.Errorf("audio: unsupported WAV (format %d, %d channels, %d bits); need 16-bit mono PCM", format, channels, bits)
 			}
 		case "data":
-			end := body + size
-			if end > len(wav) || size == 0 {
-				end = len(wav) // streamed WAVs may carry a bogus size
+			end := len(wav) // streamed WAVs may carry a bogus size
+			if size != 0 && int64(body)+size <= int64(len(wav)) {
+				end = body + int(size)
 			}
 			if rate == 0 {
 				return nil, 0, errors.New("audio: data before fmt chunk")
 			}
 			return wav[body:end], rate, nil
 		}
-		pos = body + size + size%2
+		next := int64(body) + size + size%2
+		if next > int64(len(wav)) {
+			break
+		}
+		pos = int(next)
 	}
 	return nil, 0, errors.New("audio: no data chunk")
 }
