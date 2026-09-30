@@ -57,11 +57,11 @@ src/
 Design lives in `styles/` only: colours and sizes in `tokens.css`, widgets in `components/*.css`.
 Pages and views carry no CSS. Views render in the browser, so they use the builders in
 `components/ui.ts` (`card`, `formCard`, `field`, `toggle`, `select`, `table`, `badge`, `alert`,
-`emptyState`, …), which emit the same class names as the `.astro` components. Behaviour shared
+`emptyState`, …), which emit the same class names as the `.astro` components (the `.astro` components only compose the static shell: layout, header, templates, dialogs). Behaviour shared
 by several views (`toast`, `guard`, `confirmTwice`, `confirmDialog`, `changeLocale`) is in
 `scripts/ui.ts`; do not copy it into a view.
 
-**Add a component:** put markup in `components/ui.ts` (and an `.astro` twin if the shell needs
+**Add a component:** put markup in `components/ui.ts` (add an `.astro` component only if the static shell needs
 it), its CSS in `styles/components/<name>.css`, and import that from `global.css`.
 **Add a section (a tile):** create `scripts/views/<id>.ts` exporting `render(root)`, add an entry
 to `SECTIONS` in `sections.ts` (group, icon from `components/icons.ts`, colour, optional
@@ -92,7 +92,7 @@ migration that has shipped; add a new one.
 
 `make dev` starts two containers:
 
-- **dev**: Milo with `MILO_HARDWARE=mock`. On first start `milo dev-seed` creates a demo
+- **dev**: Milo with `MILO_HARDWARE=mock`. On first start `milo dev-seed` (skipped when `MILO_DEV_SEED=0`) creates a demo
   installation: administrators `admin` (owner) and `mom` with a random password printed once (or the one in `MILO_DEV_PASSWORD`), the simulator's fake bot token, a demo
   family (Dad and Mum as PARENT, Grandma as FAMILY) and enabled features. It refuses to run
   unless hardware is mocked, so it can never touch a real device.
@@ -119,10 +119,10 @@ so the development speech-to-text can "hear" them. Real recordings never contain
 Keep these in a local compose override (`-f deploy/docker-compose.yml -f my-override.yml`); do
 not commit machine-specific ones.
 
-- **See the first-run screen.** The `dev` service seeds a demo on every fresh volume. Override its
-  `command` to `sh -c "go build -o /tmp/milo ./cmd/milo && /tmp/milo keygen && exec /tmp/milo run"`
-  and start with an empty `devdata` volume (`docker volume rm milo_devdata`): the browser then shows
-  the welcome screen and creates the owner, exactly as on a real device.
+- **See the first-run screen.** Run `make dev-fresh`: it **deletes the dev data volume**
+  (`milo_devdata`) and starts `dev` with `MILO_DEV_SEED=0`, so there is no demo and the browser
+  shows the welcome screen, exactly as on a real device. Without the make target, set
+  `MILO_DEV_SEED=0` in the environment and start with an empty `milo_devdata` volume.
 - **Use your real Telegram bot.** By default `MILO_TELEGRAM_API_URL` points the stack at the
   simulator, which rejects a real bot token ("unexpected response"). Set it to an empty string on
   the `dev` service to talk to the real Bot API, and restart `dev`. The simulator then sits unused.

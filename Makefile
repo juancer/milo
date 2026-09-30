@@ -11,12 +11,13 @@ PKGS    := ./cmd/... ./internal/... ./web/... ./systemd/...
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
-.PHONY: help test vet web-deps web-build build-arm64 dev web-dev shell clean
+.PHONY: help test vet web-deps web-build build-arm64 dev dev-fresh web-dev shell clean
 
 help:
 	@echo "make test         run go vet + go test in Docker"
 	@echo "make build-arm64  build the Astro UI, then dist/milo-linux-arm64 (CGO off)"
 	@echo "make dev          run Milo with mocked hardware on http://localhost:8080"
+	@echo "make dev-fresh    like dev, but DELETES the dev data volume and skips the demo: first-run onboarding"
 	@echo "make web-dev      run the Astro dev server on http://localhost:4321"
 	@echo "make shell        open a shell in the Go container"
 
@@ -39,6 +40,12 @@ build-arm64: web-build
 
 dev: web-build
 	$(COMPOSE) up --build dev
+
+# Wipes the dev database (volume milo_devdata) and starts without demo data.
+dev-fresh: web-build
+	$(COMPOSE) down
+	-docker volume rm milo_devdata
+	MILO_DEV_SEED=0 $(COMPOSE) up --build dev
 
 web-dev: web-deps
 	$(COMPOSE) up --build dev web-dev

@@ -26,9 +26,7 @@ Each phase leaves the repository compiling, tested and documented.
   [i18n.md](i18n.md)).
 - Real-hardware validation: GPIO, audio, Wi-Fi and wake-word accuracy were only tested with mocks
   and synthetic data ([hardware.md](hardware.md)).
-- Setup protection: until the owner exists, the first visitor becomes the owner. There is no setup
-  token yet.
+- Setup protection: first-run setup is refused from outside the home network, but until the owner
+  exists anyone on that network can still claim the device. There is no setup token yet.
 - Translating messages that come from lower layers (for example backup passphrase rules), the CLI,
   logs and audit entries.
-- The Astro twins of `Select`, `Toggle`, `Table`, `Badge`, `EmptyState` and `PageHeader` exist in
-  `web/admin/src/components` but the views use the TypeScript builders.

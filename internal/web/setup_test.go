@@ -2,8 +2,11 @@ package web
 
 import (
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 )
 
 func sessionCookie(t *testing.T, resp *http.Response) *http.Cookie {
@@ -97,5 +100,45 @@ func TestSetupRaceCreatesOneOwner(t *testing.T) {
 	}
 	if n, _ := e.store.AdminCount(t.Context()); n != 1 || ok != 1 {
 		t.Fatalf("admins = %d, 200s = %d; want 1 and 1", n, ok)
+	}
+}
+
+// Setup makes the caller the owner, so it is limited to the home network, judged by the TCP peer only.
+func TestSetupOnlyFromTheHomeNetwork(t *testing.T) {
+	e := newEnv(t, false)
+	h := e.impl.handler(fstest.MapFS{"index.html": {Data: []byte("x")}})
+	body := `{"username":"owner","password":"` + testPassword + `"}`
+	try := func(remote string, headers map[string]string) int {
+		req := httptest.NewRequest("POST", "/api/setup", strings.NewReader(body))
+		req.RemoteAddr = remote
+		req.Header.Set(clientHeader, clientHeaderValue)
+		req.Header.Set("Content-Type", "application/json")
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for _, remote := range []string{"8.8.8.8:5000", "[2001:4860:4860::8888]:5000", "100.64.0.1:5000"} {
+		if code := try(remote, nil); code != http.StatusForbidden {
+			t.Errorf("setup from %s = %d, want 403", remote, code)
+		}
+	}
+	// A forwarding header cannot make a public peer look local.
+	if code := try("8.8.8.8:5000", map[string]string{"X-Forwarded-For": "192.168.1.5", "X-Real-IP": "10.0.0.2"}); code != http.StatusForbidden {
+		t.Errorf("spoofed X-Forwarded-For = %d, want 403", code)
+	}
+	if info := decode[map[string]any](t, e.do(t, "GET", "/api/session", "", nil, nil)); info["setup_required"] != true {
+		t.Fatalf("a refused setup changed the state: %v", info)
+	}
+	// Private, loopback, link-local and ULA peers are accepted (only the first one can create the owner).
+	for _, remote := range []string{"127.0.0.1:5000", "192.168.1.20:5000", "10.1.2.3:5000", "172.20.0.4:5000", "169.254.1.1:5000", "[fd12:3456::1]:5000", "[fe80::1]:5000"} {
+		if !fromHomeNetwork(&http.Request{RemoteAddr: remote}) {
+			t.Errorf("%s should count as the home network", remote)
+		}
+	}
+	if code := try("192.168.1.20:5000", nil); code != http.StatusOK {
+		t.Fatalf("setup from a private peer = %d", code)
 	}
 }

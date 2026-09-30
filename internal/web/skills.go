@@ -41,7 +41,7 @@ func (s *server) runAction(w http.ResponseWriter, r *http.Request, name string, 
 	case err == nil:
 		return res, true
 	case errors.Is(err, actions.ErrFeatureDisabled):
-		writeError(w, http.StatusConflict, "web.err.turn_this_feature_on_in_the_dashboard_first")
+		writeError(w, http.StatusConflict, "web.err.turn_this_feature_on_from_the_home_screen_first")
 	case errors.Is(err, actions.ErrInvalidParams):
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:
@@ -116,7 +116,7 @@ func (s *server) createReminder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if on, err := s.app.Features.Enabled(r.Context(), "reminders"); err != nil || !on {
-		writeError(w, http.StatusConflict, "web.err.turn_this_feature_on_in_the_dashboard_first")
+		writeError(w, http.StatusConflict, "web.err.turn_this_feature_on_from_the_home_screen_first")
 		return
 	}
 	loc := s.app.Schedules.Location(r.Context())
