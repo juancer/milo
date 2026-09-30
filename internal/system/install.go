@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net"
 	"os"
 	"os/exec"
@@ -178,13 +177,43 @@ func sameFile(a, b string) (bool, error) {
 	return os.SameFile(ai, bi), nil
 }
 
+// chownTree re-owns root and everything below it. It runs as root over a directory the
+// service account can write to, so every access goes through an os.Root: a directory
+// swapped for a symlink while the walk is running cannot lead outside root.
 func chownTree(root string, uid, gid int) error {
-	return filepath.WalkDir(root, func(p string, _ fs.DirEntry, err error) error {
-		if err != nil {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	if err := r.Lchown(".", uid, gid); err != nil {
+		return err
+	}
+	return chownDir(r, ".", uid, gid)
+}
+
+func chownDir(r *os.Root, dir string, uid, gid int) error {
+	d, err := r.Open(dir)
+	if err != nil {
+		return err
+	}
+	entries, err := d.ReadDir(-1)
+	d.Close()
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		p := filepath.Join(dir, e.Name())
+		if err := r.Lchown(p, uid, gid); err != nil {
 			return err
 		}
-		return os.Lchown(p, uid, gid)
-	})
+		if e.IsDir() {
+			if err := chownDir(r, p, uid, gid); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // run executes a fixed command. Arguments are never derived from user input.

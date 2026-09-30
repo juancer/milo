@@ -26,11 +26,13 @@ At startup a canary secret detects a key that does not match the database and re
   (`mom`, `dad`...). The first account, `admin`, is the **owner**: created by `nexo install` with a
   **generated password shown once** on the terminal (it is never logged or stored in clear text).
   Whoever signs in with a generated password must choose their own before anything else works.
-- The owner adds, resets and removes administrators; everyone else has the same management
-  powers except that. Administrators cannot remove themselves or the owner.
-- Passwords are hashed with Argon2id (minimum 12 characters). Failed sign-ins are limited per client
-  address (5 per 15 minutes) and per account (8 per 15 minutes); unknown usernames cost the same time
-  as wrong passwords. Changing a password, or removing an account, ends its sessions immediately.
+- The owner adds, resets and removes administrators, and is the only one who can download or
+  restore a backup (a backup carries every account and, with the key, every secret); everyone else
+  has the same management powers except that. Administrators cannot remove themselves or the owner.
+- Passwords are hashed with Argon2id (minimum 12 characters). Sign-in attempts are limited per client
+  address (5 per 15 minutes, counted before the password is checked). There is no per-account limit,
+  so nobody can lock the owner out by naming `admin`; at most two Argon2 checks run at once. Unknown
+  usernames cost the same time as wrong passwords. Changing a password, or removing an account, ends its sessions immediately.
 - Every audit entry names the administrator who acted.
 - Lost owner access: on the device, `sudo -u nexo nexo admin-reset` (needs shell access).
 - State-changing requests require the `X-Requested-With: nexo-admin` header and a matching

@@ -42,6 +42,21 @@ func (l *Limiter) Allowed(key string) bool {
 	return len(l.recent(key)) < l.max
 }
 
+// Try records an attempt for key and reports whether it may go ahead. The check and the
+// count are one step, so a burst of parallel requests cannot all pass before the first
+// failure is recorded (Allowed followed by Fail cannot promise that). Call Reset when the
+// attempt succeeds.
+func (l *Limiter) Try(key string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	recent := l.recent(key)
+	if len(recent) >= l.max {
+		return false
+	}
+	l.fails[key] = append(recent, l.now())
+	return true
+}
+
 // Fail records a failed attempt.
 func (l *Limiter) Fail(key string) {
 	l.mu.Lock()

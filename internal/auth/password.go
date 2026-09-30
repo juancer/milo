@@ -25,6 +25,16 @@ const (
 	maxPasswordBytes  = 128
 )
 
+// kdfSlots bounds how many Argon2 derivations run at once. Each one holds about 19 MiB,
+// so a burst of parallel sign-in attempts cannot exhaust a small device's memory.
+var kdfSlots = make(chan struct{}, 2)
+
+func deriveKey(pw, salt []byte, iter, mem uint32, threads uint8, keyLen uint32) []byte {
+	kdfSlots <- struct{}{}
+	defer func() { <-kdfSlots }()
+	return argon2.IDKey(pw, salt, iter, mem, threads, keyLen)
+}
+
 // ValidatePassword enforces the admin password policy.
 func ValidatePassword(pw string) error {
 	if len(pw) < MinPasswordLength {
@@ -42,7 +52,7 @@ func HashPassword(pw string) (string, error) {
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
-	sum := argon2.IDKey([]byte(pw), salt, argonIterations, argonMemoryKiB, argonThreads, argonKeyLen)
+	sum := deriveKey([]byte(pw), salt, argonIterations, argonMemoryKiB, argonThreads, argonKeyLen)
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
 		argon2.Version, argonMemoryKiB, argonIterations, argonThreads,
 		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(sum)), nil
@@ -71,6 +81,6 @@ func VerifyPassword(pw, encoded string) (bool, error) {
 	if err != nil || len(want) == 0 {
 		return false, errors.New("auth: malformed hash")
 	}
-	got := argon2.IDKey([]byte(pw), salt, iter, mem, threads, uint32(len(want)))
+	got := deriveKey([]byte(pw), salt, iter, mem, threads, uint32(len(want)))
 	return subtle.ConstantTimeCompare(got, want) == 1, nil
 }

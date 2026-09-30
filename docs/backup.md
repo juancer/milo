@@ -30,7 +30,7 @@ echo "my long passphrase" | sudo -u nexo nexo backup FILE --passphrase-stdin
 
 ## Restoring
 
-**Same device (admin page).** *Restore from a backup*: choose the file and enter the passphrase.
+**Same device (admin page, owner only).** *Restore from a backup*: choose the file and enter the passphrase.
 Nexo decrypts and checks it, and changes nothing until you press *Restart now*. On restart the
 backup replaces the database; the previous one is kept beside it as
 `nexo.db.before-restore-<time>`. This works when the backup was made with this device's master

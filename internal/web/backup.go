@@ -20,8 +20,10 @@ func (s *server) backupRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/backup", s.requireAuth(s.getBackup))
 	mux.Handle("PUT /api/backup", s.requireAuth(s.putBackup))
 	mux.Handle("POST /api/backup/run", s.requireAuth(s.runBackup))
-	mux.Handle("POST /api/backup/download", s.requireAuth(s.downloadBackup))
-	mux.Handle("POST /api/backup/restore", s.requireAuth(s.restoreBackup))
+	// Only the owner may export or replace the data: a backup carries the admin accounts and,
+	// with the key, every stored secret, and a restore swaps the account table wholesale.
+	mux.Handle("POST /api/backup/download", s.requireOwner(s.downloadBackup))
+	mux.Handle("POST /api/backup/restore", s.requireOwner(s.restoreBackup))
 }
 
 func (s *server) getBackup(w http.ResponseWriter, r *http.Request) {
