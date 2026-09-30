@@ -10,11 +10,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/juancer/nexo/internal/store"
@@ -94,8 +96,25 @@ func (r *runner) start(loop func(ctx context.Context)) {
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
-		loop(ctx)
+		for runProtected(ctx, loop) && sleepCtx(ctx, restartDelay) {
+		}
 	}()
+}
+
+// restartDelay is the pause before a background loop that panicked is started again.
+var restartDelay = 5 * time.Second
+
+// runProtected runs loop and reports whether it panicked. The panic is logged and
+// contained, so a bug in one skill's loop cannot take the whole device down.
+func runProtected(ctx context.Context, loop func(context.Context)) (panicked bool) {
+	defer func() {
+		if p := recover(); p != nil {
+			slog.Error("skills: background loop panicked; restarting it", "panic", p)
+			panicked = true
+		}
+	}()
+	loop(ctx)
+	return false
 }
 
 func (r *runner) stop(ctx context.Context) {
@@ -132,7 +151,7 @@ func (c Common) checkURL(raw string) error {
 // checkRedirect is the CheckRedirect of the skills' HTTP clients: a redirect
 // must keep to https (see checkURL) and may not point at a loopback, link-local
 // or unspecified address given as an IP literal or "localhost". Host names that
-// resolve to such addresses are not caught.
+// resolve to such addresses are caught when connecting (see httpClient).
 func (c Common) checkRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= 5 {
 		return errors.New("too many redirects")
@@ -146,6 +165,41 @@ func (c Common) checkRedirect(req *http.Request, via []*http.Request) error {
 		return errors.New("redirect to a local address refused")
 	}
 	return nil
+}
+
+// refuseLocal is a net.Dialer Control: it refuses to connect to a loopback,
+// private (RFC 1918 and IPv6 ULA), link-local, multicast or unspecified address, whether
+// the address was typed as an IP or came out of a DNS lookup.
+func refuseLocal(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return errors.New("refused: bad address")
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return errors.New("refused: bad address")
+	}
+	ip = ip.Unmap()
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsMulticast() || ip.IsUnspecified() {
+		return errors.New("refused: the address points at this device or a private network")
+	}
+	return nil
+}
+
+// httpClient returns the client the skills use for the internet. Unless
+// AllowHTTP is set (the simulator talks to local servers) it cannot connect to
+// local or private addresses. It ignores proxy settings, which would make the
+// checked address the proxy's rather than the destination's.
+func (c Common) httpClient(timeout time.Duration) *http.Client {
+	d := &net.Dialer{Timeout: 10 * time.Second}
+	if !c.AllowHTTP {
+		d.Control = refuseLocal
+	}
+	return &http.Client{Timeout: timeout, CheckRedirect: c.checkRedirect, Transport: &http.Transport{
+		DialContext: d.DialContext, ForceAttemptHTTP2: true, TLSHandshakeTimeout: 10 * time.Second,
+		DisableKeepAlives: true, // a client is built per request, so idle connections would only linger
+	}}
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) bool {

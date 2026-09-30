@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/juancer/nexo/internal/store"
 )
@@ -157,5 +158,29 @@ func TestChangeResetAndDelete(t *testing.T) {
 	}
 	if o, err := a.Owner(ctx); err != nil || o.Username != "admin" {
 		t.Fatalf("Owner = %+v %v", o, err)
+	}
+}
+
+func TestPasswordCheckGivesUpWhenAllKDFSlotsAreHeld(t *testing.T) {
+	a, _ := newAccounts(t)
+	_, _, pw, _ := a.EnsureFirstAdmin(context.Background())
+	for i := 0; i < cap(kdfSlots); i++ {
+		kdfSlots <- struct{}{}
+	}
+	defer func() {
+		for i := 0; i < cap(kdfSlots); i++ {
+			<-kdfSlots
+		}
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := VerifyPasswordContext(ctx, pw, a.dummyHash); !errors.Is(err, ErrBusy) {
+		t.Fatalf("VerifyPasswordContext with cancelled ctx = %v, want ErrBusy", err)
+	}
+	old := kdfWait
+	kdfWait = time.Millisecond
+	defer func() { kdfWait = old }()
+	if _, err := a.Authenticate(context.Background(), "admin", pw); !errors.Is(err, ErrBusy) {
+		t.Fatalf("Authenticate with no free slot = %v, want ErrBusy", err)
 	}
 }

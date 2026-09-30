@@ -144,6 +144,7 @@ func (s *Service) Start(ctx context.Context) error {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
+		defer s.recoverPanic("wake word loop")
 		s.loop(runCtx)
 	}()
 	return nil
@@ -153,11 +154,14 @@ func (s *Service) Start(ctx context.Context) error {
 func (s *Service) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	cancel, det := s.cancel, s.det
-	s.running, s.det = false, nil
-	s.mu.Unlock()
+	// Cancel before clearing det, both under the lock: the loop installs a rebuilt
+	// helper only while holding s.mu with its context still live, so none can land
+	// after this point and go unclosed.
 	if cancel != nil {
 		cancel()
 	}
+	s.running, s.det = false, nil
+	s.mu.Unlock()
 	if det != nil {
 		det.Close()
 	}
@@ -168,6 +172,14 @@ func (s *Service) Stop(ctx context.Context) error {
 	case <-ctx.Done():
 	}
 	return nil
+}
+
+// recoverPanic contains a panic in one of the service's goroutines: it is logged
+// and the goroutine ends instead of taking the whole process down.
+func (s *Service) recoverPanic(what string) {
+	if r := recover(); r != nil {
+		s.Log.Error("panic contained", "where", what, "panic", fmt.Sprint(r))
+	}
 }
 
 // loop feeds microphone audio to the detector until stopped, retrying if the
@@ -195,6 +207,7 @@ func (s *Service) loop(ctx context.Context) {
 			}
 		}
 		err := s.Audio.Listen(ctx, func(pcm []byte) {
+			defer s.recoverPanic("wake word detector")
 			if !s.scheduleOpen(ctx) {
 				return // outside the wakeword usage schedule: the detector idles
 			}
@@ -246,6 +259,7 @@ func (s *Service) fire(ctx context.Context) {
 	s.mu.Unlock()
 	s.Log.Info("wake word heard")
 	go func() {
+		defer s.recoverPanic("wake word fire")
 		actor := actions.Actor{Kind: actions.ActorDevice, Label: "wake word"}
 		if _, err := s.Actions.Execute(ctx, actor, "gpt", nil); err != nil && ctx.Err() == nil {
 			s.Log.Info("wake word could not start the assistant", "reason", err.Error())

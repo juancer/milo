@@ -60,6 +60,12 @@ type App struct {
 	Weather   *skills.Weather
 	Calendar  *skills.Calendar
 
+	// WifiMu serialises every change to the Wi-Fi list together with the sync that
+	// applies it, so two requests cannot interleave and a new row is never applied
+	// (as an open network) before its password is stored. Handlers that edit the
+	// list hold it and call SyncWifiLocked; SyncWifi takes it itself.
+	WifiMu sync.Mutex
+
 	// Logs is the in-memory log buffer shown in the admin (set by the caller).
 	Logs *system.Ring
 	// RestartFunc, when set, gracefully restarts the process (systemd starts it again).

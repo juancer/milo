@@ -34,8 +34,14 @@ func runServer(ctx context.Context, cfg system.Config) error {
 
 	// A restore chosen in the admin UI waits for this moment: the database is
 	// not open yet, so it can be swapped safely.
+	// Leftovers of a crash or kill (the restore and backup workspaces, half-written downloads).
+	backup.SweepTemp(cfg.DataDir, time.Minute)
 	if applied, previous, err := backup.ApplyPending(cfg.DataDir); err != nil {
-		return fmt.Errorf("cannot apply the pending restore: %w", err)
+		// Under Restart=always a restore that keeps failing (a full disk, say) would stop the
+		// service from ever starting: set it aside and carry on with the current database.
+		dest, qerr := backup.Quarantine(cfg.DataDir)
+		log.Error("cannot apply the pending restore; continuing on the current database", "error", err,
+			"set_aside_as", filepath.Base(dest), "quarantine_error", qerr)
 	} else if applied {
 		log.Info("restored from a backup", "previous_database_kept_as", filepath.Base(previous))
 	}

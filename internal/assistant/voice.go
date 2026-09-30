@@ -178,6 +178,9 @@ func (e *Engine) RunVoice(ctx context.Context, source string) error {
 	}
 
 	for turn := 0; turn < maxVoiceTurns && ctx.Err() == nil; turn++ {
+		if turn > 0 && !e.sessionAllowed(ctx) { // the schedule may have closed since the last turn
+			return nil
+		}
 		e.note(ctx, audio.NotifyRecordStart)
 		// Pressing the button again finishes the recording early (not the session).
 		recCtx, finish := context.WithCancel(ctx)
@@ -228,6 +231,18 @@ func (e *Engine) RunVoice(ctx context.Context, source string) error {
 		}
 	}
 	return nil
+}
+
+// sessionAllowed reports whether the assistant may still be used right now: its feature is on and
+// its schedule is open. The Action Engine already applies both to the "gpt" action, so ask it which
+// device tools are currently usable. An error counts as closed.
+func (e *Engine) sessionAllowed(ctx context.Context) bool {
+	for _, t := range e.actions.ToolsFor(ctx, actions.ActorDevice) {
+		if t.Name == "gpt" {
+			return true
+		}
+	}
+	return false
 }
 
 // say speaks text; when speech synthesis is not available it plays a tone so

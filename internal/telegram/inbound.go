@@ -19,6 +19,8 @@ const (
 	msgRequestSent   = "Thanks! Your request was sent to the family admin. You will get a message here once it is approved."
 	msgAwaiting      = "Your request is waiting for approval by the family admin."
 	maxVoiceSeconds  = 120
+	// strangerLogGap is the shortest time between two "unauthorized user" warnings.
+	strangerLogGap = 10 * time.Second
 )
 
 // pollLoop long-polls Telegram until ctx ends. Failures back off and retry, so
@@ -118,7 +120,7 @@ func (s *Service) handleStranger(ctx context.Context, c *Client, m *Message) {
 			s.reply(ctx, c, from.ID, msgAwaiting, nil)
 			return
 		}
-		s.Log.Warn("telegram: unauthorized user contacted the bot", "telegram_id", from.ID)
+		s.warnStranger(from.ID)
 		s.reply(ctx, c, from.ID, msgNotAuthorized, nil)
 		return
 	}
@@ -143,6 +145,22 @@ func (s *Service) handleStranger(ctx context.Context, c *Client, m *Message) {
 	s.Audit.Record(ctx, "telegram", "authorization.requested", strconv.FormatInt(from.ID, 10),
 		map[string]string{"role": inv.Role, "username": from.Username})
 	s.reply(ctx, c, from.ID, msgRequestSent, nil)
+}
+
+// warnStranger logs an unauthorized contact, at most once every strangerLogGap across all
+// senders, so many different accounts cannot flood the log ring and the journal.
+func (s *Service) warnStranger(id int64) {
+	s.mu.Lock()
+	now := s.now()
+	if !s.strangerLogAt.IsZero() && now.Sub(s.strangerLogAt) < strangerLogGap {
+		s.strangerLogSkips++
+		s.mu.Unlock()
+		return
+	}
+	skipped := s.strangerLogSkips
+	s.strangerLogAt, s.strangerLogSkips = now, 0
+	s.mu.Unlock()
+	s.Log.Warn("telegram: unauthorized user contacted the bot", "telegram_id", id, "suppressed_since_last", skipped)
 }
 
 func (s *Service) strangerCoolingDown(id int64) bool {

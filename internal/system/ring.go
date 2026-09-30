@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // Ring keeps the most recent log lines in memory for the admin "Logs" view.
@@ -20,7 +21,18 @@ type Ring struct {
 // NewRing keeps at most max lines.
 func NewRing(max int) *Ring { return &Ring{max: max} }
 
+// maxLineBytes bounds one ring line, so text a remote party controls (a provider's error message)
+// cannot fill the memory of a small device.
+const maxLineBytes = 1024
+
 func (r *Ring) add(line string) {
+	if len(line) > maxLineBytes {
+		cut := maxLineBytes
+		for cut > 0 && !utf8.RuneStart(line[cut]) {
+			cut--
+		}
+		line = line[:cut] + "..."
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.lines = append(r.lines, line)

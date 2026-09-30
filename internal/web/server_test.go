@@ -1035,6 +1035,9 @@ func TestSkillsAPI(t *testing.T) {
 	ctx := context.Background()
 
 	// Reminders: created by the admin, validated, blocked words honoured, cancellable.
+	if err := e.app.Features.SetEnabled(ctx, "reminders", true); err != nil { // the API refuses while the feature is off
+		t.Fatal(err)
+	}
 	future := time.Now().Add(48 * time.Hour).Format("2006-01-02T15:04")
 	if resp := e.do(t, "POST", "/api/reminders", `{"text":"Grandma visits","due":"`+future+`"}`, cookie, nil); resp.StatusCode != 201 {
 		t.Fatalf("create reminder = %d", resp.StatusCode)
@@ -1545,7 +1548,7 @@ func TestRestorePassphraseGuessingIsThrottled(t *testing.T) {
 func TestLocalBackupSettingsRunAndListing(t *testing.T) {
 	e := newEnv(t, true)
 	cookie := e.login(t)
-	dir := filepath.Join(t.TempDir(), "snapshots")
+	dir := filepath.Join(e.app.Cfg.DataDir, "snapshots") // backups must stay inside the data directory
 
 	got := decode[struct {
 		Settings app.BackupSettings `json:"settings"`
@@ -1558,7 +1561,9 @@ func TestLocalBackupSettingsRunAndListing(t *testing.T) {
 	for name, bad := range map[string]string{
 		"relative": `{"auto":true,"dir":"backups","keep":3,"every_hours":24}`, "dotdot": `{"auto":true,"dir":"/tmp/../etc","keep":3,"every_hours":24}`,
 		"keep 0": `{"auto":true,"dir":"` + dir + `","keep":0,"every_hours":24}`, "every 999": `{"auto":true,"dir":"` + dir + `","keep":3,"every_hours":999}`,
-		"unwritable": `{"auto":true,"dir":"/proc/nexo-backups","keep":3,"every_hours":24}`,
+		"unwritable":           `{"auto":true,"dir":"/proc/nexo-backups","keep":3,"every_hours":24}`,
+		"outside the data dir": `{"auto":true,"dir":"` + filepath.Join(t.TempDir(), "elsewhere") + `","keep":3,"every_hours":24}`,
+		"the data dir itself":  `{"auto":true,"dir":"` + e.app.Cfg.DataDir + `","keep":3,"every_hours":24}`,
 	} {
 		if resp := e.do(t, "PUT", "/api/backup", bad, cookie, nil); resp.StatusCode != 400 {
 			t.Errorf("%s = %d, want 400", name, resp.StatusCode)

@@ -72,9 +72,14 @@ func (s *server) putWake(w http.ResponseWriter, r *http.Request) {
 	case d.Sensitivity < 1 || d.Sensitivity > 10:
 		writeError(w, http.StatusBadRequest, "sensitivity must be 1-10")
 		return
-	case d.Engine == "external" && wakeword.ValidateExternalPath(d.ExternalPath) != nil:
-		writeError(w, http.StatusBadRequest, wakeword.ValidateExternalPath(d.ExternalPath).Error())
-		return
+	}
+	// Required for the external engine, and checked for any stored path, so an
+	// unvalidated one never sits in the settings waiting for the engine to change.
+	if d.Engine == "external" || d.ExternalPath != "" {
+		if err := wakeword.ValidateExternalPath(d.ExternalPath); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	ctx := r.Context()
 	for k, v := range map[string]string{

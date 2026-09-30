@@ -103,13 +103,24 @@ func (a *App) alertParents(ctx context.Context, quote string) {
 // maintenance runs periodic housekeeping.
 func (a *App) maintenance(ctx context.Context) {
 	for {
-		a.Assistant.PruneHistory(ctx)
-		a.Store.PruneSkills(ctx, time.Now().AddDate(0, 0, -30)) //nolint:errcheck
-		a.backupIfDue(ctx)
+		a.maintenanceRound(ctx)
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(time.Hour):
 		}
 	}
+}
+
+// maintenanceRound runs one pass of housekeeping. A panic in it is logged and the
+// next pass still happens, instead of the whole process going down.
+func (a *App) maintenanceRound(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			a.Log.Error("panic contained", "where", "maintenance", "panic", fmt.Sprint(r))
+		}
+	}()
+	a.Assistant.PruneHistory(ctx)
+	a.Store.PruneSkills(ctx, time.Now().AddDate(0, 0, -30)) //nolint:errcheck
+	a.backupIfDue(ctx)
 }

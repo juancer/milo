@@ -216,3 +216,33 @@ func TestBinaryMustBeAbsoluteOrBare(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestCheckTTSWAVLimitsRateAndDuration(t *testing.T) {
+	if err := checkTTSWAV(audio.EncodeWAV(audio.Silence(time.Second), 16000)); err != nil {
+		t.Fatalf("normal speech: %v", err)
+	}
+	long := audio.EncodeWAV(make([]byte, 2*16000*int(maxTTSDuration.Seconds()+1)), 16000)
+	if err := checkTTSWAV(long); err == nil {
+		t.Fatal("audio over the maximum duration accepted")
+	}
+	if err := checkTTSWAV(audio.EncodeWAV(make([]byte, 100), 1)); err == nil {
+		t.Fatal("a 1 Hz sample rate was accepted")
+	}
+}
+
+func TestWhisperStdoutIsCapped(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "whisper")
+	os.WriteFile(bin, []byte("#!/bin/sh\nexec head -c 100000000 /dev/zero\n"), 0o755)
+	w, err := NewWhisperCpp(bin, "/models/x.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	if _, err := w.Transcribe(context.Background(), audio.EncodeWAV(nil, 16000)); err == nil || !strings.Contains(err.Error(), "too much output") {
+		t.Fatalf("err = %v", err)
+	}
+	if time.Since(start) > 20*time.Second {
+		t.Fatal("the process was not stopped promptly")
+	}
+}

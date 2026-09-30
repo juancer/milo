@@ -286,3 +286,19 @@ func TestWakewordScheduleIsHonoured(t *testing.T) {
 	}
 	waitCalls(t, r, 1)
 }
+
+type panicSchedules struct{}
+
+func (panicSchedules) Allowed(context.Context, string, time.Time) (bool, error) {
+	panic("schedule checker blew up")
+}
+
+func TestAPanicWhileListeningIsContained(t *testing.T) {
+	r := newRig(t, true)
+	r.svc.Schedules = panicSchedules{}
+	r.start(t)
+	r.audio.Feed(nil) // runs the detector callback in this goroutine: a panic would fail the test
+	if !r.audio.Listening() {
+		t.Fatal("the loop stopped after a panic")
+	}
+}

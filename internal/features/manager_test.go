@@ -134,7 +134,7 @@ func TestRestartHonoursASwitchOffThatLandsWhileItWaits(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m.mu.Lock() // stands in for a SetEnabled that is running at the same moment
+	m.opMu.Lock() // stands in for a SetEnabled that is running at the same moment
 	done := make(chan error, 1)
 	go func() { done <- m.Restart(ctx, "telegram") }()
 	time.Sleep(50 * time.Millisecond) // Restart is now waiting for the lock
@@ -142,7 +142,7 @@ func TestRestartHonoursASwitchOffThatLandsWhileItWaits(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.reconcile(ctx, m.features["telegram"], false)
-	m.mu.Unlock()
+	m.opMu.Unlock()
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
@@ -150,5 +150,44 @@ func TestRestartHonoursASwitchOffThatLandsWhileItWaits(t *testing.T) {
 	list, _ := m.List(ctx)
 	if len(list) != 1 || list[0].Enabled || list[0].Running || tg.starts != 1 {
 		t.Fatalf("feature restarted although it was switched off: %+v starts=%d", list, tg.starts)
+	}
+}
+
+type slowStart struct {
+	fake
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *slowStart) Start(context.Context) error {
+	close(s.entered)
+	<-s.release
+	return nil
+}
+
+func TestListDoesNotWaitForASlowStart(t *testing.T) {
+	ctx := context.Background()
+	m, _ := newManager(t)
+	f := &slowStart{fake: fake{name: "telegram"}, entered: make(chan struct{}), release: make(chan struct{})}
+	if err := m.Register(ctx, f); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- m.SetEnabled(ctx, "telegram", true) }()
+	<-f.entered
+	listed := make(chan struct{})
+	go func() { m.List(ctx); close(listed) }() //nolint:errcheck
+	select {
+	case <-listed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("List blocked while a feature was starting")
+	}
+	close(f.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	list, _ := m.List(ctx)
+	if len(list) != 1 || !list[0].Running {
+		t.Fatalf("list = %+v, want telegram running", list)
 	}
 }

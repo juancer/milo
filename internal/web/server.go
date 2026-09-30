@@ -38,7 +38,11 @@ type server struct {
 	accounts *auth.Accounts
 	sessions *auth.Sessions
 	limiter  *auth.Limiter // sign-in attempts per client address
-	started  time.Time
+	// Separate buckets, so a mistyped password change or restore passphrase does not count
+	// against sign-in from the same address.
+	pwLimiter      *auth.Limiter // password-change attempts
+	restoreLimiter *auth.Limiter // restore passphrase attempts (read by backup.go)
+	started        time.Time
 }
 
 type ctxKey struct{}
@@ -61,7 +65,10 @@ func newServer(a *app.App, version string) *server {
 		accounts: auth.NewAccounts(a.Store),
 		sessions: auth.NewSessions(sessionTTL),
 		limiter:  auth.NewLimiter(5, 15*time.Minute),
-		started:  time.Now(),
+
+		pwLimiter:      auth.NewLimiter(5, 15*time.Minute),
+		restoreLimiter: auth.NewLimiter(5, 15*time.Minute),
+		started:        time.Now(),
 	}
 }
 
@@ -231,6 +238,11 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, err := s.accounts.Authenticate(r.Context(), body.Username, body.Password)
+	if errors.Is(err, auth.ErrBusy) {
+		s.limiter.Refund(ip) // the server was busy: not a wrong-password guess
+		writeError(w, http.StatusServiceUnavailable, "the server is busy, try again shortly")
+		return
+	}
 	if errors.Is(err, auth.ErrBadCredentials) {
 		// Only an existing account name is recorded: anything else may be a password typed
 		// into the username field.

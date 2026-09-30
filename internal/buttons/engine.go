@@ -221,6 +221,13 @@ func (e *Engine) onGPIO(b *buttonState, ev gpio.Event) {
 
 // emit resolves the configured action and dispatches it.
 func (e *Engine) emit(b *buttonState, eventType string) {
+	// emit runs on timer and event goroutines: a panic in a dispatcher must not
+	// take the process down.
+	defer func() {
+		if r := recover(); r != nil {
+			e.log.Error("panic contained", "where", "button "+b.cfg.Name, "event", eventType, "panic", fmt.Sprint(r))
+		}
+	}()
 	a, ok := b.cfg.Actions[eventType]
 	if !ok {
 		return

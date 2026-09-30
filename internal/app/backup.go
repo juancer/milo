@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/juancer/nexo/internal/backup"
@@ -30,14 +31,29 @@ type BackupSettings struct {
 	LastError  string    `json:"last_error,omitempty"`
 }
 
-// BackupSettings returns the current settings (defaults: on, daily, keep 7).
+// BackupDirAllowed reports whether dir may hold local snapshots: a folder below the data
+// folder, but not the data folder itself and not the folders a restore works in.
+func (a *App) BackupDirAllowed(dir string) bool {
+	rel, err := filepath.Rel(filepath.Clean(a.Cfg.DataDir), filepath.Clean(dir))
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	return !strings.HasPrefix(strings.SplitN(rel, string(filepath.Separator), 2)[0], "restore-")
+}
+
+// BackupSettings returns the current settings (defaults: on, daily, keep 7). Values read
+// back from the database are clamped to what the settings page accepts: a restored
+// database is not trusted to have valid ones.
 func (a *App) BackupSettings(ctx context.Context) BackupSettings {
 	b := BackupSettings{
 		Auto:       a.Setting(ctx, settingBackupAuto, "1") != "0",
 		Dir:        a.Setting(ctx, settingBackupDir, filepath.Join(a.Cfg.DataDir, "backups")),
-		Keep:       a.IntSetting(ctx, settingBackupKeep, 7),
-		EveryHours: a.IntSetting(ctx, settingBackupEvery, 24),
+		Keep:       max(a.IntSetting(ctx, settingBackupKeep, 7), 1),
+		EveryHours: min(max(a.IntSetting(ctx, settingBackupEvery, 24), 1), 168),
 		LastError:  a.Setting(ctx, settingBackupError, ""),
+	}
+	if !a.BackupDirAllowed(b.Dir) {
+		b.Dir = filepath.Join(a.Cfg.DataDir, "backups")
 	}
 	if t, err := time.Parse(time.RFC3339, a.Setting(ctx, settingBackupLast, "")); err == nil {
 		b.LastAt = t

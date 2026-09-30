@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/juancer/nexo/internal/assistant"
 )
@@ -171,12 +172,34 @@ func (c *Client) once(ctx context.Context, payload []byte) (assistant.Message, e
 		return assistant.Message{}, &retryError{msg: "unreadable response"}
 	}
 	if out.Error != nil && len(out.Choices) == 0 { // some providers report rate limits in a 200 body
-		return assistant.Message{}, &retryError{msg: "provider error: " + out.Error.Message}
+		return assistant.Message{}, &retryError{msg: "provider error: " + clip(out.Error.Message)}
 	}
 	if len(out.Choices) == 0 {
 		return assistant.Message{}, &retryError{msg: "empty response"}
 	}
-	return fromWire(out.Choices[0].Message), nil
+	msg, err := fromWire(out.Choices[0].Message)
+	if err != nil {
+		return assistant.Message{}, err
+	}
+	return msg, nil
+}
+
+// maxMessageBytes bounds provider-written text that ends up in errors and logs.
+const maxMessageBytes = 300
+
+// maxArgumentBytes bounds the arguments of one tool call from the provider.
+const maxArgumentBytes = 8 << 10
+
+// clip shortens provider-controlled text on a character boundary.
+func clip(s string) string {
+	if len(s) <= maxMessageBytes {
+		return s
+	}
+	cut := maxMessageBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "..."
 }
 
 func apiMessage(raw []byte) string {
@@ -186,7 +209,7 @@ func apiMessage(raw []byte) string {
 		} `json:"error"`
 	}
 	if json.Unmarshal(raw, &e) == nil && e.Error.Message != "" {
-		return e.Error.Message
+		return clip(e.Error.Message)
 	}
 	return "no details"
 }
@@ -209,13 +232,16 @@ func toWire(msgs []assistant.Message) []wireMessage {
 	return out
 }
 
-func fromWire(w wireMessage) assistant.Message {
+func fromWire(w wireMessage) (assistant.Message, error) {
 	m := assistant.Message{Role: "assistant"}
 	if w.Content != nil {
 		m.Content = *w.Content
 	}
 	for _, c := range w.ToolCalls {
+		if len(c.Function.Arguments) > maxArgumentBytes {
+			return assistant.Message{}, errors.New("AI provider sent an oversized tool call")
+		}
 		m.ToolCalls = append(m.ToolCalls, assistant.ToolCall{ID: c.ID, Name: c.Function.Name, Arguments: c.Function.Arguments})
 	}
-	return m
+	return m, nil
 }

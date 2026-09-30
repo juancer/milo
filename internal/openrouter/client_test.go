@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -159,5 +160,35 @@ func TestMissingKeyAndCancellation(t *testing.T) {
 	_, err := c.Chat(ctx, assistant.ChatRequest{Model: "m", Messages: []assistant.Message{{Role: "user", Content: "x"}}})
 	if err == nil || time.Since(start) > 3*time.Second {
 		t.Fatalf("cancellation not honoured: %v after %v", err, time.Since(start))
+	}
+}
+
+func TestProviderErrorTextIsTruncated(t *testing.T) {
+	huge := strings.Repeat("A", 1<<20)
+	for name, h := range map[string]http.HandlerFunc{
+		"refused": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+			reply(w, `{"error":{"message":"`+huge+`"}}`)
+		},
+		"error in 200": func(w http.ResponseWriter, r *http.Request) {
+			reply(w, `{"error":{"message":"`+huge+`"}}`)
+		},
+	} {
+		c := server(t, h)
+		_, err := c.Chat(context.Background(), assistant.ChatRequest{Model: "m", Messages: []assistant.Message{{Role: "user", Content: "x"}}})
+		if err == nil || len(err.Error()) > 1500 {
+			t.Errorf("%s: error of %d bytes", name, len(fmt.Sprint(err)))
+		}
+	}
+}
+
+func TestOversizedToolCallArgumentsAreRejected(t *testing.T) {
+	c := server(t, func(w http.ResponseWriter, r *http.Request) {
+		args, _ := json.Marshal(strings.Repeat("a", 9<<10))
+		reply(w, `{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[
+			{"id":"c","type":"function","function":{"name":"set_volume","arguments":`+string(args)+`}}]}}]}`)
+	})
+	if _, err := c.Chat(context.Background(), assistant.ChatRequest{Model: "m", Messages: []assistant.Message{{Role: "user", Content: "x"}}}); err == nil {
+		t.Fatal("an 9 KiB tool call was accepted")
 	}
 }

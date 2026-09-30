@@ -96,7 +96,7 @@ func (c *Calendar) fetch(ctx context.Context) ([]byte, error) {
 	}
 	client := c.Client
 	if client == nil {
-		client = &http.Client{Timeout: 20 * time.Second, CheckRedirect: c.checkRedirect}
+		client = c.httpClient(20 * time.Second)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, string(raw), nil)
 	if err != nil {

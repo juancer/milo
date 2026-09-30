@@ -11,6 +11,9 @@ import (
 
 const maxReminders = 50 // pending reminders
 
+// MaxReminders is maxReminders for callers outside the package.
+const MaxReminders = maxReminders
+
 // Reminders is the "reminders" feature: things to say at a time, kept across reboots.
 type Reminders struct {
 	Common
@@ -39,7 +42,8 @@ func (r *Reminders) Start(ctx context.Context) error {
 // Stop implements features.Feature.
 func (r *Reminders) Stop(ctx context.Context) error { r.stop(ctx); return nil }
 
-// fireDue announces due reminders. Outside the parents' usage window for
+// fireDue announces due reminders, marking each done only after it was said, so
+// a stop in between says it again on the next start instead of losing it. Outside the parents' usage window for
 // reminders they stay pending and are said once the window opens.
 func (r *Reminders) fireDue(ctx context.Context) {
 	due, err := r.Store.DueReminders(ctx, r.now())
@@ -51,10 +55,11 @@ func (r *Reminders) fireDue(ctx context.Context) {
 		return
 	}
 	for _, rem := range due {
-		if ok, err := r.Store.MarkReminderDone(ctx, rem.ID); err != nil || !ok {
-			continue
-		}
 		r.Announce.Announce(ctx, "Reminder: "+rem.Text, false)
+		if ctx.Err() != nil {
+			return // stopped while speaking: it stays pending
+		}
+		r.Store.MarkReminderDone(ctx, rem.ID) //nolint:errcheck // it is announced again if this fails
 	}
 }
 

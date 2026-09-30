@@ -55,6 +55,10 @@ func (s *server) saveWifi(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &d) {
 		return
 	}
+	// Held through the sync at the end, so a concurrent request cannot apply a
+	// half-saved row or re-add a profile that was just removed.
+	s.app.WifiMu.Lock()
+	defer s.app.WifiMu.Unlock()
 	create := r.Method == http.MethodPost
 	var existing store.WifiNetwork
 	if !create {
@@ -140,17 +144,29 @@ func (s *server) deleteWifi(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	s.app.WifiMu.Lock()
+	defer s.app.WifiMu.Unlock()
 	n, err := s.app.Store.GetWifiNetwork(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "no such network")
 		return
 	}
-	if err := s.app.Store.DeleteWifiNetwork(r.Context(), id); err != nil {
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	// The password goes first: if the row cannot be removed afterwards the admin
+	// can retry (deleting a missing secret is not an error), whereas the other
+	// order would leave a stored password with no row pointing at it.
 	if n.SecretName != "" {
-		s.app.Store.DeleteSecret(r.Context(), n.SecretName) //nolint:errcheck
+		if err := s.app.Store.DeleteSecret(r.Context(), n.SecretName); err != nil {
+			writeError(w, http.StatusInternalServerError, "could not remove the password")
+			return
+		}
+	}
+	if err := s.app.Store.DeleteWifiNetwork(r.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
 	}
 	s.audit(r, "wifi.removed", n.SSID, nil)
 	s.syncWifi(r.Context(), w)
@@ -160,7 +176,7 @@ func (s *server) deleteWifi(w http.ResponseWriter, r *http.Request) {
 func (s *server) syncWifi(ctx context.Context, w http.ResponseWriter) {
 	sctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	if err := s.app.SyncWifi(sctx); err != nil {
+	if err := s.app.SyncWifiLocked(sctx); err != nil {
 		s.app.Log.Warn("wifi sync", "error", err)
 		writeJSON(w, http.StatusOK, map[string]any{"saved": true, "warning": fmt.Sprintf("Saved, but the device could not apply it: %s", strings.TrimPrefix(err.Error(), "nmcli "))})
 		return

@@ -42,14 +42,38 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	return b.buf.Write(p)
 }
 
+// maxStderr caps the diagnostics kept from a converter's stderr.
+const maxStderr = 1 << 20
+
+// CappedBuffer keeps the first Max bytes written to it and silently drops the
+// rest, so a chatty child process can neither fill memory nor block on a full pipe.
+type CappedBuffer struct {
+	Max int
+	buf bytes.Buffer
+}
+
+// Write implements io.Writer. It always reports the whole write as done.
+func (b *CappedBuffer) Write(p []byte) (int, error) {
+	if room := b.Max - b.buf.Len(); room > 0 {
+		b.buf.Write(p[:min(room, len(p))])
+	}
+	return len(p), nil
+}
+
+// String returns what was kept.
+func (b *CappedBuffer) String() string { return b.buf.String() }
+
+// NewStderrBuffer returns a CappedBuffer sized for a child process's diagnostics (1 MiB).
+func NewStderrBuffer() *CappedBuffer { return &CappedBuffer{Max: maxStderr} }
+
 func run(ctx context.Context, name string, in []byte, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin = bytes.NewReader(in)
 	out := &limitedBuffer{stop: cancel}
-	var stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = out, &stderr
+	stderr := NewStderrBuffer()
+	cmd.Stdout, cmd.Stderr = out, stderr
 	if err := cmd.Run(); err != nil {
 		if out.over {
 			return nil, fmt.Errorf("audio: %s: %w", name, errOutputTooLarge)

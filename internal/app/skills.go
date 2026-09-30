@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/juancer/nexo/internal/audio"
 	"github.com/juancer/nexo/internal/moderation"
@@ -55,9 +56,24 @@ func (a *App) Announce(ctx context.Context, text string, alarm bool) {
 	if text == "" {
 		return
 	}
+	// Speech belongs to the assistant: while it is switched off or outside its
+	// usage window a timer or reminder only sounds its tone.
+	if !a.assistantMayTalk(ctx) {
+		return
+	}
 	if err := a.Assistant.Speak(ctx, text); err != nil {
 		a.Log.Debug("announcement not spoken", "reason", err.Error())
 	}
+}
+
+// assistantMayTalk reports whether the assistant feature is on and inside its
+// usage schedule. Anything unreadable counts as no.
+func (a *App) assistantMayTalk(ctx context.Context) bool {
+	if on, err := a.Features.Enabled(ctx, "assistant"); err != nil || !on {
+		return false
+	}
+	ok, err := a.Schedules.Allowed(ctx, "assistant", time.Now())
+	return err == nil && ok
 }
 
 // CheckText reports an error if text contains a phrase the parents blocked.

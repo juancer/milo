@@ -45,7 +45,8 @@ func (t *Timers) Stop(ctx context.Context) error { t.stop(ctx); return nil }
 // fireDue announces due timers. After a reboot, timers that ran out long ago
 // are dropped silently instead of ringing at a random moment. Outside the
 // parents' usage window for timers nothing rings: a due timer waits for the
-// window to open, and is dropped once it is older than the grace period.
+// window to open, and is dropped once it is older than the grace period. A timer
+// is marked fired only after it rang, so a stop in between rings it again.
 func (t *Timers) fireDue(ctx context.Context, startup bool) {
 	due, err := t.Store.DueTimers(ctx, t.now())
 	if err != nil {
@@ -60,10 +61,8 @@ func (t *Timers) fireDue(ctx context.Context, startup bool) {
 		if !open && t.now().Sub(tm.FiresAt) <= missedTimerGrace {
 			continue // leave it pending until the window opens
 		}
-		if ok, err := t.Store.MarkTimerFired(ctx, tm.ID); err != nil || !ok {
-			continue
-		}
 		if !open || startup && t.now().Sub(tm.FiresAt) > missedTimerGrace {
+			t.Store.MarkTimerFired(ctx, tm.ID) //nolint:errcheck // dropped without ringing
 			continue
 		}
 		msg := "Your timer is done!"
@@ -71,6 +70,10 @@ func (t *Timers) fireDue(ctx context.Context, startup bool) {
 			msg = fmt.Sprintf("Your %s timer is done!", tm.Label)
 		}
 		t.Announce.Announce(ctx, msg, true)
+		if ctx.Err() != nil {
+			return // stopped while ringing: it stays pending and rings again
+		}
+		t.Store.MarkTimerFired(ctx, tm.ID) //nolint:errcheck // it rings again if this fails
 	}
 }
 

@@ -488,8 +488,10 @@ func (s *server) saveChat(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "no such chat")
-	case err != nil:
+	case err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed"):
 		writeError(w, http.StatusConflict, "cannot save chat: the name must be unique")
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, "internal error")
 	default:
 		s.audit(r, action, c.Name, nil)
 		saved, _ := s.app.Store.GetChat(r.Context(), c.ID)

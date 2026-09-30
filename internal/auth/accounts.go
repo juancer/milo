@@ -95,13 +95,15 @@ func (a *Accounts) EnsureFirstAdmin(ctx context.Context) (created bool, username
 func (a *Accounts) Authenticate(ctx context.Context, username, password string) (store.AdminUser, error) {
 	u, err := a.store.GetAdminByName(ctx, strings.ToLower(strings.TrimSpace(username)))
 	if errors.Is(err, store.ErrNotFound) {
-		VerifyPassword(password, a.dummyHash) //nolint:errcheck // same work as a real check
+		if _, err := VerifyPasswordContext(ctx, password, a.dummyHash); errors.Is(err, ErrBusy) {
+			return store.AdminUser{}, err
+		}
 		return store.AdminUser{}, ErrBadCredentials
 	}
 	if err != nil {
 		return store.AdminUser{}, err
 	}
-	ok, err := VerifyPassword(password, u.PasswordHash)
+	ok, err := VerifyPasswordContext(ctx, password, u.PasswordHash)
 	if err != nil {
 		return store.AdminUser{}, err
 	}
@@ -149,7 +151,11 @@ func (a *Accounts) ChangePassword(ctx context.Context, id int64, current, next s
 	if err != nil {
 		return err
 	}
-	if ok, err := VerifyPassword(current, u.PasswordHash); err != nil || !ok {
+	ok, err := VerifyPasswordContext(ctx, current, u.PasswordHash)
+	if errors.Is(err, ErrBusy) {
+		return err
+	}
+	if err != nil || !ok {
 		return ErrBadCredentials
 	}
 	if err := ValidatePassword(next); err != nil {
@@ -158,7 +164,7 @@ func (a *Accounts) ChangePassword(ctx context.Context, id int64, current, next s
 	if next == current {
 		return errors.New("choose a different password")
 	}
-	hash, err := HashPassword(next)
+	hash, err := HashPasswordContext(ctx, next)
 	if err != nil {
 		return err
 	}

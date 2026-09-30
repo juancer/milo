@@ -20,7 +20,7 @@ services:
 
   # One-shot Node toolchain (Astro build).
   node:
-    image: node:24-slim
+    image: node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
     user: *user
     working_dir: /src/web/admin
     environment:
@@ -60,7 +60,7 @@ services:
 
   # Astro dev server with hot reload, proxying the API to the `dev` service.
   web-dev:
-    image: node:24-slim
+    image: node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
     user: *user
     working_dir: /src/web/admin
     command: corepack pnpm run dev --host 0.0.0.0

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -49,6 +50,9 @@ func (s *server) putBackup(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case !dirRe.MatchString(b.Dir) || strings.Contains(b.Dir, ".."):
 		writeError(w, http.StatusBadRequest, "enter an absolute folder path such as /var/lib/nexo/backups")
+		return
+	case !s.app.BackupDirAllowed(b.Dir):
+		writeError(w, http.StatusBadRequest, "the folder must be inside Nexo's data folder, for example "+filepath.Join(s.app.Cfg.DataDir, "backups"))
 		return
 	case b.Keep < 1 || b.Keep > 60 || b.EveryHours < 1 || b.EveryHours > 168:
 		writeError(w, http.StatusBadRequest, "keep 1-60 copies, every 1-168 hours")
@@ -120,10 +124,17 @@ func (s *server) downloadBackup(w http.ResponseWriter, r *http.Request) {
 // when Nexo restarts. Form fields: "passphrase" first, then the file.
 func (s *server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
-	if !s.limiter.Allowed(ip) {
+	// Their own bucket: a mistyped restore passphrase must not count against signing in.
+	if !s.restoreLimiter.Try(ip) {
 		writeError(w, http.StatusTooManyRequests, "too many failed attempts, try again later")
 		return
 	}
+	wrongPass := false
+	defer func() {
+		if !wrongPass {
+			s.restoreLimiter.Refund(ip) // only wrong passphrases stay on record
+		}
+	}()
 	if !restoreBusy.TryLock() {
 		writeError(w, http.StatusConflict, "another restore is being checked, try again in a moment")
 		return
@@ -151,21 +162,19 @@ func (s *server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "send the passphrase before the file")
 			return
 		}
-		s.stageRestore(w, r, part, pass, ip)
+		wrongPass = s.stageRestore(w, r, part, pass)
 		return
 	}
 }
 
-func (s *server) stageRestore(w http.ResponseWriter, r *http.Request, file io.Reader, pass, ip string) {
+// stageRestore reports whether the backup could not be opened because the passphrase was wrong.
+func (s *server) stageRestore(w http.ResponseWriter, r *http.Request, file io.Reader, pass string) bool {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
 	c, err := backup.Open(ctx, file, pass, s.app.Cfg.DataDir)
 	if err != nil {
-		if errors.Is(err, backup.ErrWrongPassphrase) {
-			s.limiter.Fail(ip)
-		}
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
-		return
+		return errors.Is(err, backup.ErrWrongPassphrase)
 	}
 	defer c.Close()
 	if err := backup.Stage(c, s.app.Cfg.DataDir, s.app.Cfg.KeyPath); err != nil {
@@ -174,11 +183,12 @@ func (s *server) stageRestore(w http.ResponseWriter, r *http.Request, file io.Re
 			msg += ". Restore it from the command line instead (sudo nexo restore FILE --replace-key)"
 		}
 		writeError(w, http.StatusUnprocessableEntity, msg)
-		return
+		return false
 	}
 	s.audit(r, "backup.restore_staged", c.Manifest.DeviceName, nil)
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"staged": true, "device_name": c.Manifest.DeviceName, "created_at": c.Manifest.CreatedAt,
 		"schema_version": c.Manifest.SchemaVersion, "restart_required": true,
 	})
+	return false
 }

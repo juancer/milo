@@ -3,6 +3,7 @@ package web
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/juancer/nexo/internal/auth"
@@ -40,21 +41,25 @@ func (s *server) changePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	user := adminFrom(r)
 	ip := clientIP(r)
-	if !s.limiter.Try(ip) {
+	if !s.pwLimiter.Try(ip) {
 		writeError(w, http.StatusTooManyRequests, "too many failed attempts, try again later")
 		return
 	}
 	err := s.accounts.ChangePassword(r.Context(), user.ID, body.Current, body.New)
 	switch {
+	case errors.Is(err, auth.ErrBusy):
+		s.pwLimiter.Refund(ip)
+		writeError(w, http.StatusServiceUnavailable, "the server is busy, try again shortly")
+		return
 	case errors.Is(err, auth.ErrBadCredentials):
 		writeError(w, http.StatusUnauthorized, "the current password is not correct")
 		return
 	case err != nil:
-		s.limiter.Refund(ip) // not a wrong-password guess (for example a too-short new password)
+		s.pwLimiter.Refund(ip) // not a wrong-password guess (for example a too-short new password)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.limiter.Refund(ip)
+	s.pwLimiter.Refund(ip)
 	s.audit(r, "admin.password_changed", user.Username, nil)
 	fresh, err := s.app.Store.GetAdmin(r.Context(), user.ID)
 	if err != nil || s.startSession(w, fresh) != nil {
@@ -120,6 +125,10 @@ func (s *server) resetAdmin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no such administrator")
 		return
 	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
 	pw, err := s.accounts.Reset(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
@@ -135,6 +144,9 @@ func (s *server) deleteAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	target, _ := s.app.Store.GetAdmin(r.Context(), id)
+	if target.Username == "" {
+		target.Username = "id:" + strconv.FormatInt(id, 10) // record the path's target even if the lookup failed
+	}
 	err := s.accounts.Delete(r.Context(), adminFrom(r).ID, id)
 	switch {
 	case errors.Is(err, store.ErrNotFound):

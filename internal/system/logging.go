@@ -11,7 +11,8 @@ import (
 // a credential. Values under such keys are always redacted.
 func IsSensitiveKey(key string) bool {
 	k := strings.ToLower(key)
-	for _, marker := range []string{"token", "password", "passphrase", "secret", "apikey", "api_key", "credential"} {
+	for _, marker := range []string{"token", "password", "passphrase", "secret", "apikey", "api_key", "credential",
+		"psk", "authorization", "cookie", "bearer", "passwd", "pwd"} {
 		if strings.Contains(k, marker) {
 			return true
 		}

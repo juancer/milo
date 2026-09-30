@@ -37,8 +37,9 @@ make web-dev      # Astro dev server with hot reload on http://localhost:4321
 make help
 ```
 
-`make dev` seeds a demo installation: sign in as `admin` (or `mom`) with password
-`nexo-demo-password`. (Real devices get a generated password at install time.)
+`make dev` seeds a demo installation: sign in as `admin` (or `mom`) with the password printed once
+when the demo is seeded (set `NEXO_DEV_PASSWORD` to choose it). Real devices get a generated password at
+install time.
 
 Details: [docs/development.md](docs/development.md).
 
