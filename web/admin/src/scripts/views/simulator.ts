@@ -1,5 +1,8 @@
+import { button, card, note, row } from "../../components/ui";
+import { t } from "../../i18n";
 import { api } from "../api";
-import { clear, errorMessage, h, toast } from "../dom";
+import { clear, h, timeOf } from "../dom";
+import { guard } from "../ui";
 
 interface Button {
   id: number;
@@ -27,78 +30,59 @@ export async function render(root: HTMLElement): Promise<void> {
   const buttons = await api<Button[]>("GET", "/api/buttons");
   clear(root);
 
-  const say = h("input", { type: "text", placeholder: "What the child says next, e.g. Set a timer for one minute", maxLength: 300, ariaLabel: "What the child says" });
+  const say = h("input", { type: "text", placeholder: t("simulator.sayHint"), maxLength: 300, ariaLabel: t("simulator.says") });
   const log = h("ul", { class: "list" });
   const volume = h("span", { class: "muted" });
 
   const press = async (b: Button, holdMs: number, times = 1) => {
-    try {
+    await guard(async () => {
       for (let i = 0; i < times; i++) {
         await api("POST", `/api/sim/buttons/${b.id}/press`, { hold_ms: holdMs });
         if (times > 1) await new Promise((r) => setTimeout(r, holdMs + 120));
       }
-    } catch (e) {
-      toast(errorMessage(e), true);
-    }
+    });
   };
 
   root.append(
-    h("section", { class: "card" },
-      h("h2", {}, "Virtual device"),
-      h("p", { class: "muted" }, "Development mode: no real hardware is used. Press the buttons like a child would."),
+    card(t("simulator.title"),
+      note(t("simulator.help")),
       h("div", { class: "pads" },
         ...buttons.filter((b) => b.enabled).map((b) =>
           h("div", { class: `pad c-${b.color}` },
             h("strong", {}, b.name),
-            h("span", { class: "muted" }, Object.values(b.actions).map((a) => a.action).join(" / ") || "no action"),
+            h("span", { class: "muted" }, Object.values(b.actions).map((a) => a.action).join(" / ") || t("simulator.noAction")),
             h("div", { class: "actions" },
-              h("button", { type: "button", onclick: () => press(b, 60) }, "Press"),
-              h("button", { type: "button", class: "secondary", onclick: () => press(b, 1200) }, "Hold"),
-              h("button", { type: "button", class: "secondary", onclick: () => press(b, 50, 2) }, "Double"),
+              button(t("simulator.press"), { onclick: () => press(b, 60) }),
+              button(t("simulator.hold"), { variant: "secondary", onclick: () => press(b, 1200) }),
+              button(t("simulator.double"), { variant: "secondary", onclick: () => press(b, 50, 2) }),
             )))),
     ),
-    h("section", { class: "card" },
-      h("h2", {}, "Wake word"),
-      h("p", { class: "muted" }, "Pretend someone said the wake phrase (needs the “wakeword” feature on)."),
-      h("button", {
-        type: "button",
-        onclick: async () => {
-          try {
-            await api("POST", "/api/sim/wake");
-          } catch (e) {
-            toast(errorMessage(e), true);
-          }
-        },
-      }, "Say “Hey Milo”")),
-    h("section", { class: "card" },
-      h("h2", {}, "Microphone"),
+    card(t("simulator.wakeWord"),
+      note(t("simulator.wakeHelp")),
+      button(t("simulator.sayWake"), { onclick: () => guard(() => api("POST", "/api/sim/wake")) })),
+    card(t("simulator.microphone"),
       h("form", {
         class: "inline",
         onsubmit: async (ev: Event) => {
           ev.preventDefault();
-          try {
-            await api("POST", "/api/sim/utterance", { text: say.value });
-            toast(say.value ? "Ready: press the talk / GPT button now" : "Cleared");
-          } catch (e) {
-            toast(errorMessage(e), true);
-          }
+          await guard(() => api("POST", "/api/sim/utterance", { text: say.value }), say.value ? "simulator.armed" : "simulator.cleared");
         },
-      }, say, h("button", { type: "submit" }, "Arm microphone")),
-      h("p", { class: "muted" }, "The next recording will contain this sentence."),
+      }, say, h("button", { type: "submit" }, t("simulator.arm"))),
+      note(t("simulator.micHelp")),
     ),
-    h("section", { class: "card" }, h("h2", {}, "Speaker"), volume, log),
+    card(t("simulator.speaker"), volume, log),
   );
 
   const refresh = async () => {
     try {
       const data = await api<{ played: Played[]; volume: number }>("GET", "/api/sim/audio");
-      volume.textContent = `Volume ${data.volume}%`;
+      volume.textContent = t("simulator.volume", { volume: data.volume });
       clear(log);
-      if (data.played.length === 0) log.append(h("li", { class: "muted" }, "Nothing played yet."));
+      if (data.played.length === 0) log.append(h("li", { class: "empty" }, t("simulator.nothingPlayed")));
       for (const p of data.played.slice(0, 30)) {
-        log.append(h("li", { class: "row" },
+        log.append(row(
           h("span", {}, p.kind === "notification" ? `♪ ${p.label}` : p.kind === "music" ? `♫ ${p.label}` : `▶ ${p.label}`),
-          h("span", { class: "muted" }, `${new Date(p.at).toLocaleTimeString()} · ${p.duration_ms} ms`)));
+          h("span", { class: "muted" }, `${timeOf(p.at)} · ${p.duration_ms} ms`)));
       }
     } catch {
       /* transient */

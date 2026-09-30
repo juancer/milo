@@ -1,0 +1,84 @@
+/* Design tokens: the only place colours, spacing and type sizes are defined. */
+:root {
+  color-scheme: light dark;
+
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #16181d;
+  --muted: #5d6675;
+  --line: #dde1e8;
+  --accent: #1f6feb;
+  --accent-text: #ffffff;
+  --danger: #b42318;
+  --danger-text: #ffffff;
+  --shadow: 0 4px 16px rgb(0 0 0 / 25%);
+  --shadow-tile: 0 1px 2px rgb(16 24 40 / 6%), 0 6px 18px rgb(16 24 40 / 6%);
+  --shadow-tile-hover: 0 2px 4px rgb(16 24 40 / 8%), 0 12px 28px rgb(16 24 40 / 12%);
+
+  /* Section icon colours (white glyph on top, so each is at least 3:1 against white). */
+  --tone-blue: #2f6fe0;
+  --tone-green: #1f8f4e;
+  --tone-orange: #cf6208;
+  --tone-red: #d23f31;
+  --tone-purple: #7c4dd6;
+  --tone-teal: #0d8a8a;
+  --tone-pink: #d0327a;
+  --tone-indigo: #4a52d0;
+  --tone-gray: #5b6472;
+
+  /* Status pills: tinted background + dark text of the same hue. */
+  --pill-ready-bg: #e3f4ea;
+  --pill-ready-fg: #146c3a;
+  --pill-setup-bg: #fdefd9;
+  --pill-setup-fg: #8a4b00;
+  --pill-attention-bg: #fde7e4;
+  --pill-attention-fg: #a3271b;
+  --pill-off-bg: #eceef2;
+  --pill-off-fg: #5d6675;
+  --scrim: rgb(0 0 0 / 45%);
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-pill: 999px;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --gutter: clamp(1rem, 4vw, 2rem);
+
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --text-sm: 0.9rem;
+  --text-xs: 0.8rem;
+
+  --content-width: 64rem;
+  --view-width: 44rem;
+  --narrow-width: 24rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101216;
+    --surface: #181b21;
+    --text: #eceef2;
+    --muted: #9aa3b2;
+    --line: #2a2f39;
+    --accent: #4c8dff;
+    --accent-text: #0b0d11;
+    --danger: #ff8a80;
+    --danger-text: #0b0d11;
+    --shadow-tile: 0 1px 2px rgb(0 0 0 / 30%);
+    --shadow-tile-hover: 0 8px 24px rgb(0 0 0 / 45%);
+    --pill-ready-bg: #163323;
+    --pill-ready-fg: #7ee2a0;
+    --pill-setup-bg: #3a2a10;
+    --pill-setup-fg: #ffc46b;
+    --pill-attention-bg: #3b1a18;
+    --pill-attention-fg: #ff9d94;
+    --pill-off-bg: #232833;
+    --pill-off-fg: #9aa3b2;
+  }
+}

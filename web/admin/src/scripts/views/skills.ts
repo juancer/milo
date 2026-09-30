@@ -1,5 +1,8 @@
+import { actions, badge, button, card, emptyState, list, note, row } from "../../components/ui";
+import { t } from "../../i18n";
 import { api } from "../api";
-import { badge, clear, confirmTwice, errorMessage, h, toast, when } from "../dom";
+import { clear, errorMessage, h, when } from "../dom";
+import { confirmTwice, guard, toast } from "../ui";
 
 interface Skills {
   timers: { id: number; label: string; seconds_left: number }[];
@@ -19,81 +22,78 @@ export function stop(): void {
 
 function left(seconds: number): string {
   const m = Math.floor(seconds / 60);
-  return m > 0 ? `${m} min ${seconds % 60} s` : `${seconds} s`;
+  return m > 0 ? t("skills.minSec", { m, s: seconds % 60 }) : t("skills.sec", { s: seconds });
 }
 
 export async function render(root: HTMLElement): Promise<void> {
   const s = await api<Skills>("GET", "/api/skills");
   clear(root);
   const refresh = () => render(root);
-  const run = async (fn: () => Promise<unknown>, ok?: string) => {
+  const run = async (fn: () => Promise<unknown>, okKey?: string) => {
+    if (await guard(fn, okKey)) await refresh();
+  };
+  const tryIt = (path: string) => async () => {
     try {
-      await fn();
-      if (ok) toast(ok);
-      await refresh();
+      toast((await api<{ message: string }>("POST", path)).message);
     } catch (e) {
       toast(errorMessage(e), true);
     }
   };
-  const note = (text: string) => h("p", { class: "muted" }, text);
 
   // ---- timers and reminders
-  const text = h("input", { type: "text", maxLength: 200, placeholder: "e.g. Grandma is visiting", ariaLabel: "Reminder text" });
-  const due = h("input", { type: "datetime-local", ariaLabel: "When" });
-  root.append(h("section", { class: "card" }, h("h2", {}, "Timers and reminders"),
-    note("The child (or the assistant) sets timers and reminders by voice. Turn the “timer” and “reminders” features on in the Dashboard. You can add reminders here too."),
-    h("h3", {}, "Running timers"),
-    s.timers.length === 0 ? note("None.") : null,
-    h("ul", { class: "list" }, ...s.timers.map((t) => h("li", { class: "row" }, h("span", {}, `${t.label || "Timer"} · ${left(t.seconds_left)} left`),
-      h("button", { type: "button", class: "secondary", onclick: () => run(() => api("DELETE", `/api/timers/${t.id}`)) }, "Cancel")))),
-    h("h3", {}, "Reminders"),
-    s.reminders.length === 0 ? note("None.") : null,
-    h("ul", { class: "list" }, ...s.reminders.map((r) => h("li", { class: "row" }, h("span", {}, r.text, " ", badge(r.source)), h("span", { class: "muted" }, when(r.due_at)),
-      h("button", { type: "button", class: "secondary", onclick: () => run(() => api("DELETE", `/api/reminders/${r.id}`)) }, "Cancel")))),
-    h("form", { class: "inline", onsubmit: (ev: Event) => { ev.preventDefault(); void run(() => api("POST", "/api/reminders", { text: text.value.trim(), due: due.value }), "Reminder added"); } },
-      text, due, h("button", { type: "submit" }, "Add reminder")),
-    note(`Times use the device timezone (${s.timezone}).`)));
+  const text = h("input", { type: "text", maxLength: 200, placeholder: t("skills.reminderExample"), ariaLabel: t("skills.reminderText") });
+  const due = h("input", { type: "datetime-local", ariaLabel: t("skills.when") });
+  root.append(card(t("skills.timersAndReminders"),
+    note(t("skills.timersHelp")),
+    h("h3", {}, t("skills.runningTimers")),
+    s.timers.length === 0 ? emptyState(t("common.none")) : null,
+    list(...s.timers.map((tm) => row(h("span", {}, t("skills.timerLeft", { label: tm.label || t("skills.timer"), left: left(tm.seconds_left) })),
+      button(t("common.cancel"), { variant: "secondary", onclick: () => run(() => api("DELETE", `/api/timers/${tm.id}`)) })))),
+    h("h3", {}, t("skills.reminders")),
+    s.reminders.length === 0 ? emptyState(t("common.none")) : null,
+    list(...s.reminders.map((r) => row(h("span", {}, r.text, " ", badge(r.source)), h("span", { class: "muted" }, when(r.due_at)),
+      button(t("common.cancel"), { variant: "secondary", onclick: () => run(() => api("DELETE", `/api/reminders/${r.id}`)) })))),
+    h("form", { class: "inline", onsubmit: (ev: Event) => { ev.preventDefault(); void run(() => api("POST", "/api/reminders", { text: text.value.trim(), due: due.value }), "skills.reminderAdded"); } },
+      text, due, h("button", { type: "submit" }, t("skills.addReminder"))),
+    note(t("skills.timezoneNote", { timezone: s.timezone }))));
 
   // ---- music
-  const dir = h("input", { type: "text", value: s.music.dir, ariaLabel: "Music folder" });
-  const query = h("input", { type: "text", placeholder: "song name (empty = surprise)", maxLength: 100, ariaLabel: "Song to play" });
-  root.append(h("section", { class: "card" }, h("h2", {}, "Music"),
-    note("Copy .mp3 or .wav files into the music folder (for example with a USB stick or scp). The child asks “play the Frozen song”; the closest name wins. Milo keeps playing through the folder until told to stop, and a notification or spoken answer interrupts it."),
-    h("p", {}, s.music.state === "playing" ? badge(`playing: ${s.music.title ?? ""}`) : s.music.state === "paused" ? badge(`paused: ${s.music.title ?? ""}`, true) : badge("stopped"), ` ${s.music.count} songs found`),
-    h("form", { class: "inline", onsubmit: (ev: Event) => { ev.preventDefault(); void run(() => api("PUT", "/api/music", { dir: dir.value.trim() }), "Folder saved"); } },
-      dir, h("button", { type: "submit" }, "Use this folder"), h("button", { type: "button", class: "secondary", onclick: () => run(() => api("POST", "/api/music/rescan"), "Rescanned") }, "Rescan")),
+  const dir = h("input", { type: "text", value: s.music.dir, ariaLabel: t("skills.musicFolder") });
+  const query = h("input", { type: "text", placeholder: t("skills.songHint"), maxLength: 100, ariaLabel: t("skills.songToPlay") });
+  const musicState = s.music.state === "playing" ? badge(t("skills.playing", { title: s.music.title ?? "" })) : s.music.state === "paused" ? badge(t("skills.paused", { title: s.music.title ?? "" }), true) : badge(t("skills.stopped"));
+  root.append(card(t("skills.music"),
+    note(t("skills.musicHelp")),
+    h("p", {}, musicState, ` ${t("skills.songsFound", { count: s.music.count })}`),
+    h("form", { class: "inline", onsubmit: (ev: Event) => { ev.preventDefault(); void run(() => api("PUT", "/api/music", { dir: dir.value.trim() }), "skills.folderSaved"); } },
+      dir, h("button", { type: "submit" }, t("skills.useFolder")), button(t("skills.rescan"), { variant: "secondary", onclick: () => run(() => api("POST", "/api/music/rescan"), "skills.rescanned") })),
     h("form", { class: "inline", onsubmit: (ev: Event) => { ev.preventDefault(); void run(() => api("POST", "/api/music/play", { query: query.value.trim() })); } },
-      query, h("button", { type: "submit" }, "Play"), h("button", { type: "button", class: "secondary", onclick: () => run(() => api("POST", "/api/music/stop")) }, "Stop")),
-    h("details", {}, h("summary", {}, "Songs found"), h("ul", { class: "list" }, ...s.music.tracks.map((t) => h("li", { class: "row" }, t))))));
+      query, h("button", { type: "submit" }, t("skills.play")), button(t("skills.stop"), { variant: "secondary", onclick: () => run(() => api("POST", "/api/music/stop")) })),
+    h("details", {}, h("summary", {}, t("skills.songs")), list(...s.music.tracks.map((tr) => row(tr))))));
 
   // ---- weather
-  const place = h("input", { type: "text", maxLength: 80, placeholder: s.weather.place || "your town", ariaLabel: "Town" });
-  const units = h("select", { ariaLabel: "Units" },
-    h("option", { value: "celsius", selected: s.weather.units === "celsius" }, "Celsius"),
-    h("option", { value: "fahrenheit", selected: s.weather.units === "fahrenheit" }, "Fahrenheit"));
-  root.append(h("section", { class: "card" }, h("h2", {}, "Weather"),
-    note("Uses the free Open-Meteo service. Only the coordinates of your town are sent, nothing else. Turn the “weather” feature on in the Dashboard."),
-    h("p", {}, s.weather.configured ? badge(s.weather.place) : badge("no town set", true)),
-    h("form", { class: "inline", onsubmit: (ev: Event) => { ev.preventDefault(); void run(() => api("PUT", "/api/weather", { place: place.value.trim(), units: units.value }), "Saved"); } },
-      place, units, h("button", { type: "submit" }, "Save")),
-    h("div", { class: "actions" }, h("button", { type: "button", class: "secondary", onclick: async () => {
-      try { toast((await api<{ message: string }>("POST", "/api/weather/test")).message); } catch (e) { toast(errorMessage(e), true); }
-    } }, "Try it"))));
+  const place = h("input", { type: "text", maxLength: 80, placeholder: s.weather.place || t("skills.yourTown"), ariaLabel: t("skills.town") });
+  const units = h("select", { ariaLabel: t("skills.units") },
+    h("option", { value: "celsius", selected: s.weather.units === "celsius" }, t("skills.celsius")),
+    h("option", { value: "fahrenheit", selected: s.weather.units === "fahrenheit" }, t("skills.fahrenheit")));
+  root.append(card(t("skills.weather"),
+    note(t("skills.weatherHelp")),
+    h("p", {}, s.weather.configured ? badge(s.weather.place) : badge(t("skills.noTown"), true)),
+    h("form", { class: "inline", onsubmit: (ev: Event) => { ev.preventDefault(); void run(() => api("PUT", "/api/weather", { place: place.value.trim(), units: units.value }), "common.saved"); } },
+      place, units, h("button", { type: "submit" }, t("common.save"))),
+    actions(button(t("skills.tryIt"), { variant: "secondary", onclick: tryIt("/api/weather/test") }))));
 
   // ---- calendar
-  const url = h("input", { type: "password", autocomplete: "off", placeholder: s.calendar_configured ? "(saved - paste to replace)" : "https://…/basic.ics", ariaLabel: "Calendar address" });
-  root.append(h("section", { class: "card" }, h("h2", {}, "Calendar"),
-    note("Read-only. Paste your calendar's secret iCalendar address (in Google Calendar: Settings → your calendar → “Secret address in iCal format”). It works like a password, so it is stored encrypted and never shown again. Repeating events are supported; unusual repeat rules may be missed. Event titles are read aloud and, when the assistant reads them, sent to the AI service."),
-    h("p", {}, s.calendar_configured ? badge("address saved") : badge("no address", true)),
-    h("form", { class: "inline", onsubmit: (ev: Event) => { ev.preventDefault(); void run(() => api("PUT", "/api/calendar", { url: url.value.trim() }), "Saved"); } },
-      url, h("button", { type: "submit" }, "Save address"),
-      s.calendar_configured ? h("button", { type: "button", class: "danger", onclick: async (ev: Event) => {
-        if (!confirmTwice(ev.currentTarget as HTMLButtonElement, "Remove")) return;
+  const url = h("input", { type: "password", autocomplete: "off", placeholder: s.calendar_configured ? t("skills.calendarSaved") : "https://…/basic.ics", ariaLabel: t("skills.calendarAddress") });
+  root.append(card(t("skills.calendar"),
+    note(t("skills.calendarHelp")),
+    h("p", {}, s.calendar_configured ? badge(t("skills.addressSaved")) : badge(t("skills.noAddress"), true)),
+    h("form", { class: "inline", onsubmit: (ev: Event) => { ev.preventDefault(); void run(() => api("PUT", "/api/calendar", { url: url.value.trim() }), "common.saved"); } },
+      url, h("button", { type: "submit" }, t("skills.saveAddress")),
+      s.calendar_configured ? button(t("common.remove"), { variant: "danger", onclick: async (ev) => {
+        if (!confirmTwice(ev.currentTarget as HTMLButtonElement)) return;
         await run(() => api("DELETE", "/api/calendar"));
-      } }, "Remove") : null),
-    h("div", { class: "actions" }, h("button", { type: "button", class: "secondary", onclick: async () => {
-      try { toast((await api<{ message: string }>("POST", "/api/calendar/test")).message); } catch (e) { toast(errorMessage(e), true); }
-    } }, "Try it (this week)"))));
+      } }) : null),
+    actions(button(t("skills.tryWeek"), { variant: "secondary", onclick: tryIt("/api/calendar/test") }))));
 
   // Keep the running timers and music state fresh.
   stop();

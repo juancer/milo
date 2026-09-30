@@ -1,0 +1,90 @@
+---
+import "../styles/global.css";
+import { t } from "../i18n";
+import Alert from "../components/Alert.astro";
+import Button from "../components/Button.astro";
+import Card from "../components/Card.astro";
+import ConfirmationDialog from "../components/ConfirmationDialog.astro";
+import Form from "../components/Form.astro";
+import Header from "../components/Header.astro";
+import Input from "../components/Input.astro";
+import LoadingState from "../components/LoadingState.astro";
+import Select from "../components/Select.astro";
+import Modal from "../components/Modal.astro";
+import PromptDialog from "../components/PromptDialog.astro";
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="data:," />
+    <title>{t("app.title", { name: "Milo" })}</title>
+  </head>
+  <body>
+    <Header />
+    <main id="view"><slot /></main>
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+    <Modal id="sheet" titleId="sheet-title" variant="sheet">
+      <header class="sheet-header">
+        <span id="sheet-icon"></span>
+        <h2 id="sheet-title"></h2>
+        <button id="sheet-close" type="button" class="ghost icon-button" aria-label={t("sheet.close")} data-i18n-aria-label="sheet.close"></button>
+      </header>
+      <div id="sheet-body" class="sheet-body"></div>
+    </Modal>
+    <ConfirmationDialog />
+    <PromptDialog />
+
+    <!-- Static screens the app shell clones; text is re-translated at runtime via data-i18n. -->
+    <template id="tpl-loading"><LoadingState /></template>
+    <template id="tpl-unreachable"><Alert kind="error" labelKey="error.unreachable" /></template>
+    <template id="tpl-login">
+      <Card narrow>
+        <h2 data-i18n="login.title">{t("login.title")}</h2>
+        <Form id="login-form">
+          <Input id="username" labelKey="login.username" autocomplete="username" required />
+          <Input id="password" labelKey="login.password" type="password" autocomplete="current-password" required />
+          <Alert id="form-error" hidden />
+          <Button type="submit" labelKey="login.submit" />
+        </Form>
+        <p class="muted" data-i18n="login.hint">{t("login.hint")}</p>
+        <p class="muted" data-i18n="login.firstTime">{t("login.firstTime")}</p>
+      </Card>
+    </template>
+    <template id="tpl-setup">
+      <Card narrow>
+        <h2 data-i18n="setup.title">{t("setup.title")}</h2>
+        <p data-i18n="setup.intro">{t("setup.intro")}</p>
+        <Form id="setup-form">
+          <Select id="setup-language" labelKey="setup.language" />
+          <Select id="setup-who" labelKey="setup.who" />
+          <Input id="setup-username" labelKey="setup.username" autocomplete="username" required />
+          <p class="muted" data-i18n="setup.usernameHint">{t("setup.usernameHint")}</p>
+          <Input id="setup-password" labelKey="setup.password" type="password" autocomplete="new-password" required minlength={12} />
+          <Input id="setup-confirm" labelKey="setup.confirm" type="password" autocomplete="new-password" required minlength={12} />
+          <p class="muted" data-i18n="setup.passwordHint">{t("setup.passwordHint")}</p>
+          <Alert id="form-error" hidden />
+          <Button type="submit" labelKey="setup.submit" />
+        </Form>
+      </Card>
+    </template>
+    <template id="tpl-forced">
+      <Card narrow>
+        <h2 id="forced-title"></h2>
+        <p data-i18n="forced.intro">{t("forced.intro")}</p>
+        <Form id="forced-form">
+          <Input id="current" labelKey="forced.current" type="password" autocomplete="current-password" required />
+          <Input id="next" labelKey="forced.next" type="password" autocomplete="new-password" required minlength={12} />
+          <Alert id="form-error" hidden />
+          <Button type="submit" labelKey="forced.submit" />
+        </Form>
+      </Card>
+    </template>
+
+    <script>
+      import "../scripts/app";
+    </script>
+  </body>
+</html>

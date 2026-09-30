@@ -1,0 +1,9 @@
+@media (max-width: 40rem) {
+  .map {
+    grid-template-columns: 1fr;
+  }
+
+  input[type="password"] {
+    min-width: 0;
+  }
+}

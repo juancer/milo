@@ -1,0 +1,16 @@
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+th,
+td {
+  padding: var(--space-2) 0.6rem;
+  text-align: left;
+  border-top: 1px solid var(--line);
+}

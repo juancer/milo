@@ -1,0 +1,130 @@
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: var(--scrim);
+  z-index: 20;
+}
+
+.modal {
+  width: min(26rem, 100%);
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+/* Dialogs opened from inside a sheet (confirm, prompt) sit above it. */
+#confirm-dialog,
+#prompt-dialog {
+  z-index: 30;
+}
+
+button.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--muted);
+}
+
+/* The sheet: a section's whole view. Centred panel on desktop, bottom sheet on phones. */
+.sheet-backdrop {
+  z-index: 20;
+  padding: var(--space-6) var(--space-4);
+  backdrop-filter: blur(6px);
+}
+
+body.sheet-open {
+  overflow: hidden;
+}
+
+.modal.sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(var(--view-width), 100%);
+  max-height: min(90dvh, 60rem);
+  padding: 0;
+  overflow: hidden;
+  border-radius: 1.25rem;
+  background: var(--bg);
+  outline: none;
+}
+
+.sheet-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.sheet-header h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.sheet-body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-5);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@keyframes sheet-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.sheet-backdrop:not([hidden]) {
+  animation: scrim-in 160ms ease-out;
+}
+
+.sheet-backdrop:not([hidden]) .modal.sheet {
+  animation: sheet-in 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (max-width: 40rem) {
+  .sheet-backdrop {
+    align-items: end;
+    padding: var(--space-6) 0 0;
+  }
+
+  .modal.sheet {
+    width: 100%;
+    max-height: 94dvh;
+    border-radius: 1.25rem 1.25rem 0 0;
+  }
+
+  .sheet-body {
+    padding: var(--space-4);
+  }
+
+  @keyframes sheet-in {
+    from { opacity: 1; transform: translateY(100%); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-backdrop:not([hidden]),
+  .sheet-backdrop:not([hidden]) .modal.sheet {
+    animation: none;
+  }
+}

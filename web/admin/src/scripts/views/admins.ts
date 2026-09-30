@@ -1,5 +1,8 @@
+import { actions, badge, button, card, field, fields, formCard, list, note, row, submit } from "../../components/ui";
+import { t } from "../../i18n";
 import { api } from "../api";
-import { badge, clear, confirmTwice, errorMessage, field, h, toast, when } from "../dom";
+import { clear, h, when } from "../dom";
+import { confirmDialog, confirmTwice, guard } from "../ui";
 
 interface Admin {
   id: number;
@@ -22,72 +25,55 @@ export async function render(root: HTMLElement): Promise<void> {
   const refresh = () => render(root);
 
   // ---- own password
-  const current = h("input", { type: "password", autocomplete: "current-password", required: true, ariaLabel: "Current password" });
-  const next = h("input", { type: "password", autocomplete: "new-password", required: true, minLength: 12, ariaLabel: "New password" });
-  root.append(h("form", {
-    class: "card",
-    onsubmit: async (ev: Event) => {
-      ev.preventDefault();
-      try {
-        await api("POST", "/api/account/password", { current_password: current.value, new_password: next.value });
-        current.value = next.value = "";
-        toast("Password changed");
-      } catch (e) {
-        toast(errorMessage(e), true);
-      }
-    },
+  const current = h("input", { type: "password", autocomplete: "current-password", required: true, ariaLabel: t("admins.currentPassword") });
+  const next = h("input", { type: "password", autocomplete: "new-password", required: true, minLength: 12, ariaLabel: t("admins.newPassword") });
+  root.append(formCard(async (ev) => {
+    ev.preventDefault();
+    await guard(async () => {
+      await api("POST", "/api/account/password", { current_password: current.value, new_password: next.value });
+      current.value = next.value = "";
+    }, "admins.passwordChanged");
   },
-    h("h2", {}, `Your account (${me.username})`),
-    h("p", { class: "muted" }, "Choose a long password only you know (at least 12 characters). Changing it signs you out of other browsers."),
-    h("div", { class: "fields" }, field("Current password", current), field("New password", next), h("button", { type: "submit" }, "Change password"))));
+    h("h2", {}, t("admins.yourAccount", { username: me.username })),
+    note(t("admins.passwordHelp")),
+    fields(field(t("admins.currentPassword"), current), field(t("admins.newPassword"), next), submit(t("admins.changePassword")))));
 
   // ---- one-time reveal of a generated password
   if (revealed) {
     const r = revealed;
-    root.append(h("section", { class: "card" },
-      h("h2", {}, `Password for ${r.username}`),
-      h("p", {}, "Give this to them now. It is shown only once, and they must choose their own when they first sign in."),
-      h("input", { type: "text", readOnly: true, value: r.password, ariaLabel: "Generated password", onfocus: (e: Event) => (e.target as HTMLInputElement).select() }),
-      h("div", { class: "actions" }, h("button", { type: "button", class: "secondary", onclick: () => { revealed = null; void refresh(); } }, "I have written it down"))));
+    root.append(card(t("admins.passwordFor", { username: r.username }),
+      h("p", {}, t("admins.revealHelp")),
+      h("input", { type: "text", readOnly: true, value: r.password, ariaLabel: t("admins.generatedPassword"), onfocus: (e: Event) => (e.target as HTMLInputElement).select() }),
+      actions(button(t("admins.writtenDown"), { variant: "secondary", onclick: () => { revealed = null; void refresh(); } }))));
   }
 
   // ---- people who can manage the device
-  root.append(h("section", { class: "card" }, h("h2", {}, "Administrators"),
-    h("p", { class: "muted" }, "Everyone listed here can manage the device from this page. Only the owner can add, reset or remove them."),
-    h("ul", { class: "list" }, ...admins.map((a) => h("li", { class: "row" },
-      h("span", {}, h("strong", {}, a.username), " ", a.is_owner ? badge("owner") : null, a.you ? badge("you") : null, a.must_change_password ? badge("must choose a password", true) : null),
-      h("span", { class: "muted" }, a.last_login ? `last seen ${when(a.last_login)}` : "never signed in"),
-      me.is_owner && !a.you ? h("span", { class: "actions" },
-        h("button", { type: "button", class: "secondary", onclick: async (ev: Event) => {
-          if (!confirmTwice(ev.currentTarget as HTMLButtonElement, "Reset password")) return;
-          try {
-            const res = await api<{ username: string; generated_password: string }>("POST", `/api/admins/${a.id}/reset`);
-            revealed = { username: res.username, password: res.generated_password };
-            await refresh();
-          } catch (e) { toast(errorMessage(e), true); }
-        } }, "Reset password"),
-        !a.is_owner ? h("button", { type: "button", class: "danger", onclick: async (ev: Event) => {
-          if (!confirmTwice(ev.currentTarget as HTMLButtonElement, "Remove")) return;
-          try { await api("DELETE", `/api/admins/${a.id}`); await refresh(); } catch (e) { toast(errorMessage(e), true); }
-        } }, "Remove") : null) : null)))));
+  const reveal = (res: { username: string; generated_password: string }) => {
+    revealed = { username: res.username, password: res.generated_password };
+  };
+  root.append(card(t("admins.title"),
+    note(t("admins.help")),
+    list(...admins.map((a) => row(
+      h("span", {}, h("strong", {}, a.username), " ", a.is_owner ? badge(t("admins.owner")) : null, a.you ? badge(t("admins.you")) : null, a.must_change_password ? badge(t("admins.mustChoose"), true) : null),
+      h("span", { class: "muted" }, a.last_login ? t("admins.lastSeen", { when: when(a.last_login) }) : t("admins.neverSignedIn")),
+      me.is_owner && !a.you ? actions(
+        button(t("admins.resetPassword"), { variant: "secondary", onclick: async (ev) => {
+          if (!confirmTwice(ev.currentTarget as HTMLButtonElement)) return;
+          if (await guard(async () => reveal(await api("POST", `/api/admins/${a.id}/reset`)))) await refresh();
+        } }),
+        !a.is_owner ? button(t("common.remove"), { variant: "danger", onclick: async () => {
+          if (!(await confirmDialog(t("admins.confirmRemove", { username: a.username }), t("common.remove")))) return;
+          if (await guard(() => api("DELETE", `/api/admins/${a.id}`))) await refresh();
+        } }) : null) : null)))));
 
   if (me.is_owner) {
-    const name = h("input", { type: "text", required: true, maxLength: 24, pattern: "[a-z][a-z0-9_-]{1,23}", placeholder: "mom", autocapitalize: "none", ariaLabel: "Username" });
-    root.append(h("form", {
-      class: "card",
-      onsubmit: async (ev: Event) => {
-        ev.preventDefault();
-        try {
-          const res = await api<{ username: string; generated_password: string }>("POST", "/api/admins", { username: name.value.trim() });
-          revealed = { username: res.username, password: res.generated_password };
-          await refresh();
-        } catch (e) {
-          toast(errorMessage(e), true);
-        }
-      },
+    const name = h("input", { type: "text", required: true, maxLength: 24, pattern: "[a-z][a-z0-9_-]{1,23}", placeholder: t("admins.usernameExample"), autocapitalize: "none", ariaLabel: t("login.username") });
+    root.append(formCard(async (ev) => {
+      ev.preventDefault();
+      if (await guard(async () => reveal(await api("POST", "/api/admins", { username: name.value.trim() })))) await refresh();
     },
-      h("h2", {}, "Add an administrator"),
-      h("p", { class: "muted" }, "For example mom, dad or grandma. A password is generated and shown once; they choose their own at first sign-in."),
-      h("div", { class: "fields" }, field("Username (lowercase letters, digits, - _)", name), h("button", { type: "submit" }, "Add"))));
+      h("h2", {}, t("admins.add")),
+      note(t("admins.addHelp")),
+      fields(field(t("admins.usernameHelp"), name), submit(t("common.add")))));
   }
 }

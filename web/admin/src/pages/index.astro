@@ -1,26 +1,4 @@
 ---
-import "../styles/global.css";
+import AdminLayout from "../layouts/AdminLayout.astro";
 ---
-
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light dark" />
-    <link rel="icon" href="data:," />
-    <title>Milo admin</title>
-  </head>
-  <body>
-    <header class="bar">
-      <h1>Milo</h1>
-      <span class="who"><span id="signed-in" class="muted"></span> <button id="logout" class="ghost" hidden>Sign out</button></span>
-    </header>
-    <nav id="nav" class="tabs" aria-label="Sections"></nav>
-    <main id="view"></main>
-    <div id="toasts" class="toasts" aria-live="polite"></div>
-    <script>
-      import "../scripts/main";
-    </script>
-  </body>
-</html>
+<AdminLayout />

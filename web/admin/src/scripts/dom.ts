@@ -1,3 +1,5 @@
+import { getLocale, t } from "../i18n";
+
 export type Child = Node | string | number | null | undefined | false;
 
 /**
@@ -39,46 +41,21 @@ export function clear(el: Element): void {
 
 export function formatUptime(seconds: number): string {
   const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
+  const hh = Math.floor((seconds % 86400) / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h`;
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  if (d > 0) return t("format.uptimeDays", { d, h: hh });
+  return hh > 0 ? t("format.uptimeHours", { h: hh, m }) : t("format.uptimeMinutes", { m });
 }
 
+/** Date and time in the interface language. */
 export function when(iso: string): string {
-  return new Date(iso).toLocaleString();
+  return new Date(iso).toLocaleString(getLocale());
 }
 
-/** Shows a short message in the toast area. */
-export function toast(message: string, isError = false): void {
-  const area = document.getElementById("toasts");
-  if (!area) return;
-  const t = h("div", { class: isError ? "toast error" : "toast", role: isError ? "alert" : "status" }, message);
-  area.appendChild(t);
-  setTimeout(() => t.remove(), isError ? 6000 : 3000);
+export function timeOf(iso: string): string {
+  return new Date(iso).toLocaleTimeString(getLocale());
 }
 
 export function errorMessage(e: unknown): string {
-  return e instanceof Error ? e.message : "Something went wrong";
-}
-
-export function field(label: string, input: HTMLElement): HTMLElement {
-  return h("label", { class: "field" }, h("span", {}, label), input);
-}
-
-/** Two-step confirmation without dialogs (they are blocked in some viewers). */
-export function confirmTwice(btn: HTMLButtonElement, label: string): boolean {
-  if (btn.dataset.armed === "1") return true;
-  btn.dataset.armed = "1";
-  const original = btn.textContent;
-  btn.textContent = "Click again to confirm";
-  setTimeout(() => {
-    btn.dataset.armed = "";
-    btn.textContent = original ?? label;
-  }, 4000);
-  return false;
-}
-
-export function badge(text: string, warn = false): HTMLElement {
-  return h("span", { class: warn ? "badge warn" : "badge" }, text);
+  return e instanceof Error ? e.message : t("error.generic");
 }

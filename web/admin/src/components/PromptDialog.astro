@@ -1,0 +1,18 @@
+---
+import { t } from "../i18n";
+import Alert from "./Alert.astro";
+import Button from "./Button.astro";
+import Modal from "./Modal.astro";
+---
+<Modal id="prompt-dialog" titleId="prompt-title">
+  <h2 id="prompt-title"></h2>
+  <p id="prompt-intro" class="muted"></p>
+  <form id="prompt-form">
+    <div id="prompt-fields" class="stack"></div>
+    <Alert id="prompt-error" hidden />
+    <div class="actions">
+      <button id="prompt-submit" type="submit"></button>
+      <Button id="prompt-cancel" variant="secondary" labelKey="common.cancel" />
+    </div>
+  </form>
+</Modal>

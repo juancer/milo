@@ -1,0 +1,181 @@
+/* Home: tiles, icon badges, status pills, setup checklist. */
+.home {
+  gap: var(--space-6);
+}
+
+.tile-group {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.tile-group h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: var(--space-3);
+}
+
+.tile {
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-4);
+  min-height: 8.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-tile);
+  text-align: start;
+  font-weight: 400;
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.tile:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-tile-hover);
+}
+
+.tile:active {
+  transform: scale(0.98);
+  box-shadow: var(--shadow-tile);
+}
+
+.tile-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.tile-title {
+  font-size: 1.05rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.tile-summary {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.icon-badge {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.7rem;
+  color: #fff;
+  background: var(--tone-gray);
+}
+
+.tone-blue { background: var(--tone-blue); }
+.tone-green { background: var(--tone-green); }
+.tone-orange { background: var(--tone-orange); }
+.tone-red { background: var(--tone-red); }
+.tone-purple { background: var(--tone-purple); }
+.tone-teal { background: var(--tone-teal); }
+.tone-pink { background: var(--tone-pink); }
+.tone-indigo { background: var(--tone-indigo); }
+.tone-gray { background: var(--tone-gray); }
+
+.pill {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--pill-off-bg);
+  color: var(--pill-off-fg);
+}
+
+.pill.ready { background: var(--pill-ready-bg); color: var(--pill-ready-fg); }
+.pill.setup { background: var(--pill-setup-bg); color: var(--pill-setup-fg); }
+.pill.attention { background: var(--pill-attention-bg); color: var(--pill-attention-fg); }
+
+/* Finish-setting-up checklist */
+.steps {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0.7rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.step:first-child {
+  border-top: 0;
+}
+
+.step-mark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  color: var(--accent-text);
+}
+
+.step.done .step-mark {
+  background: var(--tone-green);
+  border-color: var(--tone-green);
+  color: #fff;
+}
+
+.step-text {
+  display: grid;
+  flex: 1;
+  gap: 0.1rem;
+}
+
+.step-text .pill {
+  margin-inline-start: var(--space-2);
+}
+
+.step button {
+  margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tile,
+  .tile:hover,
+  .tile:active {
+    transition: none;
+    transform: none;
+  }
+}
+
+@media (max-width: 40rem) {
+  .tiles {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .tile {
+    min-height: 7.5rem;
+    padding: var(--space-3);
+  }
+}
+
+@media (max-width: 24rem) {
+  .tiles {
+    grid-template-columns: 1fr;
+  }
+}

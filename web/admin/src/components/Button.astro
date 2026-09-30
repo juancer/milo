@@ -1,0 +1,12 @@
+---
+import { t } from "../i18n";
+interface Props {
+  labelKey: string;
+  variant?: "primary" | "secondary" | "danger" | "ghost";
+  type?: "button" | "submit";
+  id?: string;
+  hidden?: boolean;
+}
+const { labelKey, variant = "primary", type = "button", id, hidden } = Astro.props;
+---
+<button id={id} type={type} class={variant === "primary" ? undefined : variant} hidden={hidden} data-i18n={labelKey}>{t(labelKey)}</button>

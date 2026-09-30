@@ -1,11 +1,15 @@
+import { actions, badge, button, card, checkbox, emptyState, field, fields, formCard, list, note, row, select, submit, toggle } from "../../components/ui";
+import { t, tOr } from "../../i18n";
 import { api } from "../api";
-import { badge, clear, confirmTwice, errorMessage, field, h, toast, when } from "../dom";
+import { clear, h, when } from "../dom";
+import { AUTO, loadLocales } from "../locales";
+import { confirmDialog, guard } from "../ui";
 
 interface Settings {
   child_name: string;
   age: number;
   personality: string;
-  language: string;
+  language: string; // a locale code, or "auto" to answer in the language spoken
   max_response_words: number;
   extra_instructions: string;
   retention_days: number;
@@ -25,6 +29,9 @@ interface Settings {
   tts_base_url: string;
   tts_model: string;
   tts_voice: string;
+  tts_language?: string; // "" = same as the assistant language
+  tts_speed?: number; // 1 = normal
+  tts_volume?: number; // 0-100
 }
 interface State {
   settings: Settings;
@@ -46,141 +53,134 @@ interface Conversation {
 }
 
 export async function render(root: HTMLElement): Promise<void> {
-  const [state, rules, convs] = await Promise.all([
+  const [state, rules, convs, locales] = await Promise.all([
     api<State>("GET", "/api/assistant"),
     api<Rule[]>("GET", "/api/moderation-rules"),
     api<Conversation[]>("GET", "/api/conversations"),
+    loadLocales(),
   ]);
   clear(root);
   const refresh = () => render(root);
   const s = state.settings;
+  const saved = t("assistant.keySaved");
 
   // ---- status and keys
-  const llmKey = h("input", { type: "password", autocomplete: "off", placeholder: state.llm_key_configured ? "(saved - type to replace)" : "sk-or-…", ariaLabel: "AI API key" });
-  const sttKey = h("input", { type: "password", autocomplete: "off", placeholder: state.stt_key_configured ? "(saved - type to replace)" : "gsk_…", ariaLabel: "Speech-to-text API key" });
+  const llmKey = h("input", { type: "password", autocomplete: "off", placeholder: state.llm_key_configured ? saved : "sk-or-…", ariaLabel: t("assistant.llmKey") });
+  const sttKey = h("input", { type: "password", autocomplete: "off", placeholder: state.stt_key_configured ? saved : "gsk_…", ariaLabel: t("assistant.sttKey") });
+  const ttsKey = h("input", { type: "password", autocomplete: "off", placeholder: state.tts_key_configured ? saved : t("assistant.ttsKeyHint"), ariaLabel: t("assistant.ttsKey") });
   const st = state.status;
-  const ttsKey = h("input", { type: "password", autocomplete: "off", placeholder: state.tts_key_configured ? "(saved - type to replace)" : "only for cloud voices", ariaLabel: "Text-to-speech API key" });
-  root.append(h("section", { class: "card" }, h("h2", {}, "Assistant"),
-    h("p", {}, !st.enabled ? badge("feature off", true) : st.running ? badge("running") : badge("not running", true), " ",
-      st.enabled ? null : h("span", { class: "muted" }, "Turn the “assistant” feature on in the Dashboard."),
+  root.append(card(t("assistant.title"),
+    h("p", {}, !st.enabled ? badge(t("common.featureOff"), true) : st.running ? badge(t("common.running")) : badge(t("common.notRunning"), true), " ",
+      st.enabled ? null : h("span", { class: "muted" }, t("assistant.turnOn")),
       st.last_error ? h("span", { class: "error" }, ` ${st.last_error}`) : null),
-    h("p", { class: "muted" }, "Keys are stored encrypted on the device and are never shown again. The AI service receives only what the child says as text; the speech service receives only the recording."),
+    note(t("assistant.keysHelp")),
     h("form", {
       onsubmit: async (ev: Event) => {
         ev.preventDefault();
-        try {
-          await api("PUT", "/api/assistant/keys", { llm_api_key: llmKey.value.trim(), stt_api_key: sttKey.value.trim(), tts_api_key: ttsKey.value.trim() });
-          toast("Keys saved");
-          await refresh();
-        } catch (e) {
-          toast(errorMessage(e), true);
-        }
+        if (await guard(() => api("PUT", "/api/assistant/keys", { llm_api_key: llmKey.value.trim(), stt_api_key: sttKey.value.trim(), tts_api_key: ttsKey.value.trim() }), "assistant.keysSaved")) await refresh();
       },
-    }, h("div", { class: "fields" }, field("AI key (OpenRouter, Groq…)", llmKey), field("Speech-to-text key (Groq…)", sttKey), field("Cloud voice key (optional)", ttsKey), h("button", { type: "submit" }, "Save keys")))));
+    }, fields(field(t("assistant.llmKeyLabel"), llmKey), field(t("assistant.sttKeyLabel"), sttKey), field(t("assistant.ttsKeyLabel"), ttsKey), submit(t("assistant.saveKeys"))))));
+
+  // ---- language options: locales, "auto" (assistant only) and any legacy free-text value already saved
+  const localeOptions = locales.map((l): [string, string] => [l.code, l.name]);
+  const assistantLangs: [string, string][] = [[AUTO, t("lang.auto")], ...localeOptions];
+  if (s.language && !assistantLangs.some(([v]) => v === s.language)) assistantLangs.push([s.language, s.language]);
+  const ttsLangs: [string, string][] = [["", t("assistant.ttsLanguageFollow")], ...localeOptions];
+  if (s.tts_language && !ttsLangs.some(([v]) => v === s.tts_language)) ttsLangs.push([s.tts_language, s.tts_language]);
 
   // ---- personality and safety
   const f = {
-    child: h("input", { type: "text", value: s.child_name, maxLength: 40, ariaLabel: "Child's first name" }),
-    age: h("input", { type: "number", value: String(s.age), min: "3", max: "17", ariaLabel: "Age" }),
-    personality: h("input", { type: "text", value: s.personality, maxLength: 200, ariaLabel: "Personality" }),
-    language: h("input", { type: "text", value: s.language, maxLength: 40, placeholder: "same as the child", ariaLabel: "Language" }),
-    words: h("input", { type: "number", value: String(s.max_response_words), min: "10", max: "300", ariaLabel: "Maximum words" }),
-    extra: h("textarea", { rows: 3, maxLength: 600, ariaLabel: "Extra instructions", value: s.extra_instructions }),
-    retention: h("select", { ariaLabel: "History" }, ...[[0, "Do not keep"], [7, "7 days"], [30, "30 days"], [90, "90 days"]].map(([v, l]) => h("option", { value: String(v), selected: v === s.retention_days }, String(l)))),
-    input: h("input", { type: "checkbox", checked: s.input_moderation }),
-    output: h("input", { type: "checkbox", checked: s.output_moderation }),
-    alert: h("input", { type: "checkbox", checked: s.alert_parents }),
-    follow: h("input", { type: "checkbox", checked: s.follow_up }),
-    turns: h("input", { type: "number", value: String(s.max_turns_per_hour), min: "5", max: "600", ariaLabel: "Questions per hour" }),
-    llmUrl: h("input", { type: "text", value: s.llm_base_url, ariaLabel: "AI address" }),
-    llmModel: h("input", { type: "text", value: s.llm_model, ariaLabel: "AI model" }),
-    sttUrl: h("input", { type: "text", value: s.stt_base_url, ariaLabel: "Speech-to-text address" }),
-    sttModel: h("input", { type: "text", value: s.stt_model, ariaLabel: "Speech-to-text model" }),
-    sttEngine: h("select", { ariaLabel: "Speech-to-text engine" },
-      h("option", { value: "cloud", selected: s.stt_engine === "cloud" }, "Cloud (Groq or compatible)"),
-      h("option", { value: "whispercpp", selected: s.stt_engine === "whispercpp" }, "On this device (whisper.cpp, slow)")),
-    sttPath: h("input", { type: "text", value: s.stt_model_path, placeholder: "/opt/whisper/ggml-tiny.bin", ariaLabel: "whisper.cpp model file" }),
-    tts: h("select", { ariaLabel: "Text to speech" },
-      h("option", { value: "piper", selected: s.tts_engine === "piper" }, "Piper (on this device)"),
-      h("option", { value: "cloud", selected: s.tts_engine === "cloud" }, "Cloud voice (OpenAI-compatible)"),
-      h("option", { value: "none", selected: s.tts_engine === "none" }, "Off (tones only)")),
-    ttsUrl: h("input", { type: "text", value: s.tts_base_url, ariaLabel: "Cloud voice address" }),
-    ttsModel: h("input", { type: "text", value: s.tts_model, ariaLabel: "Cloud voice model" }),
-    ttsVoice: h("input", { type: "text", value: s.tts_voice, ariaLabel: "Cloud voice name" }),
-    voice: h("input", { type: "text", value: s.tts_model_path, placeholder: "/opt/piper/en_US-lessac-medium.onnx", ariaLabel: "Piper voice file" }),
+    child: h("input", { type: "text", value: s.child_name, maxLength: 40, ariaLabel: t("assistant.childName") }),
+    age: h("input", { type: "number", value: String(s.age), min: "3", max: "17", ariaLabel: t("assistant.age") }),
+    personality: h("input", { type: "text", value: s.personality, maxLength: 200, ariaLabel: t("assistant.personality") }),
+    language: select(t("assistant.language"), assistantLangs, s.language || AUTO),
+    words: h("input", { type: "number", value: String(s.max_response_words), min: "10", max: "300", ariaLabel: t("assistant.maxWords") }),
+    extra: h("textarea", { rows: 3, maxLength: 600, ariaLabel: t("assistant.extra"), value: s.extra_instructions }),
+    retention: select(t("assistant.history"), [["0", t("assistant.keepNone")], ["7", t("assistant.days", { n: 7 })], ["30", t("assistant.days", { n: 30 })], ["90", t("assistant.days", { n: 90 })]], String(s.retention_days)),
+    input: checkbox(s.input_moderation),
+    output: checkbox(s.output_moderation),
+    alert: checkbox(s.alert_parents),
+    follow: checkbox(s.follow_up),
+    turns: h("input", { type: "number", value: String(s.max_turns_per_hour), min: "5", max: "600", ariaLabel: t("assistant.turnsPerHour") }),
+    llmUrl: h("input", { type: "text", value: s.llm_base_url, ariaLabel: t("assistant.llmUrl") }),
+    llmModel: h("input", { type: "text", value: s.llm_model, ariaLabel: t("assistant.llmModel") }),
+    sttUrl: h("input", { type: "text", value: s.stt_base_url, ariaLabel: t("assistant.sttUrl") }),
+    sttModel: h("input", { type: "text", value: s.stt_model, ariaLabel: t("assistant.sttModel") }),
+    sttEngine: select(t("assistant.sttEngine"), [["cloud", t("assistant.sttCloud")], ["whispercpp", t("assistant.sttLocal")]], s.stt_engine),
+    sttPath: h("input", { type: "text", value: s.stt_model_path, placeholder: "/opt/whisper/ggml-tiny.bin", ariaLabel: t("assistant.sttPath") }),
+    tts: select(t("assistant.ttsEngine"), [["piper", t("assistant.ttsPiper")], ["cloud", t("assistant.ttsCloud")], ["none", t("assistant.ttsNone")]], s.tts_engine),
+    ttsUrl: h("input", { type: "text", value: s.tts_base_url, ariaLabel: t("assistant.ttsUrl") }),
+    ttsModel: h("input", { type: "text", value: s.tts_model, ariaLabel: t("assistant.ttsModel") }),
+    ttsVoice: h("input", { type: "text", value: s.tts_voice, ariaLabel: t("assistant.ttsVoice") }),
+    voice: h("input", { type: "text", value: s.tts_model_path, placeholder: "/opt/piper/en_US-lessac-medium.onnx", ariaLabel: t("assistant.piperFile") }),
+    ttsLanguage: select(t("assistant.ttsLanguage"), ttsLangs, s.tts_language ?? ""),
+    ttsSpeed: h("input", { type: "number", value: String(s.tts_speed ?? 1), min: "0.5", max: "2", step: "0.1", ariaLabel: t("assistant.ttsSpeed") }),
+    ttsVolume: h("input", { type: "number", value: String(s.tts_volume ?? 100), min: "0", max: "100", ariaLabel: t("assistant.ttsVolume") }),
   };
-  root.append(h("form", {
-    class: "card",
-    onsubmit: async (ev: Event) => {
-      ev.preventDefault();
-      try {
-        await api("PUT", "/api/assistant", {
-          child_name: f.child.value.trim(), age: Number(f.age.value), personality: f.personality.value.trim(), language: f.language.value.trim(),
-          max_response_words: Number(f.words.value), extra_instructions: f.extra.value.trim(), retention_days: Number(f.retention.value),
-          input_moderation: f.input.checked, output_moderation: f.output.checked, alert_parents: f.alert.checked, follow_up: f.follow.checked,
-          max_turns_per_hour: Number(f.turns.value), llm_base_url: f.llmUrl.value.trim(), llm_model: f.llmModel.value.trim(),
-          stt_engine: f.sttEngine.value, stt_base_url: f.sttUrl.value.trim(), stt_model: f.sttModel.value.trim(), stt_model_path: f.sttPath.value.trim(),
-          tts_engine: f.tts.value, tts_model_path: f.voice.value.trim(), tts_base_url: f.ttsUrl.value.trim(), tts_model: f.ttsModel.value.trim(), tts_voice: f.ttsVoice.value.trim(),
-        });
-        toast("Saved");
-        await refresh();
-      } catch (e) {
-        toast(errorMessage(e), true);
-      }
-    },
+  root.append(formCard(async (ev) => {
+    ev.preventDefault();
+    await guard(async () => {
+      await api("PUT", "/api/assistant", {
+        child_name: f.child.value.trim(), age: Number(f.age.value), personality: f.personality.value.trim(), language: f.language.value,
+        max_response_words: Number(f.words.value), extra_instructions: f.extra.value.trim(), retention_days: Number(f.retention.value),
+        input_moderation: f.input.checked, output_moderation: f.output.checked, alert_parents: f.alert.checked, follow_up: f.follow.checked,
+        max_turns_per_hour: Number(f.turns.value), llm_base_url: f.llmUrl.value.trim(), llm_model: f.llmModel.value.trim(),
+        stt_engine: f.sttEngine.value, stt_base_url: f.sttUrl.value.trim(), stt_model: f.sttModel.value.trim(), stt_model_path: f.sttPath.value.trim(),
+        tts_engine: f.tts.value, tts_model_path: f.voice.value.trim(), tts_base_url: f.ttsUrl.value.trim(), tts_model: f.ttsModel.value.trim(), tts_voice: f.ttsVoice.value.trim(),
+        tts_language: f.ttsLanguage.value, tts_speed: Number(f.ttsSpeed.value), tts_volume: Number(f.ttsVolume.value),
+      });
+      await refresh();
+    }, "common.saved");
   },
-    h("h2", {}, "Personality"),
-    h("div", { class: "fields" }, field("Child's first name (optional)", f.child), field("Age", f.age), field("Personality", f.personality), field("Language", f.language), field("Max words per answer", f.words)),
-    field("Extra instructions for the assistant", f.extra),
-    h("h2", {}, "Safety"),
-    h("p", { class: "muted" }, "Milo checks what the child says and what the AI answers with its own rules, on top of the AI's own safeguards. This is a safety net, not a guarantee: keep an eye on the conversations below."),
-    h("label", { class: "check" }, f.input, " Check what the child says before the AI sees it"),
-    h("label", { class: "check" }, f.output, " Check the AI's answers before the child hears them"),
-    h("label", { class: "check" }, f.alert, " Message the parents on Telegram if the child says something worrying"),
-    h("label", { class: "check" }, f.follow, " Keep listening for a follow-up after each answer"),
-    h("div", { class: "fields" }, field("Keep conversation history", f.retention), field("Questions per hour (limits cost and free-tier use)", f.turns)),
-    h("h2", {}, "Providers"),
-    h("p", { class: "muted" }, "Any OpenAI-compatible service works. Defaults: OpenRouter for the AI and Groq for speech recognition. Text-to-speech runs locally with Piper."),
-    h("div", { class: "fields" }, field("AI address", f.llmUrl), field("AI model", f.llmModel), field("Speech-to-text address", f.sttUrl), field("Speech-to-text model", f.sttModel)),
-    h("div", { class: "fields" }, field("Speech-to-text engine", f.sttEngine), field("whisper.cpp model file", f.sttPath)),
-    h("div", { class: "fields" }, field("Voice (text-to-speech)", f.tts), field("Piper voice file (.onnx)", f.voice)),
-    h("div", { class: "fields" }, field("Cloud voice address", f.ttsUrl), field("Cloud voice model", f.ttsModel), field("Cloud voice name", f.ttsVoice)),
-    h("div", { class: "actions" }, h("button", { type: "submit" }, "Save settings"))));
+    h("h2", {}, t("assistant.personality")),
+    fields(field(t("assistant.childNameLabel"), f.child), field(t("assistant.age"), f.age), field(t("assistant.personality"), f.personality), field(t("assistant.language"), f.language), field(t("assistant.maxWordsLabel"), f.words)),
+    note(t("assistant.languageHelp")),
+    field(t("assistant.extraLabel"), f.extra),
+    h("h2", {}, t("assistant.safety")),
+    note(t("assistant.safetyHelp")),
+    toggle(t("assistant.checkInput"), f.input),
+    toggle(t("assistant.checkOutput"), f.output),
+    toggle(t("assistant.alertParents"), f.alert),
+    toggle(t("assistant.followUp"), f.follow),
+    fields(field(t("assistant.historyLabel"), f.retention), field(t("assistant.turnsLabel"), f.turns)),
+    h("h2", {}, t("assistant.providers")),
+    note(t("assistant.providersHelp")),
+    fields(field(t("assistant.llmUrl"), f.llmUrl), field(t("assistant.llmModel"), f.llmModel), field(t("assistant.sttUrl"), f.sttUrl), field(t("assistant.sttModel"), f.sttModel)),
+    fields(field(t("assistant.sttEngine"), f.sttEngine), field(t("assistant.sttPath"), f.sttPath)),
+    h("h2", {}, t("assistant.voice")),
+    fields(field(t("assistant.ttsEngineLabel"), f.tts), field(t("assistant.piperFile"), f.voice)),
+    fields(field(t("assistant.ttsUrl"), f.ttsUrl), field(t("assistant.ttsModel"), f.ttsModel), field(t("assistant.ttsVoice"), f.ttsVoice)),
+    fields(field(t("assistant.ttsLanguage"), f.ttsLanguage), field(t("assistant.ttsSpeed"), f.ttsSpeed), field(t("assistant.ttsVolume"), f.ttsVolume)),
+    actions(submit(t("assistant.save")))));
 
   // ---- blocked phrases
-  const pattern = h("input", { type: "text", maxLength: 80, placeholder: "a word or phrase", ariaLabel: "Blocked phrase" });
-  const where = h("select", { ariaLabel: "Applies to" }, ...[["both", "What the child says and what the AI says"], ["input", "Only what the child says"], ["output", "Only what the AI says"]].map(([v, l]) => h("option", { value: v }, l)));
-  root.append(h("section", { class: "card" }, h("h2", {}, "Blocked words and phrases"),
-    h("p", { class: "muted" }, "Anything containing these is never sent to the AI or never spoken. The child hears a friendly “let's talk about something else”."),
+  const pattern = h("input", { type: "text", maxLength: 80, placeholder: t("assistant.phraseHint"), ariaLabel: t("assistant.blockedPhrase") });
+  const where = select(t("assistant.appliesTo"), [["both", t("assistant.appliesBoth")], ["input", t("assistant.appliesInput")], ["output", t("assistant.appliesOutput")]]);
+  root.append(card(t("assistant.blocked"),
+    note(t("assistant.blockedHelp")),
     h("form", {
       class: "inline",
       onsubmit: async (ev: Event) => {
         ev.preventDefault();
-        try {
-          await api("POST", "/api/moderation-rules", { pattern: pattern.value.trim(), applies_to: where.value });
-          await refresh();
-        } catch (e) {
-          toast(errorMessage(e), true);
-        }
+        if (await guard(() => api("POST", "/api/moderation-rules", { pattern: pattern.value.trim(), applies_to: where.value }))) await refresh();
       },
-    }, pattern, where, h("button", { type: "submit" }, "Block")),
-    h("ul", { class: "list" }, ...rules.map((r) => h("li", { class: "row" },
-      h("span", {}, `“${r.pattern}” `, badge(r.applies_to)),
-      h("button", { type: "button", class: "secondary", onclick: async () => { await api("DELETE", `/api/moderation-rules/${r.id}`); await refresh(); } }, "Remove"))))));
+    }, pattern, where, h("button", { type: "submit" }, t("assistant.block"))),
+    list(...rules.map((r) => row(
+      h("span", {}, `“${r.pattern}” `, badge(tOr(`assistant.applies.${r.applies_to}`, r.applies_to))),
+      button(t("common.remove"), { variant: "secondary", onclick: async () => { if (await guard(() => api("DELETE", `/api/moderation-rules/${r.id}`))) await refresh(); } }))))));
 
   // ---- conversations
-  root.append(h("section", { class: "card" }, h("h2", {}, "Conversations"),
-    h("p", { class: "muted" }, s.retention_days ? `Kept for ${s.retention_days} days, then deleted automatically.` : "Not kept: history is switched off."),
-    convs.length === 0 ? h("p", { class: "muted" }, "No conversations stored.") : null,
-    ...convs.map((c) => h("details", {}, h("summary", {}, `${when(c.started_at)} · ${c.source} · ${c.lines.length} lines`),
-      h("ul", { class: "list" }, ...c.lines.map((l) => h("li", { class: "row" },
-        h("span", {}, h("strong", {}, l.role === "user" ? "Child: " : l.role === "assistant" ? "Milo: " : `tool ${l.tool ?? ""}: `), l.content)))))),
-    convs.length ? h("div", { class: "actions" }, h("button", {
-      type: "button", class: "danger",
-      onclick: async (ev: Event) => {
-        if (!confirmTwice(ev.currentTarget as HTMLButtonElement, "Erase all")) return;
-        await api("DELETE", "/api/conversations");
-        await refresh();
+  root.append(card(t("assistant.conversations"),
+    note(s.retention_days ? t("assistant.keptFor", { days: s.retention_days }) : t("assistant.notKept")),
+    convs.length === 0 ? emptyState(t("assistant.noConversations")) : null,
+    ...convs.map((c) => h("details", {}, h("summary", {}, t("assistant.conversationSummary", { when: when(c.started_at), source: c.source, count: c.lines.length })),
+      list(...c.lines.map((l) => row(
+        h("span", {}, h("strong", {}, l.role === "user" ? t("assistant.roleUser") : l.role === "assistant" ? t("assistant.roleAssistant") : t("assistant.roleTool", { tool: l.tool ?? "" })), " ", l.content)))))),
+    convs.length ? actions(button(t("assistant.eraseAll"), {
+      variant: "danger",
+      onclick: async () => {
+        if (!(await confirmDialog(t("assistant.confirmErase"), t("assistant.eraseAll")))) return;
+        if (await guard(() => api("DELETE", "/api/conversations"))) await refresh();
       },
-    }, "Erase all conversations")) : null));
+    })) : null));
 }

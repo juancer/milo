@@ -1,0 +1,9 @@
+---
+import { t } from "../i18n";
+interface Props {
+  id: string;
+  labelKey: string;
+}
+const { id, labelKey } = Astro.props;
+---
+<label class="field"><span data-i18n={labelKey}>{t(labelKey)}</span><select id={id}><slot /></select></label>

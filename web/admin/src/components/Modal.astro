@@ -1,0 +1,14 @@
+---
+interface Props {
+  id: string;
+  titleId: string;
+  /** "sheet" is the wide panel that hosts a whole section (a bottom sheet on phones). */
+  variant?: "dialog" | "sheet";
+}
+const { id, titleId, variant = "dialog" } = Astro.props;
+---
+<div id={id} class:list={["modal-backdrop", variant === "sheet" && "sheet-backdrop"]} hidden>
+  <div class:list={["modal", variant === "sheet" && "sheet"]} role="dialog" aria-modal="true" aria-labelledby={titleId} tabindex="-1">
+    <slot />
+  </div>
+</div>
