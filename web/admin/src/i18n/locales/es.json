@@ -643,5 +643,14 @@
   "audit.feature.disabled": "Función desactivada",
   "audit.volume.changed": "Volumen cambiado",
   "audit.telegram.alerts": "Avisos del dispositivo cambiados",
-  "audit.telegram.forward": "Copias de mensajes cambiadas"
+  "audit.telegram.forward": "Copias de mensajes cambiadas",
+  "skills.detect": "Detectar mi ubicación",
+  "skills.detected": "Ubicación detectada",
+  "skills.detectPrivacy": "Usa tu dirección de internet una sola vez para encontrar tu zona; solo se guarda el lugar. Es aproximada: escribe tu ciudad para corregirla.",
+  "needs.weatherPlace": "Elige tu ciudad para activar el tiempo.",
+  "prompt.weather.title": "¿Dónde vives?",
+  "prompt.weather.intro": "El tiempo necesita saber tu zona. Milo puede encontrarla por ti, o puedes escribir tu ciudad.",
+  "prompt.weather.town": "O escribe tu ciudad",
+  "prompt.weather.needTown": "Escribe tu ciudad o usa «Detectar mi ubicación».",
+  "audit.weather.location_detected": "Ubicación del tiempo detectada"
 }

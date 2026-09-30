@@ -80,7 +80,10 @@ export async function render(root: HTMLElement): Promise<void> {
     h("p", {}, s.weather.configured ? badge(s.weather.place) : badge(t("skills.noTown"), true)),
     h("form", { class: "inline", onsubmit: (ev: Event) => { ev.preventDefault(); void run(() => api("PUT", "/api/weather", { place: place.value.trim(), units: units.value }), "common.saved"); } },
       place, units, h("button", { type: "submit" }, t("common.save"))),
-    actions(button(t("skills.tryIt"), { variant: "secondary", onclick: tryIt("/api/weather/test") }))));
+    actions(
+      button(t("skills.detect"), { onclick: () => run(() => api("POST", "/api/weather/detect"), "skills.detected") }),
+      button(t("skills.tryIt"), { variant: "secondary", onclick: tryIt("/api/weather/test") })),
+    note(t("skills.detectPrivacy"))));
 
   // ---- calendar
   const url = h("input", { type: "password", autocomplete: "off", placeholder: s.calendar_configured ? t("skills.calendarSaved") : "https://…/basic.ics", ariaLabel: t("skills.calendarAddress") });

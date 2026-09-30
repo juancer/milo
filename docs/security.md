@@ -74,6 +74,15 @@ chunks). The passphrase is never stored or logged. Restores are verified and sta
 file cannot write outside its own folder or install a database from a newer Milo. See
 [backup.md](backup.md).
 
+## What leaves the device: weather location
+
+The forecast sends only coordinates to Open-Meteo. **Detect my location** (Skills → Weather, or
+the prompt when turning weather on) makes one HTTPS request to a keyless geolocation service,
+which therefore sees the device's public IP address. It never runs automatically, stores only the
+resulting place (`weather.place`, latitude, longitude), and is audited as
+`weather.location_detected`. The location is approximate; typing a town overrides it. The
+skills' HTTP client refuses plain http and loopback/link-local targets like the other skills.
+
 ## Logging and audit
 
 Log and audit fields whose names look like credentials (`token`, `password`, `key`, ...) are

@@ -22,6 +22,7 @@ const KNOWN_ERRORS: [RegExp, string][] = [
   [/bot token/i, "needs.telegramToken"],
   [/API key/i, "needs.assistantKey"],
   [/wake-word samples/i, "needs.wakeSamples"],
+  [/no place is set/i, "needs.weatherPlace"],
 ];
 
 /** Translation key of the friendly explanation for a known "not set up yet" error, if it is one. */

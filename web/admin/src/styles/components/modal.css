@@ -128,3 +128,8 @@ body.sheet-open {
     animation: none;
   }
 }
+
+/* A prompt's main action (for example "Detect my location") above the alternative fields. */
+#prompt-primary {
+  width: 100%;
+}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/i18n"
 )
 
 // Weather settings (system_settings keys).
@@ -23,13 +24,19 @@ const (
 	SettingWeatherUnits = "weather.units" // celsius (default) or fahrenheit
 	settingWeatherAPI   = "weather.api_base"
 	settingGeoAPI       = "weather.geo_base"
+	settingIPGeoAPI     = "weather.ipgeo_base"
 
 	defaultForecastAPI = "https://api.open-meteo.com"
 	defaultGeoAPI      = "https://geocoding-api.open-meteo.com"
+	defaultIPGeoAPI    = "https://ipwho.is"
 )
 
 // maxPlaceLabel is the most runes of a place name that are stored.
 const maxPlaceLabel = 80
+
+// ErrNoLocation means the device's location could not be worked out from its address; the
+// person should type their town instead.
+var ErrNoLocation = errors.New("could not detect the location")
 
 // Place is a geocoded location.
 type Place struct {
@@ -111,7 +118,7 @@ func (w *Weather) Geocode(ctx context.Context, name string) (Place, error) {
 	var out struct {
 		Results []Place `json:"results"`
 	}
-	q := url.Values{"name": {name}, "count": {"1"}, "language": {"en"}, "format": {"json"}}
+	q := url.Values{"name": {name}, "count": {"1"}, "language": {w.geoLanguage(ctx)}, "format": {"json"}}
 	if err := w.fetchJSON(ctx, w.get(ctx, settingGeoAPI, defaultGeoAPI), "/v1/search", q, &out); err != nil {
 		return Place{}, err
 	}
@@ -121,12 +128,27 @@ func (w *Weather) Geocode(ctx context.Context, name string) (Place, error) {
 	return out.Results[0], nil
 }
 
+// geoLanguage is the language place names are returned in: the assistant language, or English
+// when that is "auto" or not one Milo knows.
+func (w *Weather) geoLanguage(ctx context.Context) string {
+	if g, err := w.Store.GetGPTSettings(ctx); err == nil {
+		if code, ok := i18n.Normalize(g.Language); ok {
+			return code
+		}
+	}
+	return i18n.Default
+}
+
 // SetPlace geocodes name and saves it as the device's location.
 func (w *Weather) SetPlace(ctx context.Context, name string) (Place, error) {
 	p, err := w.Geocode(ctx, name)
 	if err != nil {
 		return Place{}, err
 	}
+	return p, w.savePlace(ctx, p)
+}
+
+func (w *Weather) savePlace(ctx context.Context, p Place) error {
 	label := p.Name
 	if p.Country != "" {
 		label += ", " + p.Country
@@ -139,8 +161,35 @@ func (w *Weather) SetPlace(ctx context.Context, name string) (Place, error) {
 		SettingWeatherPlace: label,
 	} {
 		if err := w.Store.SetSetting(ctx, k, v); err != nil {
-			return Place{}, err
+			return err
 		}
+	}
+	return nil
+}
+
+// DetectPlace asks a free geolocation service where this device's internet address is and
+// saves that as the location. It runs only when a person asks for it: the service sees the
+// device's public address on that one request, and only the place is kept. The result is
+// approximate; typing the town (SetPlace) overrides it. Any failure is ErrNoLocation.
+func (w *Weather) DetectPlace(ctx context.Context) (Place, error) {
+	var out struct {
+		Success bool    `json:"success"`
+		City    string  `json:"city"`
+		Country string  `json:"country"`
+		Lat     float64 `json:"latitude"`
+		Lon     float64 `json:"longitude"`
+	}
+	q := url.Values{"fields": {"success,city,country,latitude,longitude"}}
+	if err := w.fetchJSON(ctx, w.get(ctx, settingIPGeoAPI, defaultIPGeoAPI), "/", q, &out); err != nil {
+		w.Log.Warn("weather: location detection failed", "error", err)
+		return Place{}, ErrNoLocation
+	}
+	p := Place{Name: strings.TrimSpace(out.City), Country: strings.TrimSpace(out.Country), Lat: out.Lat, Lon: out.Lon}
+	if !out.Success || p.Name == "" || p.Lat < -90 || p.Lat > 90 || p.Lon < -180 || p.Lon > 180 {
+		return Place{}, ErrNoLocation
+	}
+	if err := w.savePlace(ctx, p); err != nil {
+		return Place{}, err
 	}
 	return p, nil
 }

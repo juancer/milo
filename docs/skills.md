@@ -31,8 +31,17 @@ over the song. Pausing keeps the position; playing again with no name resumes.
 
 ## Weather
 
-Skills tile → Weather: type your town. Milo looks it up once and remembers the coordinates. Units
-can be Celsius or Fahrenheit. Nothing about the family is sent, only latitude and longitude.
+Skills tile → Weather: press **Detect my location**, or type your town. Milo remembers the place
+and its coordinates. Units can be Celsius or Fahrenheit. Turning the **weather** switch on without
+a place opens the same choice (detect, or type a town) and then starts the feature.
+
+Forecasts send only latitude and longitude to Open-Meteo, nothing about the family. Place names
+are looked up in the assistant language (English when it is `auto`).
+
+**Detect my location** asks a free geolocation service (ipwho.is, no key) where the device's
+internet address is. It happens only when you press the button, never on its own. The service
+sees the device's public IP address on that one request and only the place is kept. The result is
+approximate (often the provider's city): type your town to correct it.
 
 ## Calendar
 

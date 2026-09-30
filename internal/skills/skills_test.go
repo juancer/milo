@@ -966,3 +966,108 @@ func TestPlayerPanicIsContained(t *testing.T) {
 	}
 	waitFor(t, "the player to stop", func() bool { return m.Info(context.Background()).State == StateStopped })
 }
+
+// ipGeoServer fakes the IP geolocation service: the body is served with the given status.
+func ipGeoServer(t *testing.T, status int, body string, hits *int) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hits != nil {
+			*hits++
+		}
+		w.WriteHeader(status)
+		w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestWeatherDetectPlaceSavesTheLocationWithoutGeocoding(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	var hits int
+	srv := ipGeoServer(t, 200, `{"success":true,"city":"Valencia","country":"Spain","latitude":39.4699,"longitude":-0.3763}`, &hits)
+	r.store.SetSetting(ctx, settingIPGeoAPI, srv.URL)
+	w := &Weather{Common: r.common}
+
+	p, err := w.DetectPlace(ctx)
+	if err != nil || p.Name != "Valencia" {
+		t.Fatalf("DetectPlace = %+v, %v", p, err)
+	}
+	if hits != 1 {
+		t.Fatalf("%d requests, want exactly 1 (no second geocode)", hits)
+	}
+	for k, want := range map[string]string{SettingWeatherLat: "39.4699", SettingWeatherLon: "-0.3763", SettingWeatherPlace: "Valencia, Spain"} {
+		if got, _ := r.store.GetSetting(ctx, k); got != want {
+			t.Errorf("%s = %q, want %q", k, got, want)
+		}
+	}
+}
+
+func TestWeatherDetectPlaceRefusesUnusableAnswers(t *testing.T) {
+	for name, tc := range map[string]struct {
+		status int
+		body   string
+	}{
+		"service says no":  {200, `{"success":false,"message":"Invalid IP address"}`},
+		"empty answer":     {200, `{}`},
+		"no city":          {200, `{"success":true,"city":"","country":"Spain","latitude":40,"longitude":-3}`},
+		"latitude too big": {200, `{"success":true,"city":"X","country":"Y","latitude":91,"longitude":0}`},
+		"longitude range":  {200, `{"success":true,"city":"X","country":"Y","latitude":0,"longitude":-181}`},
+		"not json":         {200, `nope`},
+		"server error":     {503, `{"success":true,"city":"X","latitude":1,"longitude":1}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t)
+			ctx := context.Background()
+			r.store.SetSetting(ctx, settingIPGeoAPI, ipGeoServer(t, tc.status, tc.body, nil).URL)
+			if _, err := (&Weather{Common: r.common}).DetectPlace(ctx); !errors.Is(err, ErrNoLocation) {
+				t.Fatalf("err = %v, want ErrNoLocation", err)
+			}
+			if got, _ := r.store.GetSetting(ctx, SettingWeatherLat); got != "" {
+				t.Fatalf("a failed detection stored latitude %q", got)
+			}
+		})
+	}
+}
+
+func TestWeatherDetectPlaceUnreachableAndInsecure(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	r.store.SetSetting(ctx, settingIPGeoAPI, "http://127.0.0.1:1")
+	if _, err := (&Weather{Common: r.common}).DetectPlace(ctx); !errors.Is(err, ErrNoLocation) {
+		t.Fatalf("unreachable: err = %v", err)
+	}
+	strict := r.common
+	strict.AllowHTTP = false
+	r.store.SetSetting(ctx, settingIPGeoAPI, "http://example.test")
+	if _, err := (&Weather{Common: strict}).DetectPlace(ctx); !errors.Is(err, ErrNoLocation) {
+		t.Fatalf("plain http: err = %v", err)
+	}
+}
+
+// Place names are requested in the assistant language; "auto" or an unknown value means English.
+func TestWeatherGeocodeFollowsTheAssistantLanguage(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	var lang string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		lang = req.URL.Query().Get("language")
+		w.Write([]byte(`{"results":[{"name":"Madrid","country":"España","latitude":40.4,"longitude":-3.7}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	r.store.SetSetting(ctx, settingGeoAPI, srv.URL)
+	w := &Weather{Common: r.common}
+	for _, tc := range []struct{ setting, want string }{{"es", "es"}, {"auto", "en"}, {"klingon", "en"}, {"en", "en"}} {
+		g, err := r.store.GetGPTSettings(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		g.Language = tc.setting
+		if err := r.store.UpdateGPTSettings(ctx, g); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Geocode(ctx, "Madrid"); err != nil || lang != tc.want {
+			t.Errorf("assistant language %q: geocoder asked for %q (%v), want %q", tc.setting, lang, err, tc.want)
+		}
+	}
+}

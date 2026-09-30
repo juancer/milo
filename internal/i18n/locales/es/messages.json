@@ -154,6 +154,7 @@
   "web.err.ttl_hours_must_be_1_168_and_note_at_most_60": "ttl_hours debe estar entre 1 y 168 y la nota tener como máximo 60 caracteres",
   "web.err.turn_the_wakeword_feature_on_first": "activa primero la función «wakeword»",
   "web.err.turn_this_feature_on_from_the_home_screen_first": "activa primero esta función desde la pantalla de inicio",
+  "web.err.could_not_detect_your_location_type_your_town_instead": "no se pudo detectar tu ubicación: escribe tu ciudad en su lugar",
   "web.err.units_must_be_celsius_or_fahrenheit_and_the": "las unidades deben ser celsius o fahrenheit y el lugar tener como máximo 80 caracteres",
   "web.err.unknown_event_type": "tipo de evento desconocido",
   "web.err.unknown_feature": "función desconocida",
