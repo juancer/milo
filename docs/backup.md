@@ -30,7 +30,7 @@ echo "my long passphrase" | sudo -u milo milo backup FILE --passphrase-stdin
 
 ## Restoring
 
-**Same device (admin page, owner only).** *Restore from a backup*: choose the file and enter the passphrase.
+**Same device (**Backup** tile, owner only).** *Restore from a backup*: choose the file and enter the passphrase.
 Milo decrypts and checks it, and changes nothing until you press *Restart now*. On restart the
 backup replaces the database; the previous one is kept beside it as
 `milo.db.before-restore-<time>`. This works when the backup was made with this device's master
@@ -62,7 +62,7 @@ damaged database file, not against a dead card, because they live on the same ca
 encrypted**: each one is a plain copy of the database (file mode 0600), so it holds the administrator
 password hashes, messages and the still-encrypted secrets, and it never includes the master key.
 Anyone who can read `/var/lib/milo/backups` can read them. Change the
-schedule, count or folder on the Backup page. Note that Milo can only write below `/var/lib/milo`
+schedule, count or folder in the Backup tile. Note that Milo can only write below `/var/lib/milo`
 unless you widen the service's `ReadWritePaths` (for example to a USB stick).
 
 To restore one, stop Milo and copy it over `milo.db` (delete `milo.db-wal` and `milo.db-shm`).

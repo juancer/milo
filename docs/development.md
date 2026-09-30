@@ -9,7 +9,7 @@ There is no buildx or ARM emulation requirement: the Go binary is cross-compiled
 | `make test` | `go vet` + `go test` in the `go` service |
 | `make build-arm64` | Astro build (pnpm, via corepack) in a Node container, then the ARM64 binary in `dist/` |
 | `make dev` | Builds the UI and runs Milo (`:8080`) with mocked hardware, plus the simulator (`:8090`) |
-| `make web-dev` | Astro dev server (`:4321`) proxying `/api` to the `dev` service |
+| `make web-dev` | Astro dev server (`:4321`) proxying `/api` to the `dev` service; its proxy rewrites the request `Origin` so the server's CSRF check accepts it |
 | `make shell` | Bash in the Go container |
 
 Files live in `deploy/` (`Dockerfile.dev`, `docker-compose.yml`). Go module and build caches
@@ -100,7 +100,7 @@ migration that has shipped; add a new one.
   <http://localhost:8090>. Chat as Dad, Mum, Grandma or a Stranger, paste invitation links,
   tap inline buttons and simulate a Telegram outage.
 
-Open <http://localhost:8080> (sign in as `admin` or `mom`, password printed when the demo was seeded) and use the **Simulator** tile
+Open <http://localhost:8080> (sign in as `admin` or `mom`, password printed when the demo was seeded). The demo people have languages on purpose (Dad English, Mum Spanish, Grandma none) to exercise per-person language. Use the **Simulator** tile
 for virtual buttons, a microphone ("what the child says next") and a speaker log.
 
 The assistant runs against the simulator's rule-based "brain" (`/v1/chat/completions` and
@@ -113,3 +113,21 @@ Press the blue LISTEN button in the Simulator tile.
 
 The simulator's "voice notes" are silent WAV files that carry their words in a hidden chunk,
 so the development speech-to-text can "hear" them. Real recordings never contain it.
+
+## Variations of the dev stack
+
+Keep these in a local compose override (`-f deploy/docker-compose.yml -f my-override.yml`); do
+not commit machine-specific ones.
+
+- **See the first-run screen.** The `dev` service seeds a demo on every fresh volume. Override its
+  `command` to `sh -c "go build -o /tmp/milo ./cmd/milo && /tmp/milo keygen && exec /tmp/milo run"`
+  and start with an empty `devdata` volume (`docker volume rm milo_devdata`): the browser then shows
+  the welcome screen and creates the owner, exactly as on a real device.
+- **Use your real Telegram bot.** By default `MILO_TELEGRAM_API_URL` points the stack at the
+  simulator, which rejects a real bot token ("unexpected response"). Set it to an empty string on
+  the `dev` service to talk to the real Bot API, and restart `dev`. The simulator then sits unused.
+- **Open the frontend from another device on the LAN.** Ports are bound to `127.0.0.1`. In an
+  override, replace the `web-dev` ports with `!override` and your host address, for example
+  `"192.168.1.20:4331:4321"` (pick a free host port), then browse to that address. Only this
+  frontend is exposed; it proxies `/api` to `dev` inside Docker. It is a development server with
+  demo data: use it on a trusted network only.

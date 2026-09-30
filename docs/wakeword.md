@@ -29,8 +29,9 @@ available through the helper plug.
 
 ### Built-in engine: recording samples
 
-1. Turn the **wakeword** feature on (Dashboard).
-2. Wake word tab → **Record a sample**, then say the phrase clearly, close to the device.
+1. Open the **Wake word** tile and turn the **wakeword** feature on. (Without samples it shows
+   "needs setup"; its Set up button takes you to the recorder.)
+2. In the same sheet, **Record a sample**, then say the phrase clearly, close to the device.
 3. Repeat three to five times: near and far, quiet and normal, ideally by the people who
    will use it. Delete any sample that scored badly.
 4. Use **Live check**: say the phrase and other words. Each line shows how different the

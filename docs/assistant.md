@@ -1,6 +1,6 @@
 # The assistant
 
-Press the GPT button (or, later, say the wake word) and talk. Milo records until you stop
+Press the GPT button (or say the wake word, see [wakeword.md](wakeword.md)) and talk. Milo records until you stop
 talking, turns the recording into text, asks a language model, and speaks the answer.
 
 ```
@@ -11,9 +11,9 @@ microphone → speech-to-text → moderation → AI model ⇄ actions → modera
 
 | Job | Default | Where it runs | Setting |
 |---|---|---|---|
-| Language model | `openai/gpt-oss-20b:free` on OpenRouter | cloud | Assistant → Providers |
-| Speech-to-text | `whisper-large-v3-turbo` on Groq, or `whisper.cpp` | cloud / on the device | Assistant → Providers |
-| Text-to-speech | Piper, or any OpenAI-compatible `/audio/speech` voice | on the device / cloud | Assistant → Providers |
+| Language model | `openai/gpt-oss-20b:free` on OpenRouter | cloud | Assistant tile → Providers |
+| Speech-to-text | `whisper-large-v3-turbo` on Groq, or `whisper.cpp` | cloud / on the device | Assistant tile → Providers |
+| Text-to-speech | Piper, or any OpenAI-compatible `/audio/speech` voice | on the device / cloud | Assistant tile → Voice |
 
 Both cloud providers use the OpenAI-compatible wire format, so any compatible service works:
 change the address, model name and key. OpenRouter is only an LLM provider; it does not do
@@ -30,7 +30,7 @@ API keys are stored encrypted (see [security.md](security.md)) and are never sho
   default). *whisper.cpp* keeps audio on the device: install `whisper-cli`, download a model
   (`ggml-tiny.bin` is the only one a Raspberry Pi 3B can run, slowly) and set its path.
 - **Text-to-speech:** *Piper* runs on the device. *Cloud voice* calls an OpenAI-compatible
-  `/audio/speech` endpoint (address, model, voice and a key in Assistant → Providers) and is
+  `/audio/speech` endpoint (address, model, voice and a key for it in Providers) and is
   useful when the Pi is too slow for Piper; the text of each answer is then sent to that service.
 
 ### Talking to it
@@ -41,7 +41,7 @@ while it is listening to finish early. Press it while Milo is thinking or speaki
 ### Text-to-speech with Piper
 
 Install a Piper build for ARM64 and a voice, then set the voice file (a `.onnx` path) under
-Assistant → Providers. Milo runs `piper --model <voice> --output_file <tmp>` with the text on
+Assistant tile → Voice. Milo runs `piper --model <voice> --output_file <tmp>` with the text on
 standard input; the command line is fixed. With text-to-speech off, the child hears tones
 instead of spoken answers.
 
@@ -51,7 +51,8 @@ The **assistant language** is a language code (or `auto`) and is separate from t
 notification and voice languages ([i18n.md](i18n.md)). Milo states it to the model explicitly
 in every conversation instead of relying on the model to remember it; with `auto` the model
 answers in the language the child speaks. The **voice language** and the voice model, speed and
-volume are set under Providers; leave the voice language empty to follow the assistant language.
+volume are set under **Voice**; leave the voice language empty to follow the assistant language.
+The assistant language itself is under **Personality**.
 
 ## What the model can do: only registered actions
 
@@ -60,8 +61,13 @@ registered *and* marked as available to the assistant. Every request goes throug
 Engine, which checks that the action exists, that the feature is enabled, that the usage
 schedule allows it and that the parameters are valid.
 
-Available to the assistant today: `set_volume`, `stop_audio`, `get_time`, `get_device_status`
+Available to the assistant today: `set_volume` (see below), `stop_audio`, `get_time`, `get_device_status`
 and, when Telegram is on, `send_message`, `read_messages`, `get_pending_messages`.
+
+`set_volume` takes one of `level` (0-100, a percentage), `level_10` (0-10, the scale people
+say aloud: "volume 7" is 70 %) or `change` (a relative step, -100 to 100). The server does the
+0-10 to percent conversion, so it does not depend on the model getting the arithmetic right; the
+Sound tile and the Telegram menu show both scales, for example `70% · 7/10`.
 
 Never available to the assistant: emergency alerts, delivering messages *as* a family member,
 changing settings, contacts, schedules, permissions or secrets. There is no shell, file or
@@ -75,7 +81,7 @@ Milo adds its own checks around the model, because a model cannot be trusted wit
 - **Input check.** What the child says is checked before the model sees it.
 - **Output check.** What the model says is checked before it is spoken, and shortened to the
   configured length.
-- **Your words.** Add blocked words or phrases under Assistant → Blocked words.
+- **Your words.** Add blocked words or phrases in the Assistant tile → Blocked words and phrases.
 - **Worrying phrases.** If the child says something that suggests they may be unsafe or very
   upset (for example about hurting themselves), the model is not asked. The child hears a fixed
   kind answer that suggests telling a trusted grown-up, and the parents receive a Telegram
@@ -88,8 +94,8 @@ Review the conversations regularly.
 ## Conversation history
 
 Conversations are stored in SQLite for 7, 30 or 90 days, or not at all
-(Assistant → Keep conversation history). Older ones are deleted automatically. You can read
-them, or erase everything, under Assistant → Conversations. Within one conversation the
+(Assistant tile → Keep conversation history). Older ones are deleted automatically. You can read
+them, or erase everything, under Assistant → Conversations (Assistant tile). Within one conversation the
 assistant remembers the last few turns; there is no long-term memory.
 
 ## What leaves the device

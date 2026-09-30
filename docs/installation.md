@@ -9,10 +9,15 @@ See [hardware.md](hardware.md) for the sound card and button wiring.
 3. On the Pi: `sudo ./milo-linux-arm64 install`.
 4. The install ends by printing only an address, `http://<pi-ip>:8080` (the Pi's LAN address; Milo
    listens on all interfaces). No password is generated or shown.
-5. Open that address from any device on your network. Milo asks you to pick a language and create
-   the **owner account** (your own username and password). You land in the admin straight away.
-   Do this right after installing: the first person to reach the page becomes the owner.
-6. Add the other people who will manage the device (mom, dad...) under **Admins**.
+5. Open that address from any device on your network (Milo listens on all interfaces). The welcome
+   screen asks for a **language**, **who you are** (Mum, Dad, Grandma... or another name; it fills
+   in the username, which you can edit) and a **password** (at least 12 characters, typed twice).
+   It then shows your username once more: that is what you sign in with from now on. You land on
+   the admin Home straight away. Do this right after installing, on a network you trust: until it
+   is done, the first person to reach the page becomes the owner.
+6. The Home shows a **Finish setting up** checklist: connect your Telegram bot and invite the first
+   person ([telegram.md](telegram.md)); add an AI key and Wi-Fi if you want them. Add the other
+   people who will manage the device under the **Admins** tile.
 
 `install` creates the `milo` system user, `/var/lib/milo` (database), `/etc/milo/master.key`
 (root-only), `/usr/local/bin/milo`, and the `milo.service` unit, then enables and (re)starts it.
@@ -26,20 +31,22 @@ address families and namespaces, no kernel module/log/clock access). `PrivateDev
 `/dev/gpiochip*`, and a syscall filter or memory cap that is too tight can break audio, GPIO or
 `nmcli` in ways that cannot be tested without the hardware.
 
-Wi-Fi is managed in the admin UI ([wifi.md](wifi.md)); it needs NetworkManager.
+Wi-Fi is managed in the admin UI ([wifi.md](wifi.md)); it needs NetworkManager. The language chosen at setup becomes the interface and notification language; change either later under **System → Languages** ([i18n.md](i18n.md)).
 
-Logs: `journalctl -u milo -f` (the admin **System** tab shows the latest lines too). Service control: `milo start|stop|restart|status`.
+Logs: `journalctl -u milo -f` (the admin **System** tile shows the latest lines too). Service control: `milo start|stop|restart|status`.
 
 ## Back up
 
-Use the **Backup** page (or `milo backup FILE`): one encrypted file with the database and the master
+Use the **Backup** tile (or `milo backup FILE`): one encrypted file with the database and the master
 key, see [backup.md](backup.md). Shut the Pi down cleanly (`sudo shutdown now`) before pulling power.
 
-## Lost the admin password?
+## Lost the password, or forgot the username?
 
-On the Pi: `sudo -u milo milo admin-reset` prints a new generated password for the owner (add
-`--user mom` for another administrator); they must choose their own at the next sign-in. If nobody has
-finished the browser setup yet, it tells you to do that instead.
+The username is the name chosen at setup (for example `mom` or `dad`); the sign-in page reminds you
+of that, and the admin header shows who is signed in. On the Pi, `sudo -u milo milo admin-reset`
+prints a new generated password for the owner (add `--user mom` for another administrator); they
+must choose their own at the next sign-in. `milo admin-password [--user name]` sets one you choose.
+If nobody has finished the browser setup yet, both commands tell you to do that instead.
 
 ## Coming from Nexo?
 

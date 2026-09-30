@@ -2,7 +2,7 @@
 
 Trust boundaries: child, parent, Telegram user, LLM, local OS, external APIs.
 The LLM is not trusted. Telegram users are not trusted until authorized. The child cannot
-change parental configuration. The Action Engine (Phase 5) is the central boundary.
+change parental configuration. The Action Engine is the central boundary.
 
 ## Secrets
 
@@ -43,10 +43,12 @@ At startup a canary secret detects a key that does not match the database and re
   and a successful sign-in gives back only its own attempt, so earlier failures still count). There is no per-account limit,
   so nobody can lock the owner out by naming `admin`; at most two Argon2 checks run at once. Unknown
   usernames cost the same time as wrong passwords. Changing a password, or removing an account, ends its sessions immediately.
-- Every audit entry names the administrator who acted.
+- Every audit entry names the administrator who acted (Telegram administration appears as
+  `telegram:<name>`). The **Activity** tile shows them in the admin's language.
 - Lost owner access: on the device, `sudo -u milo milo admin-reset` (needs shell access).
-- State-changing requests require the `X-Requested-With: milo-admin` header and a matching
-  `Origin`. Strict CSP, `X-Frame-Options: DENY`, no external assets.
+- State-changing requests require the `X-Requested-With: milo-admin` header and, when the browser
+  sends one, an `Origin` that matches the request's `Host`. The Astro dev proxy rewrites `Origin`
+  for that reason; production has no proxy. Strict CSP, `X-Frame-Options: DENY`, no external assets.
 
 ## Remote administration through Telegram
 
@@ -76,4 +78,4 @@ always redacted. Admin actions are recorded in `audit_log`.
 ## Commands
 
 The application never builds shell commands from external or LLM input. Fixed commands
-(`systemctl`, `useradd`, later `arecord`/`aplay`) use constant arguments.
+(`systemctl`, `useradd`, `arecord`/`aplay`, `nmcli`) use constant arguments.

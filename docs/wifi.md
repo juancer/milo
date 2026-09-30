@@ -13,7 +13,7 @@ connection still needs Internet on the Pi: set that up with Raspberry Pi Imager 
   profiles are left alone. Removing a network removes its profile.
 - The service user needs permission to manage connections: the installer adds it to the
   `netdev` group. If your system uses `dhcpcd`/`wpa_supplicant` instead of NetworkManager, the
-  page says so and you configure Wi-Fi the usual way.
+  the Wi-Fi sheet says so and you configure Wi-Fi the usual way.
 
 Security note: `nmcli` receives the password as a command-line argument, so another local user
 on the Pi could see it in the process list for a moment. A Raspberry Pi running Milo has no other
