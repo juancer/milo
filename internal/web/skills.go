@@ -27,6 +27,7 @@ func (s *server) skillRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/music/play", s.requireAuth(s.playMusic))
 	mux.Handle("POST /api/music/stop", s.requireAuth(s.stopMusic))
 	mux.Handle("PUT /api/weather", s.requireAuth(s.putWeather))
+	mux.Handle("POST /api/weather/detect", s.requireAuth(s.detectWeather))
 	mux.Handle("POST /api/weather/test", s.requireAuth(s.testWeather))
 	mux.Handle("PUT /api/calendar", s.requireAuth(s.putCalendar))
 	mux.Handle("DELETE /api/calendar", s.requireAuth(s.deleteCalendar))
@@ -252,6 +253,25 @@ func (s *server) putWeather(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, "weather.settings_updated", "", nil)
 	s.restartFeature(r.Context(), "weather")
 	s.getSkills(w, r)
+}
+
+// detectWeather sets the location from the device's internet address. It only runs on this
+// request, never on its own.
+func (s *server) detectWeather(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	p, err := s.app.Weather.DetectPlace(ctx)
+	switch {
+	case errors.Is(err, skills.ErrNoLocation):
+		writeError(w, http.StatusUnprocessableEntity, "web.err.could_not_detect_your_location_type_your_town_instead")
+		return
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
+		return
+	}
+	s.audit(r, "weather.location_detected", "", nil) // the place is approximate and not sensitive, but keep the log lean
+	s.restartFeature(r.Context(), "weather")
+	writeJSON(w, http.StatusOK, p)
 }
 
 func (s *server) testWeather(w http.ResponseWriter, r *http.Request) {

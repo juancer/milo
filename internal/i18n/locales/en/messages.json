@@ -154,6 +154,7 @@
   "web.err.ttl_hours_must_be_1_168_and_note_at_most_60": "ttl_hours must be 1-168 and note at most 60 characters",
   "web.err.turn_the_wakeword_feature_on_first": "turn the “wakeword” feature on first",
   "web.err.turn_this_feature_on_from_the_home_screen_first": "turn this feature on from the Home screen first",
+  "web.err.could_not_detect_your_location_type_your_town_instead": "could not detect your location: type your town instead",
   "web.err.units_must_be_celsius_or_fahrenheit_and_the": "units must be celsius or fahrenheit and the place at most 80 characters",
   "web.err.unknown_event_type": "unknown event type",
   "web.err.unknown_feature": "unknown feature",

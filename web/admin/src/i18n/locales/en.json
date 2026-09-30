@@ -643,5 +643,14 @@
   "audit.feature.disabled": "Feature turned off",
   "audit.volume.changed": "Volume changed",
   "audit.telegram.alerts": "Device alerts changed",
-  "audit.telegram.forward": "Message copies changed"
+  "audit.telegram.forward": "Message copies changed",
+  "skills.detect": "Detect my location",
+  "skills.detected": "Location detected",
+  "skills.detectPrivacy": "Uses your internet address once to find your area; nothing is stored except the place. It is approximate: type your town to correct it.",
+  "needs.weatherPlace": "Choose your town to start the weather.",
+  "prompt.weather.title": "Where do you live?",
+  "prompt.weather.intro": "The weather needs to know your area. Milo can find it for you, or you can type your town.",
+  "prompt.weather.town": "Or type your town",
+  "prompt.weather.needTown": "Type your town, or use “Detect my location”.",
+  "audit.weather.location_detected": "Weather location detected"
 }

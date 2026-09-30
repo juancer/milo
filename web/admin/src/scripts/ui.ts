@@ -78,8 +78,12 @@ export function changeLocale(code: string): void {
 
 export interface PromptField {
   label: string;
-  type?: "text" | "password";
+  type?: "text" | "password" | "select";
   placeholder?: string;
+  /** Options of a "select" field, as [value, label]; the first one is chosen by default. */
+  options?: [string, string][];
+  /** An optional field may be left empty. */
+  optional?: boolean;
 }
 export interface PromptConfig {
   title: string;
@@ -88,6 +92,10 @@ export interface PromptConfig {
   submitLabel: string;
   /** Saves the values. Throwing keeps the dialog open and shows the error inside it. */
   run: (values: string[]) => Promise<void>;
+  /** A main action offered above the fields (they become the alternative); it gets the field values too. */
+  primary?: { label: string; run: (values: string[]) => Promise<void> };
+  /** A small note under the fields. */
+  footnote?: string;
 }
 
 /**
@@ -105,39 +113,53 @@ export function promptDialog(cfg: PromptConfig): Promise<boolean> {
   (document.getElementById("prompt-intro") as HTMLElement).textContent = cfg.intro;
   submitBtn.textContent = cfg.submitLabel;
   error.hidden = true;
-  const inputs = cfg.fields.map((f) => h("input", { type: f.type ?? "text", autocomplete: "off", required: true, placeholder: f.placeholder, ariaLabel: f.label }));
-  box.replaceChildren(...cfg.fields.map((f, i) => h("label", { class: "field" }, h("span", {}, f.label), inputs[i])));
+  const inputs: (HTMLInputElement | HTMLSelectElement)[] = cfg.fields.map((f) => f.type === "select"
+    ? h("select", { ariaLabel: f.label }, ...(f.options ?? []).map(([v, l]) => h("option", { value: v }, l)))
+    : h("input", { type: f.type ?? "text", autocomplete: "off", required: !f.optional && !cfg.primary, placeholder: f.placeholder, ariaLabel: f.label }));
+  const primaryBtn = cfg.primary ? h("button", { type: "button", id: "prompt-primary" }, cfg.primary.label) : null;
+  box.replaceChildren(
+    ...(primaryBtn ? [primaryBtn] : []),
+    ...cfg.fields.map((f, i) => h("label", { class: "field" }, h("span", {}, f.label), inputs[i])),
+    ...(cfg.footnote ? [h("p", { class: "muted" }, cfg.footnote)] : []));
   dialog.hidden = false;
-  inputs[0]?.focus();
+  (primaryBtn ?? inputs[0])?.focus();
   return new Promise((resolve) => {
     const finish = (ok: boolean) => {
       dialog.hidden = true;
       form.removeEventListener("submit", onSubmit);
+      primaryBtn?.removeEventListener("click", onPrimary);
       cancel.removeEventListener("click", onCancel);
       dialog.removeEventListener("keydown", onKey);
       dialog.removeEventListener("mousedown", onBackdrop);
       resolve(ok);
     };
-    const onSubmit = async (ev: Event) => {
-      ev.preventDefault();
+    const attempt = async (action: (values: string[]) => Promise<void>) => {
       error.hidden = true;
       submitBtn.disabled = true;
+      if (primaryBtn) primaryBtn.disabled = true;
       try {
-        await cfg.run(inputs.map((i) => i.value.trim()));
+        await action(inputs.map((i) => i.value.trim()));
         finish(true);
       } catch (e) {
         error.textContent = errorMessage(e);
         error.hidden = false;
       } finally {
         submitBtn.disabled = false;
+        if (primaryBtn) primaryBtn.disabled = false;
       }
     };
+    const onSubmit = (ev: Event) => {
+      ev.preventDefault();
+      void attempt(cfg.run);
+    };
+    const onPrimary = () => void attempt(cfg.primary!.run);
+    primaryBtn?.addEventListener("click", onPrimary);
     const onCancel = () => finish(false);
     const onBackdrop = (ev: Event) => ev.target === dialog && finish(false);
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key === "Escape") return finish(false);
       if (ev.key !== "Tab") return;
-      const items = [...dialog.querySelectorAll<HTMLElement>("input, button:not([disabled])")];
+      const items = [...dialog.querySelectorAll<HTMLElement>("input, select, button:not([disabled])")];
       const first = items[0];
       const last = items[items.length - 1];
       if (ev.shiftKey && document.activeElement === first) (ev.preventDefault(), last.focus());

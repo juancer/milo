@@ -36,6 +36,32 @@ async function missing(feature: string): Promise<Omit<PromptConfig, "submitLabel
       },
     };
   }
+  if (feature === "weather") {
+    const st = await api<{ weather: { configured: boolean } }>("GET", "/api/skills");
+    if (st.weather.configured) return null;
+    const saveUnits = (units: string) => api("PUT", "/api/weather", { place: "", units });
+    return {
+      title: t("prompt.weather.title"),
+      intro: t("prompt.weather.intro"),
+      fields: [
+        { label: t("prompt.weather.town"), placeholder: t("skills.yourTown"), optional: true },
+        { label: t("skills.units"), type: "select", options: [["celsius", t("skills.celsius")], ["fahrenheit", t("skills.fahrenheit")]] },
+      ],
+      footnote: t("skills.detectPrivacy"),
+      // Detecting is the main way in; typing a town is the alternative.
+      primary: {
+        label: t("skills.detect"),
+        run: async ([, units]) => {
+          await api("POST", "/api/weather/detect");
+          await saveUnits(units);
+        },
+      },
+      save: async ([town, units]) => {
+        if (!town) throw new Error(t("prompt.weather.needTown"));
+        await api("PUT", "/api/weather", { place: town, units });
+      },
+    };
+  }
   return null;
 }
 
