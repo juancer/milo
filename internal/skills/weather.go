@@ -71,7 +71,7 @@ func (w *Weather) location(ctx context.Context) (lat, lon float64, place string,
 	lat, e1 := strconv.ParseFloat(w.get(ctx, SettingWeatherLat, ""), 64)
 	lon, e2 := strconv.ParseFloat(w.get(ctx, SettingWeatherLon, ""), 64)
 	if e1 != nil || e2 != nil {
-		return 0, 0, "", errors.New("no place is set: choose your town in the Skills tab")
+		return 0, 0, "", errors.New("no place is set: choose your town under Skills in the admin")
 	}
 	return lat, lon, w.get(ctx, SettingWeatherPlace, "your area"), nil
 }

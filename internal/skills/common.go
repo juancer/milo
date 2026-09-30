@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/juancer/milo/internal/i18n"
 	"github.com/juancer/milo/internal/store"
 )
 
@@ -237,4 +238,15 @@ func HumanDuration(d time.Duration) string {
 		parts = append(parts, unit(s, "second"))
 	}
 	return strings.Join(parts, " ")
+}
+
+// spokenLang is the language announcements are spoken in (the voice language, else the
+// assistant language, else the notification language).
+func (c Common) spokenLang(ctx context.Context) string {
+	if g, err := c.Store.GetGPTSettings(ctx); err == nil {
+		if l := g.SpeechLanguage(); l != "" {
+			return i18n.Resolve(l)
+		}
+	}
+	return i18n.Notification(ctx, c.Store)
 }

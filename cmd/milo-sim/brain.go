@@ -131,6 +131,9 @@ func decide(msgs []wireMsg, tools map[string]bool) wireMsg {
 	case strings.Contains(low, "volume") || strings.Contains(low, "louder") || strings.Contains(low, "quieter"):
 		if m := reNumber.FindString(low); m != "" && strings.Contains(low, "volume") {
 			n, _ := strconv.Atoi(m)
+			if n <= 10 { // "volume 7" is the 0-10 scale
+				return need("set_volume", map[string]any{"level_10": n})
+			}
 			return need("set_volume", map[string]any{"level": min(n, 100)})
 		}
 		if strings.Contains(low, "quiet") || strings.Contains(low, "down") || strings.Contains(low, "lower") || strings.Contains(low, "soft") {

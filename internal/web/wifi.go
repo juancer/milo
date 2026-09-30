@@ -34,7 +34,7 @@ func (s *server) listWifi(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	nets, err := s.app.Store.ListWifiNetworks(ctx)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	st := s.app.Wifi.Status(ctx)
@@ -69,11 +69,11 @@ func (s *server) saveWifi(w http.ResponseWriter, r *http.Request) {
 		var err error
 		existing, err = s.app.Store.GetWifiNetwork(ctx, id)
 		if errors.Is(err, store.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "no such network")
+			writeError(w, http.StatusNotFound, "web.err.no_such_network")
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error")
+			writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 			return
 		}
 	}
@@ -86,12 +86,12 @@ func (s *server) saveWifi(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if d.Priority < 0 || d.Priority > 100 {
-		writeError(w, http.StatusBadRequest, "priority must be 0-100 (higher is preferred)")
+		writeError(w, http.StatusBadRequest, "web.err.priority_must_be_0_100_higher_is_preferred")
 		return
 	}
 	if create && d.Password == "" && !d.Open {
 		// A new network without a password is treated as open only if the admin said so.
-		writeError(w, http.StatusBadRequest, "enter the Wi-Fi password, or tick “open network”")
+		writeError(w, http.StatusBadRequest, "web.err.enter_the_wi_fi_password_or_tick_open_networ")
 		return
 	}
 
@@ -103,7 +103,7 @@ func (s *server) saveWifi(w http.ResponseWriter, r *http.Request) {
 		err = s.app.Store.UpdateWifiNetwork(ctx, n)
 	}
 	if err != nil {
-		writeError(w, http.StatusConflict, "cannot save: that network name is already in the list")
+		writeError(w, http.StatusConflict, "web.err.cannot_save_that_network_name_is_already_in")
 		return
 	}
 	// A new row without its secret would be applied as an open network, so a
@@ -117,7 +117,7 @@ func (s *server) saveWifi(w http.ResponseWriter, r *http.Request) {
 	case d.Open && d.Password == "":
 		if n.SecretName != "" {
 			if err := s.app.Store.DeleteSecret(ctx, n.SecretName); err != nil {
-				writeError(w, http.StatusInternalServerError, "could not remove the old password")
+				writeError(w, http.StatusInternalServerError, "web.err.could_not_remove_the_old_password")
 				return
 			}
 			n.SecretName = ""
@@ -126,13 +126,13 @@ func (s *server) saveWifi(w http.ResponseWriter, r *http.Request) {
 		n.SecretName = "wifi." + strconv.FormatInt(n.ID, 10)
 		if err := s.app.Vault.Put(ctx, n.SecretName, []byte(d.Password)); err != nil {
 			rollback()
-			writeError(w, http.StatusInternalServerError, "could not store the password")
+			writeError(w, http.StatusInternalServerError, "web.err.could_not_store_the_password")
 			return
 		}
 	}
 	if err := s.app.Store.UpdateWifiNetwork(ctx, n); err != nil {
 		rollback()
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, map[bool]string{true: "wifi.added", false: "wifi.updated"}[create], d.SSID, nil) // never the password
@@ -148,11 +148,11 @@ func (s *server) deleteWifi(w http.ResponseWriter, r *http.Request) {
 	defer s.app.WifiMu.Unlock()
 	n, err := s.app.Store.GetWifiNetwork(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "no such network")
+		writeError(w, http.StatusNotFound, "web.err.no_such_network")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	// The password goes first: if the row cannot be removed afterwards the admin
@@ -160,12 +160,12 @@ func (s *server) deleteWifi(w http.ResponseWriter, r *http.Request) {
 	// order would leave a stored password with no row pointing at it.
 	if n.SecretName != "" {
 		if err := s.app.Store.DeleteSecret(r.Context(), n.SecretName); err != nil {
-			writeError(w, http.StatusInternalServerError, "could not remove the password")
+			writeError(w, http.StatusInternalServerError, "web.err.could_not_remove_the_password")
 			return
 		}
 	}
 	if err := s.app.Store.DeleteWifiNetwork(r.Context(), id); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, "wifi.removed", n.SSID, nil)

@@ -246,3 +246,57 @@ func TestWhisperStdoutIsCapped(t *testing.T) {
 		t.Fatal("the process was not stopped promptly")
 	}
 }
+
+// Speed and volume come from the settings; language and voice are never hardcoded.
+func TestPiperAppliesSpeed(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "args")
+	script := filepath.Join(dir, "piper")
+	src := "#!/bin/sh\necho \"$@\" > " + argsFile + "\nout=\"\"\nwhile [ $# -gt 0 ]; do case \"$1\" in --output_file) out=\"$2\"; shift;; esac; shift; done\n" +
+		"printf 'RIFF\\044\\000\\000\\000WAVEfmt \\020\\000\\000\\000\\001\\000\\001\\000\\200\\076\\000\\000\\000\\175\\000\\000\\002\\000\\020\\000data\\000\\000\\000\\000' > \"$out\"\n"
+	if err := os.WriteFile(script, []byte(src), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p, err := NewPiper(script, "/voices/x.onnx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.WithOptions(TTSOptions{Speed: 2, Volume: 100}).Synthesize(context.Background(), "hello"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(argsFile)
+	if !strings.Contains(string(got), "--length_scale 0.500") {
+		t.Fatalf("piper args = %q, want a length_scale of 0.5 for double speed", got)
+	}
+	if _, err := p.WithOptions(DefaultTTSOptions()).Synthesize(context.Background(), "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(argsFile); strings.Contains(string(got), "length_scale") {
+		t.Fatalf("normal speed must not pass length_scale: %q", got)
+	}
+}
+
+func TestCloudTTSUsesConfiguredVoiceAndSpeed(t *testing.T) {
+	wav := audio.EncodeWAV(audio.Silence(100*time.Millisecond), 16000)
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&body)
+		w.Write(wav)
+	}))
+	defer srv.Close()
+	tts := NewOpenAICompatTTS(srv.URL, "k", "m", "old").WithOptions(TTSOptions{Voice: "nova", Speed: 1.25, Volume: 100})
+	if _, err := tts.Synthesize(context.Background(), "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if body["voice"] != "nova" || body["speed"] != 1.25 {
+		t.Fatalf("request body = %v", body)
+	}
+	body = nil
+	quiet, err := NewOpenAICompatTTS(srv.URL, "k", "m", "").WithOptions(TTSOptions{Speed: 1, Volume: 0}).Synthesize(context.Background(), "hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := body["speed"]; ok || len(quiet) != len(wav) {
+		t.Fatalf("normal speed must not be sent: %v", body)
+	}
+}

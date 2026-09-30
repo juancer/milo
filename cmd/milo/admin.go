@@ -72,6 +72,9 @@ func parseUserFlag(args []string) (user string, rest []string, err error) {
 
 // targetAdmin resolves --user (default: the owner).
 func targetAdmin(ctx context.Context, st *store.Store, accounts *auth.Accounts, name string) (store.AdminUser, error) {
+	if n, err := st.AdminCount(ctx); err == nil && n == 0 {
+		return store.AdminUser{}, fmt.Errorf("no administrator exists yet: open Milo in a browser to finish setup")
+	}
 	if name == "" {
 		return accounts.Owner(ctx)
 	}
@@ -153,7 +156,7 @@ func adminReset(ctx context.Context, cfg system.Config, args []string) error {
 		return err
 	}
 	auditCLI(ctx, cfg, st, "admin.password_reset", target.Username)
-	system.PrintFirstAdmin(os.Stdout, "http://<this-device>"+cfg.Listen, target.Username, pw)
+	system.PrintNewPassword(os.Stdout, "http://<this-device>"+cfg.Listen, target.Username, pw)
 	return nil
 }
 

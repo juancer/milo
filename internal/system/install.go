@@ -13,9 +13,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 
-	"github.com/juancer/milo/internal/auth"
 	"github.com/juancer/milo/internal/secrets"
 	"github.com/juancer/milo/internal/store"
 	"github.com/juancer/milo/systemd"
@@ -90,8 +90,8 @@ func Install(ctx context.Context, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	// The first administrator gets a generated password, shown once below.
-	created, adminUser, adminPass, err := auth.NewAccounts(st).EnsureFirstAdmin(ctx)
+	// Migrations are done. The first administrator is chosen in the browser, not here.
+	admins, err := st.AdminCount(ctx)
 	st.Close()
 	if err != nil {
 		return err
@@ -114,11 +114,7 @@ func Install(ctx context.Context, out io.Writer) error {
 	}
 
 	fmt.Fprintln(out, "\nMilo installed successfully.")
-	if created {
-		PrintFirstAdmin(out, fmt.Sprintf("http://%s:8080", localIP()), adminUser, adminPass)
-	} else {
-		fmt.Fprintf(out, "\nOpen:\n\n  http://%s:8080\n\nSign in with your existing account. Forgot the password?\n  sudo -u milo milo admin-reset\n", localIP())
-	}
+	fmt.Fprint(out, InstalledMessage(localIP(), admins > 0))
 	return nil
 }
 
@@ -257,33 +253,72 @@ func Systemctl(verb string) error {
 	return run("systemctl", verb, "milo.service")
 }
 
+// virtualPrefixes are interfaces that are not the network family devices use.
+var virtualPrefixes = []string{"docker", "br-", "veth", "virbr", "cni", "flannel", "lo"}
+
+// localIP returns the host's LAN IPv4 address, skipping loopback and container bridges.
 func localIP() string {
-	addrs, err := net.InterfaceAddrs()
-	if err == nil {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return "<device-ip>"
+	}
+	best := ""
+	for _, ifc := range ifaces {
+		if ifc.Flags&net.FlagUp == 0 || ifc.Flags&net.FlagLoopback != 0 || hasAnyPrefix(ifc.Name, virtualPrefixes) {
+			continue
+		}
+		addrs, _ := ifc.Addrs()
 		for _, a := range addrs {
-			if ipn, ok := a.(*net.IPNet); ok && !ipn.IP.IsLoopback() && ipn.IP.To4() != nil {
+			ipn, ok := a.(*net.IPNet)
+			if !ok || ipn.IP.To4() == nil || ipn.IP.IsLoopback() || ipn.IP.IsLinkLocalUnicast() {
+				continue
+			}
+			if ipn.IP.IsPrivate() {
 				return ipn.IP.String()
 			}
+			if best == "" {
+				best = ipn.IP.String()
+			}
 		}
+	}
+	if best != "" {
+		return best
 	}
 	return "<device-ip>"
 }
 
-// PrintFirstAdmin shows the generated administrator credentials. This is the
-// only time the password exists in clear text; it is written to the terminal of
-// the person installing, never to a log.
-func PrintFirstAdmin(out io.Writer, address, username, password string) {
+func hasAnyPrefix(s string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// InstalledMessage is what the installer ends with: only where to open Milo. The first
+// administrator is created in the browser, so no credential ever appears in a terminal.
+func InstalledMessage(ip string, hasAdmin bool) string {
+	if hasAdmin {
+		return fmt.Sprintf("\nOpen:\n\n  http://%s:8080\n\nSign in with your existing account. Forgot the password?\n  sudo -u milo milo admin-reset\n", ip)
+	}
+	return fmt.Sprintf("\nOpen this address from any device on your network to finish setup:\n\n  http://%s:8080\n\nThe first person to open it creates the owner account, so do it now.\n", ip)
+}
+
+// PrintNewPassword shows a generated password after `milo admin-reset`. This is the
+// only time it exists in clear text; it is written to the terminal of the person
+// running the command, never to a log.
+func PrintNewPassword(out io.Writer, address, username, password string) {
 	fmt.Fprintf(out, `
-==================== YOUR ADMIN ACCOUNT ====================
+==================== NEW PASSWORD ====================
   Open:      %s
   Username:  %s
   Password:  %s
 
   Write this down now: it is shown only once.
   You will be asked to choose your own password when you
-  first sign in. Then add mom, dad... under the Admins tab.
-  Lost it?   sudo -u milo milo admin-reset
-============================================================
+  next sign in.
+======================================================
 `, address, username, password)
 }
 

@@ -32,7 +32,7 @@ func (s *server) getSchedules(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	feats, err := s.app.Features.List(ctx)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	loc := s.app.Schedules.Location(ctx)
@@ -61,7 +61,7 @@ func (s *server) putSchedule(w http.ResponseWriter, r *http.Request) {
 		known = known || f.Name == feature
 	}
 	if !known {
-		writeError(w, http.StatusNotFound, "unknown feature")
+		writeError(w, http.StatusNotFound, "web.err.unknown_feature")
 		return
 	}
 	var body struct {
@@ -72,7 +72,7 @@ func (s *server) putSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(body.Rules) > 100 {
-		writeError(w, http.StatusBadRequest, "at most 100 windows per feature")
+		writeError(w, http.StatusBadRequest, "web.err.at_most_100_windows_per_feature")
 		return
 	}
 	rules := make([]store.ScheduleRule, 0, len(body.Rules))
@@ -81,19 +81,19 @@ func (s *server) putSchedule(w http.ResponseWriter, r *http.Request) {
 		end, err2 := schedules.ParseClock(ru.End)
 		switch {
 		case err1 != nil || err2 != nil || start >= 1440:
-			writeError(w, http.StatusBadRequest, "times must be HH:MM")
+			writeError(w, http.StatusBadRequest, "web.err.times_must_be_hh_mm")
 			return
 		case ru.Day < 0 || ru.Day > 6:
-			writeError(w, http.StatusBadRequest, "day_of_week must be 0 (Sunday) to 6 (Saturday)")
+			writeError(w, http.StatusBadRequest, "web.err.day_of_week_must_be_0_sunday_to_6_saturday")
 			return
 		case start == end || end == 0:
-			writeError(w, http.StatusBadRequest, "start and end must differ (use 24:00 for midnight)")
+			writeError(w, http.StatusBadRequest, "web.err.start_and_end_must_differ_use_24_00_for_midn")
 			return
 		}
 		rules = append(rules, store.ScheduleRule{Feature: feature, DayOfWeek: ru.Day, StartMinute: start, EndMinute: end, Enabled: ru.Enabled})
 	}
 	if err := s.app.Store.SaveSchedule(ctx, feature, body.Enabled, rules); err != nil {
-		writeError(w, http.StatusInternalServerError, "could not save the schedule")
+		writeError(w, http.StatusInternalServerError, "web.err.could_not_save_the_schedule")
 		return
 	}
 	state := "off"
@@ -112,11 +112,11 @@ func (s *server) putTimezone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := time.LoadLocation(body.Timezone); err != nil || body.Timezone == "" || body.Timezone == "Local" || len(body.Timezone) > 64 {
-		writeError(w, http.StatusBadRequest, "unknown timezone; use a name like Europe/Madrid")
+		writeError(w, http.StatusBadRequest, "web.err.unknown_timezone_use_a_name_like_europe_madr")
 		return
 	}
 	if err := s.app.Store.SetSetting(r.Context(), schedules.SettingTimezone, body.Timezone); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, "settings.timezone", body.Timezone, nil)

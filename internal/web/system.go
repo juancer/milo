@@ -62,11 +62,11 @@ func (s *server) putSystem(w http.ResponseWriter, r *http.Request) {
 		MixerCard: d.Audio.MixerCard, MixerControl: d.Audio.MixerControl}
 	switch {
 	case d.DeviceName == "" || len([]rune(d.DeviceName)) > 40:
-		writeError(w, http.StatusBadRequest, "the device name must be 1-40 characters")
+		writeError(w, http.StatusBadRequest, "web.err.the_device_name_must_be_1_40_characters")
 	case d.RetentionDays < 0 || d.RetentionDays > 365:
-		writeError(w, http.StatusBadRequest, "message retention must be 0 (keep) to 365 days")
+		writeError(w, http.StatusBadRequest, "web.err.message_retention_must_be_0_keep_to_365_days")
 	case d.LongPressMS < 300 || d.LongPressMS > 3000 || d.DoublePressMS < 150 || d.DoublePressMS > 1000:
-		writeError(w, http.StatusBadRequest, "long press must be 300-3000 ms and double press 150-1000 ms")
+		writeError(w, http.StatusBadRequest, "web.err.long_press_must_be_300_3000_ms_and_double_pr")
 	case cfg.Validate() != nil:
 		writeError(w, http.StatusBadRequest, cfg.Validate().Error())
 	default:
@@ -93,7 +93,7 @@ func (s *server) putSystem(w http.ResponseWriter, r *http.Request) {
 func (s *server) restart(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, "system.restart", "", nil)
 	if !s.app.Restart() {
-		writeError(w, http.StatusNotImplemented, "restart is not available in this mode")
+		writeError(w, http.StatusNotImplemented, "web.err.restart_is_not_available_in_this_mode")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]bool{"restarting": true})

@@ -9,16 +9,13 @@ import (
 	"time"
 
 	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/i18n"
 	"github.com/juancer/milo/internal/permissions"
 	"github.com/juancer/milo/internal/store"
 )
 
 const (
-	msgNotAuthorized = "You are not authorized to use this device."
-	msgBadInvite     = "This invitation is invalid or has expired."
-	msgRequestSent   = "Thanks! Your request was sent to the family admin. You will get a message here once it is approved."
-	msgAwaiting      = "Your request is waiting for approval by the family admin."
-	maxVoiceSeconds  = 120
+	maxVoiceSeconds = 120
 	// strangerLogGap is the shortest time between two "unauthorized user" warnings.
 	strangerLogGap = 10 * time.Second
 )
@@ -106,6 +103,7 @@ func (s *Service) handleUpdate(ctx context.Context, c *Client, u Update) {
 // for the admin to approve. Replies are rate-limited so the bot cannot be used
 // to spam or probe.
 func (s *Service) handleStranger(ctx context.Context, c *Client, m *Message) {
+	lang := i18n.Notification(ctx, s.Store) // strangers have no language of their own
 	from := m.From
 	token := ""
 	if rest, ok := strings.CutPrefix(strings.TrimSpace(m.Text), "/start"); ok {
@@ -117,11 +115,11 @@ func (s *Service) handleStranger(ctx context.Context, c *Client, m *Message) {
 			return
 		}
 		if pending, _ := s.Store.HasPending(ctx, from.ID); pending {
-			s.reply(ctx, c, from.ID, msgAwaiting, nil)
+			s.reply(ctx, c, from.ID, tr(lang, "telegram.awaiting_approval"), nil)
 			return
 		}
 		s.warnStranger(from.ID)
-		s.reply(ctx, c, from.ID, msgNotAuthorized, nil)
+		s.reply(ctx, c, from.ID, tr(lang, "telegram.not_authorized"), nil)
 		return
 	}
 
@@ -134,17 +132,18 @@ func (s *Service) handleStranger(ctx context.Context, c *Client, m *Message) {
 	if errors.Is(err, store.ErrNotFound) {
 		if !s.strangerCoolingDown(from.ID) { // one log line and one reply per cooldown
 			s.Log.Warn("telegram: invalid invitation used", "telegram_id", from.ID)
-			s.reply(ctx, c, from.ID, msgBadInvite, nil)
+			s.reply(ctx, c, from.ID, tr(lang, "telegram.invalid_invitation"), nil)
 		}
 		return
 	}
 	if err != nil {
-		s.reply(ctx, c, from.ID, msgAwaiting, nil)
+		s.reply(ctx, c, from.ID, tr(lang, "telegram.awaiting_approval"), nil)
 		return
 	}
 	s.Audit.Record(ctx, "telegram", "authorization.requested", strconv.FormatInt(from.ID, 10),
 		map[string]string{"role": inv.Role, "username": from.Username})
-	s.reply(ctx, c, from.ID, msgRequestSent, nil)
+	s.reply(ctx, c, from.ID, tr(lang, "telegram.request_sent"), nil)
+	s.notifyRequest(ctx, c, from.ID)
 }
 
 // warnStranger logs an unauthorized contact, at most once every strangerLogGap across all
@@ -192,6 +191,7 @@ func (s *Service) strangerCoolingDown(id int64) bool {
 // ---------------------------------------------------------------- authorized users
 
 func (s *Service) handleKnown(ctx context.Context, c *Client, user store.User, m *Message) {
+	lang := s.langFor(ctx, user)
 	text := strings.TrimSpace(m.Text)
 	switch {
 	case m.Voice != nil:
@@ -201,19 +201,20 @@ func (s *Service) handleKnown(ctx context.Context, c *Client, user store.User, m
 	case text == "/start" || strings.HasPrefix(text, "/start ") || text == "/menu" || text == "/help":
 		s.sendMenu(ctx, c, user, m.From.ID)
 	case strings.HasPrefix(text, "/"):
-		s.reply(ctx, c, m.From.ID, "Send a voice message or a text and it will be delivered. Use /menu for options.", nil)
+		s.reply(ctx, c, m.From.ID, tr(lang, "telegram.help"), nil)
 	case text != "":
 		s.deliver(ctx, c, user, m.From.ID, "text", text, nil)
 	}
 }
 
 func (s *Service) receiveVoice(ctx context.Context, c *Client, user store.User, m *Message) {
+	lang := s.langFor(ctx, user)
 	if m.Voice.Duration > maxVoiceSeconds || m.Voice.FileSize > MaxVoiceBytes {
-		s.reply(ctx, c, m.From.ID, "Voice messages can be up to 2 minutes long.", nil)
+		s.reply(ctx, c, m.From.ID, tr(lang, "telegram.voice_too_long"), nil)
 		return
 	}
 	if ok, _ := s.Perms.Has(ctx, user.ID, permissions.SendMessage); !ok {
-		s.reply(ctx, c, m.From.ID, explain(actions.ErrForbidden), nil) // before any download
+		s.reply(ctx, c, m.From.ID, explain(lang, actions.ErrForbidden), nil) // before any download
 		return
 	}
 	dctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -221,7 +222,7 @@ func (s *Service) receiveVoice(ctx context.Context, c *Client, user store.User, 
 	data, err := c.DownloadFile(dctx, m.Voice.FileID)
 	if err != nil {
 		s.Log.Warn("telegram: cannot download voice", "error", err)
-		s.reply(ctx, c, m.From.ID, "I could not download that voice message. Please try again.", nil)
+		s.reply(ctx, c, m.From.ID, tr(lang, "telegram.voice_download_failed"), nil)
 		return
 	}
 	s.deliver(ctx, c, user, m.From.ID, "voice", "", data)
@@ -230,6 +231,7 @@ func (s *Service) receiveVoice(ctx context.Context, c *Client, user store.User, 
 // deliver hands a message to the Action Engine, which checks the sender's
 // permission before anything is stored.
 func (s *Service) deliver(ctx context.Context, c *Client, user store.User, chatID int64, kind, text string, audio []byte) {
+	lang := s.langFor(ctx, user)
 	args := map[string]any{"kind": kind}
 	if text != "" {
 		args["text"] = text
@@ -240,54 +242,63 @@ func (s *Service) deliver(ctx context.Context, c *Client, user store.User, chatI
 	actor := actions.Actor{Kind: actions.ActorTelegram, UserID: user.ID, Label: "telegram:" + user.DisplayName}
 	res, err := s.Actions.Execute(ctx, actor, "deliver_message", args)
 	if err != nil {
-		s.reply(ctx, c, chatID, explain(err), nil)
+		s.reply(ctx, c, chatID, explain(lang, err), nil)
 		return
 	}
 	s.reply(ctx, c, chatID, res.Message, nil)
 }
 
-func explain(err error) string {
+func explain(lang string, err error) string {
 	switch {
 	case errors.Is(err, actions.ErrForbidden):
-		return "You are not allowed to send messages to this device."
+		return tr(lang, "telegram.err_forbidden")
 	case errors.Is(err, actions.ErrFeatureDisabled):
-		return "Messaging is turned off on this device right now."
+		return tr(lang, "telegram.err_feature_off")
 	case errors.Is(err, actions.ErrInvalidParams):
-		return "That message cannot be delivered (it is empty or too long)."
+		return tr(lang, "telegram.err_invalid")
 	}
-	return "Something went wrong. Please try again."
+	return tr(lang, "telegram.err_generic")
 }
 
 func (s *Service) sendMenu(ctx context.Context, c *Client, user store.User, chatID int64) {
-	s.reply(ctx, c, chatID, fmt.Sprintf("Hi %s! Send a voice message or a text and it will be delivered to the device. "+
-		"The child hears it when they press LISTEN.", user.DisplayName), s.menuKeyboard(ctx, user))
+	s.reply(ctx, c, chatID, tr(s.langFor(ctx, user), "telegram.menu_greeting", "name", user.DisplayName), s.menuKeyboard(ctx, user))
 }
 
 func (s *Service) menuKeyboard(ctx context.Context, user store.User) Keyboard {
+	lang := s.langFor(ctx, user)
 	kb := Keyboard{{
-		{Text: "🎤 Send voice message", CallbackData: "menu:voice"},
-		{Text: "💬 Send message", CallbackData: "menu:text"},
+		{Text: "🎤 " + tr(lang, "telegram.btn_voice"), CallbackData: "menu:voice"},
+		{Text: "💬 " + tr(lang, "telegram.btn_text"), CallbackData: "menu:text"},
 	}}
 	if ok, _ := s.Perms.Has(ctx, user.ID, permissions.EmergencyAlert); ok {
-		kb = append(kb, []InlineButton{{Text: "🚨 Emergency", CallbackData: "menu:emergency"}})
+		kb = append(kb, []InlineButton{{Text: "🚨 " + tr(lang, "telegram.btn_emergency"), CallbackData: "menu:emergency"}})
+	}
+	if s.adminSections(ctx, user).any() {
+		kb = append(kb, []InlineButton{{Text: "⚙️ " + tr(lang, "telegram.btn_admin"), CallbackData: "adm:home"}})
 	}
 	return kb
 }
 
 func (s *Service) handleCallback(ctx context.Context, c *Client, q *CallbackQuery) {
+	notice := i18n.Notification(ctx, s.Store)
 	answer := func(text string) { c.AnswerCallback(ctx, q.ID, text) } //nolint:errcheck
 	user, err := s.Store.GetUserByTelegramID(ctx, q.From.ID)
 	if err != nil || !user.Active {
-		answer(msgNotAuthorized)
+		answer(tr(notice, "telegram.not_authorized"))
+		return
+	}
+	lang := s.langFor(ctx, user)
+	if strings.HasPrefix(q.Data, adminPrefix) {
+		s.handleAdminCallback(ctx, c, q, user)
 		return
 	}
 	switch q.Data {
 	case "menu:voice":
 		answer("")
-		s.reply(ctx, c, q.From.ID, "Record a voice message and send it here.", nil)
+		s.reply(ctx, c, q.From.ID, tr(lang, "telegram.prompt_voice"), nil)
 	case "menu:text":
 		answer("")
-		s.reply(ctx, c, q.From.ID, "Type your message and send it here.", nil)
+		s.reply(ctx, c, q.From.ID, tr(lang, "telegram.prompt_text"), nil)
 	case "menu:emergency":
 		answer("")
 		s.confirmEmergency(ctx, c, user, q.From.ID)
@@ -295,11 +306,11 @@ func (s *Service) handleCallback(ctx context.Context, c *Client, q *CallbackQuer
 		answer("")
 		s.fireEmergency(ctx, c, user, q.From.ID)
 	case "emergency:no":
-		answer("Cancelled")
+		answer(tr(lang, "telegram.cancelled_short"))
 		s.mu.Lock()
 		delete(s.emergencyConfirm, user.ID) // a cancelled confirmation can never be revived
 		s.mu.Unlock()
-		s.reply(ctx, c, q.From.ID, "Cancelled. No alert was sent.", nil)
+		s.reply(ctx, c, q.From.ID, tr(lang, "telegram.emergency_cancelled"), nil)
 	default:
 		answer("")
 	}

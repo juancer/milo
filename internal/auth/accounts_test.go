@@ -3,9 +3,12 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -43,31 +46,75 @@ func TestGeneratedPasswordsAreStrongAndReadable(t *testing.T) {
 	}
 }
 
-func TestFirstAdminIsGeneratedOnceAndMustChangePassword(t *testing.T) {
+const setupPassword = "chosen-by-the-owner-1"
+
+// setupOwner runs the first-run setup as the browser does.
+func setupOwner(t *testing.T, a *Accounts) string {
+	t.Helper()
+	if _, err := a.Setup(context.Background(), "admin", setupPassword); err != nil {
+		t.Fatal(err)
+	}
+	return setupPassword
+}
+
+func TestSetupCreatesTheOwnerOnceWithoutForcedChange(t *testing.T) {
 	a, st := newAccounts(t)
 	ctx := context.Background()
-	created, user, pw, err := a.EnsureFirstAdmin(ctx)
-	if err != nil || !created || user != "admin" || pw == "" {
-		t.Fatalf("first = %v %q %q %v", created, user, pw, err)
+	u, err := a.Setup(ctx, " Admin ", setupPassword)
+	if err != nil || u.Username != "admin" || !u.IsOwner || u.MustChange || strings.Contains(u.PasswordHash, setupPassword) {
+		t.Fatalf("setup = %+v %v", u, err)
 	}
-	u, _ := st.GetAdminByName(ctx, "admin")
-	if !u.IsOwner || !u.MustChange || strings.Contains(u.PasswordHash, pw) {
-		t.Fatalf("stored owner = %+v", u)
+	if _, err := a.Setup(ctx, "other", "another-long-password-1"); !errors.Is(err, ErrSetupDone) {
+		t.Fatalf("second setup = %v, want ErrSetupDone", err)
 	}
-	// Idempotent: a second call creates nothing and reveals nothing.
-	created, _, pw2, err := a.EnsureFirstAdmin(ctx)
-	if err != nil || created || pw2 != "" {
-		t.Fatalf("second = %v %q %v", created, pw2, err)
+	if n, _ := st.AdminCount(ctx); n != 1 {
+		t.Fatalf("admins = %d", n)
 	}
-	if got, err := a.Authenticate(ctx, "admin", pw); err != nil || got.ID != u.ID {
-		t.Fatalf("generated credentials do not work: %v", err)
+	if got, err := a.Authenticate(ctx, "admin", setupPassword); err != nil || got.ID != u.ID {
+		t.Fatalf("chosen credentials do not work: %v", err)
+	}
+}
+
+func TestSetupRejectsBadInput(t *testing.T) {
+	a, st := newAccounts(t)
+	ctx := context.Background()
+	if _, err := a.Setup(ctx, "A!", setupPassword); !errors.Is(err, ErrUsername) {
+		t.Errorf("bad username = %v", err)
+	}
+	if _, err := a.Setup(ctx, "admin", "short"); err == nil {
+		t.Error("weak password accepted")
+	}
+	if n, _ := st.AdminCount(ctx); n != 0 {
+		t.Fatalf("rejected input created %d admins", n)
+	}
+}
+
+func TestSetupConcurrentSubmissionsCreateOneOwner(t *testing.T) {
+	a, st := newAccounts(t)
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	var ok atomic.Int32
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if _, err := a.Setup(ctx, fmt.Sprintf("user%d", i), setupPassword); err == nil {
+				ok.Add(1)
+			} else if !errors.Is(err, ErrSetupDone) && !errors.Is(err, ErrBusy) {
+				t.Errorf("unexpected error: %v", err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	if n, _ := st.AdminCount(ctx); n != 1 || ok.Load() != 1 {
+		t.Fatalf("admins = %d, successes = %d; want 1 and 1", n, ok.Load())
 	}
 }
 
 func TestAuthenticate(t *testing.T) {
 	a, _ := newAccounts(t)
 	ctx := context.Background()
-	_, _, pw, _ := a.EnsureFirstAdmin(ctx)
+	pw := setupOwner(t, a)
 	if _, err := a.Authenticate(ctx, " ADMIN ", pw); err != nil {
 		t.Fatalf("username is case/space insensitive: %v", err)
 	}
@@ -107,7 +154,7 @@ func TestCreateAdmins(t *testing.T) {
 func TestChangeResetAndDelete(t *testing.T) {
 	a, st := newAccounts(t)
 	ctx := context.Background()
-	_, _, pw, _ := a.EnsureFirstAdmin(ctx)
+	pw := setupOwner(t, a)
 	owner, _ := st.GetAdminByName(ctx, "admin")
 	mom, _, _ := a.Create(ctx, "mom", "mom-first-password-1")
 
@@ -163,7 +210,7 @@ func TestChangeResetAndDelete(t *testing.T) {
 
 func TestPasswordCheckGivesUpWhenAllKDFSlotsAreHeld(t *testing.T) {
 	a, _ := newAccounts(t)
-	_, _, pw, _ := a.EnsureFirstAdmin(context.Background())
+	pw := setupOwner(t, a)
 	for i := 0; i < cap(kdfSlots); i++ {
 		kdfSlots <- struct{}{}
 	}

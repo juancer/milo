@@ -85,6 +85,61 @@ is tried three times and then marked failed, so it never blocks the messages beh
 
 The **Message activity** list shows who and when, never the content.
 
+## Managing Milo from Telegram
+
+Away from home, a person who holds the right permissions sees an **Administration** button in
+the bot's `/menu`. Each section needs its own permission, and **every tap re-checks it on the
+device** (and that the person is still active), so a button left on screen, or one forged by
+hand, does nothing once the permission is gone. Give the permissions in **People** (an invited
+person is a PARENT; tick the boxes below for the ones you trust).
+
+| Section | What you can do | Permission |
+|---|---|---|
+| Status and volume | uptime, running features, volume (− / +, shown as 0-10 like "volume 7") | `manage_configuration` |
+| Access requests | approve or reject, with buttons; a new request is also pushed to you | `manage_users` |
+| Features | turn features on or off | `manage_features` |
+| Usage hours | switch a feature's hours on or off (the windows are edited in the web admin) | `manage_schedules` |
+| My alerts and copies | opt in to device alerts and to message copies (below) | `manage_configuration` / `manage_users` |
+
+- Turning on a feature that cannot start yet (no AI key, no place...) leaves it off and says it
+  needs to be set up in the web admin. You never see a raw error.
+- Hours are never switched on when they have no window, because that would shut the feature for
+  good. Telegram itself cannot be turned off from Telegram.
+- **Secrets never travel through Telegram.** The bot token, API keys, passwords and backups are
+  web-only, and the bot never asks for them.
+- Every change is recorded in the audit log with the person as the actor (for example
+  `telegram:Dad`). Taps closer than 250 ms together are ignored, and stale buttons answer
+  politely ("that request was already decided").
+
+### Alerts (opt-in)
+
+Switch **Alerts** on under *My alerts and copies* to be told when a feature fails to start or
+Milo starts. The message names the feature only, never an error text. It is off for everyone
+until they turn it on.
+
+### Hearing what people send to the device (opt-in copies)
+
+Messages left for the child are never read aloud by Telegram and the content is not shown in the
+admin. If an administrator wants to hear or read them too, for example while travelling, they can
+turn on **Copy of messages left for the device** (in the bot, or *People* in the web admin):
+
+- It is **off by default** and only available to people with `manage_users`. If the permission is
+  removed, copies stop at once.
+- Each text or voice note that someone else sends to the device is then sent to that person's
+  Telegram as a copy (voice notes as the original voice note), captioned with who sent it and when,
+  in their own language.
+- Nobody receives a copy of their own message. A copy that cannot be delivered is retried a few
+  times, then dropped; it never delays or blocks delivery to the device.
+- **The sender is not told each time.** Say so when you invite people. Emergency alerts are not
+  copied (they already sound the device).
+
+## Language
+
+Every message the bot sends comes from the translation catalogs ([i18n.md](i18n.md)), never from
+code. It writes to each person in their own language (People → Language) and otherwise in the
+notification language (Settings → Language); strangers always get the notification language.
+The bot's username is your own bot's: Milo never assumes a name.
+
 ## Group chats
 
 A chat can point at a Telegram group (add the bot to the group, use the group's chat id,

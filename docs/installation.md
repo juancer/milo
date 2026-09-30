@@ -7,9 +7,11 @@ See [hardware.md](hardware.md) for the sound card and button wiring.
 1. Build on your development machine: `make build-arm64`.
 2. Copy `dist/milo-linux-arm64` to the Pi (for example with `scp`).
 3. On the Pi: `sudo ./milo-linux-arm64 install`.
-4. Read the **admin account** printed at the end of the install (username `admin` and a generated
-   password, shown once). Write it down.
-5. Open the printed address (`http://<pi-ip>:8080`), sign in and choose your own password when asked.
+4. The install ends by printing only an address, `http://<pi-ip>:8080` (the Pi's LAN address; Milo
+   listens on all interfaces). No password is generated or shown.
+5. Open that address from any device on your network. Milo asks you to pick a language and create
+   the **owner account** (your own username and password). You land in the admin straight away.
+   Do this right after installing: the first person to reach the page becomes the owner.
 6. Add the other people who will manage the device (mom, dad...) under **Admins**.
 
 `install` creates the `milo` system user, `/var/lib/milo` (database), `/etc/milo/master.key`
@@ -36,7 +38,8 @@ key, see [backup.md](backup.md). Shut the Pi down cleanly (`sudo shutdown now`) 
 ## Lost the admin password?
 
 On the Pi: `sudo -u milo milo admin-reset` prints a new generated password for the owner (add
-`--user mom` for another administrator); they must choose their own at the next sign-in.
+`--user mom` for another administrator); they must choose their own at the next sign-in. If nobody has
+finished the browser setup yet, it tells you to do that instead.
 
 ## Coming from Nexo?
 

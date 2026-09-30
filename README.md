@@ -23,7 +23,7 @@ Telegram account or bot is hardcoded: each installation is configured on its own
 - Docker is a **development and build** tool only. The Pi runs the binary under systemd.
 
 More: [backup](docs/backup.md) · [skills](docs/skills.md) · [assistant](docs/assistant.md) · [wake word](docs/wakeword.md) · [telegram](docs/telegram.md) · [architecture](docs/architecture.md) · [security](docs/security.md) ·
-[configuration](docs/configuration.md)
+[configuration](docs/configuration.md) · [languages](docs/i18n.md)
 
 ## Develop (Docker only)
 
@@ -38,8 +38,8 @@ make help
 ```
 
 `make dev` seeds a demo installation: sign in as `admin` (or `mom`) with the password printed once
-when the demo is seeded (set `MILO_DEV_PASSWORD` to choose it). Real devices get a generated password at
-install time.
+when the demo is seeded (set `MILO_DEV_PASSWORD` to choose it). On a real device the first person to
+open Milo in the browser creates the owner account; nothing is generated at install time.
 
 Details: [docs/development.md](docs/development.md).
 
@@ -50,7 +50,7 @@ Target: Raspberry Pi 3B, Raspberry Pi OS 64-bit.
 ```sh
 make build-arm64
 scp dist/milo-linux-arm64 pi@raspberrypi:milo
-ssh pi@raspberrypi 'sudo ./milo install'   # prints your admin username and a generated password, once
+ssh pi@raspberrypi 'sudo ./milo install'   # prints the address to open; the owner account is created in the browser
 ```
 
 `install` is idempotent and never deletes data. Details: [docs/installation.md](docs/installation.md).

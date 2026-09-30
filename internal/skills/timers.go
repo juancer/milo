@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/i18n"
 )
 
 const (
@@ -65,9 +66,10 @@ func (t *Timers) fireDue(ctx context.Context, startup bool) {
 			t.Store.MarkTimerFired(ctx, tm.ID) //nolint:errcheck // dropped without ringing
 			continue
 		}
-		msg := "Your timer is done!"
+		lang := t.spokenLang(ctx)
+		msg := i18n.T(lang, "skills.timer_done", nil)
 		if tm.Label != "" {
-			msg = fmt.Sprintf("Your %s timer is done!", tm.Label)
+			msg = i18n.Tf(lang, "skills.timer_done_labeled", "label", tm.Label)
 		}
 		t.Announce.Announce(ctx, msg, true)
 		if ctx.Err() != nil {

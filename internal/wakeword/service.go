@@ -114,7 +114,7 @@ func (s *Service) buildDetector(ctx context.Context) (Detector, string, error) {
 			}
 		}
 		if len(templates) == 0 {
-			return nil, "", errors.New("no wake-word samples yet: record the phrase a few times in the Wake word tab")
+			return nil, "", errors.New("no wake-word samples yet: record the phrase a few times under Wake word in the admin")
 		}
 		d := NewTemplateDetector(templates, s.thresh)
 		d.OnScore = s.recordScore

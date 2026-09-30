@@ -3,8 +3,11 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -517,5 +520,35 @@ func TestAdminUsersCRUD(t *testing.T) {
 	}
 	if _, err := s.GetAdminByName(ctx, "mom"); !errors.Is(err, ErrNotFound) {
 		t.Fatal("deleted admin still found")
+	}
+}
+
+func TestCreateFirstOwnerOnlyWhileNoAdminExists(t *testing.T) {
+	s, _ := openTemp(t)
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	var ok, exists atomic.Int32
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := s.CreateFirstOwner(ctx, fmt.Sprintf("u%d", i), "hash")
+			switch {
+			case err == nil:
+				ok.Add(1)
+			case errors.Is(err, ErrAdminExists):
+				exists.Add(1)
+			default:
+				t.Errorf("unexpected error: %v", err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	if n, _ := s.AdminCount(ctx); n != 1 || ok.Load() != 1 || exists.Load() != 7 {
+		t.Fatalf("admins=%d ok=%d exists=%d", n, ok.Load(), exists.Load())
+	}
+	owner, _ := s.ListAdmins(ctx)
+	if !owner[0].IsOwner || owner[0].MustChange {
+		t.Fatalf("first owner = %+v", owner[0])
 	}
 }

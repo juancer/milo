@@ -3,7 +3,6 @@ package telegram
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strconv"
 	"time"
 
@@ -49,17 +48,19 @@ func (s *Service) sendEmergency(ctx context.Context, c actions.Call) (actions.Re
 	}
 	s.mu.Unlock()
 
+	lang := s.langForID(ctx, c.Actor.UserID)
 	if s.senderAtCeiling(ctx, c.Actor.UserID, true) {
-		return actions.Result{Message: tooManyWaitingMsg}, nil
+		return actions.Result{Message: tr(lang, "telegram.too_many_waiting")}, nil
 	}
 
-	name := "a family member"
+	spoken := s.spokenLang(ctx)
+	name := tr(spoken, "telegram.family_member")
 	if u, err := s.Store.GetUser(ctx, c.Actor.UserID); err == nil {
 		name = u.DisplayName
 	}
 	id, err := s.Store.InsertMessage(ctx, store.Message{
 		Direction: "in", Kind: "text", Type: "emergency", Priority: "critical",
-		Body: "Emergency alert from " + name, UserID: c.Actor.UserID,
+		Body: tr(spoken, "telegram.emergency_body", "name", name), UserID: c.Actor.UserID,
 	})
 	if err != nil {
 		return actions.Result{}, err
@@ -72,7 +73,7 @@ func (s *Service) sendEmergency(ctx context.Context, c actions.Call) (actions.Re
 
 	s.announce(ctx, id, true)
 	s.Audit.Record(ctx, "telegram", "emergency.sent", strconv.FormatInt(c.Actor.UserID, 10), map[string]string{"from": name})
-	return actions.Result{Message: "🚨 Emergency alert sent. Your next few messages in the next 2 minutes are also marked urgent."}, nil
+	return actions.Result{Message: "🚨 " + tr(lang, "telegram.emergency_sent")}, nil
 }
 
 // urgentActive reports whether the user's next message is urgent because they
@@ -98,40 +99,42 @@ func (s *Service) urgentActive(ctx context.Context, userID int64) bool {
 }
 
 func (s *Service) confirmEmergency(ctx context.Context, c *Client, user store.User, chatID int64) {
+	lang := s.langFor(ctx, user)
 	if ok, _ := s.Perms.Has(ctx, user.ID, permissions.EmergencyAlert); !ok {
 		s.Log.Warn("telegram: emergency requested without permission", "user", user.ID)
-		s.reply(ctx, c, chatID, "You are not allowed to send emergency alerts.", nil)
+		s.reply(ctx, c, chatID, tr(lang, "telegram.err_emergency_forbidden"), nil)
 		return
 	}
 	s.mu.Lock()
 	s.emergencyConfirm[user.ID] = s.now().Add(emergencyConfirmTTL)
 	s.mu.Unlock()
-	s.reply(ctx, c, chatID, "⚠️ Send emergency alert?\nThe device will sound an alarm right away, even outside usage hours.",
+	s.reply(ctx, c, chatID, "⚠️ "+tr(lang, "telegram.emergency_confirm"),
 		Keyboard{{
-			{Text: "YES, SEND", CallbackData: "emergency:yes"},
-			{Text: "CANCEL", CallbackData: "emergency:no"},
+			{Text: tr(lang, "telegram.btn_emergency_yes"), CallbackData: "emergency:yes"},
+			{Text: tr(lang, "telegram.btn_emergency_cancel"), CallbackData: "emergency:no"},
 		}})
 }
 
 func (s *Service) fireEmergency(ctx context.Context, c *Client, user store.User, chatID int64) {
+	lang := s.langFor(ctx, user)
 	s.mu.Lock()
 	expires, ok := s.emergencyConfirm[user.ID]
 	delete(s.emergencyConfirm, user.ID) // a confirmation works once
 	s.mu.Unlock()
 	if !ok || s.now().After(expires) {
-		s.reply(ctx, c, chatID, "That confirmation expired. Open /menu and tap Emergency again.", nil)
+		s.reply(ctx, c, chatID, tr(lang, "telegram.emergency_expired"), nil)
 		return
 	}
 	actor := actions.Actor{Kind: actions.ActorTelegram, UserID: user.ID, Label: "telegram:" + user.DisplayName}
 	res, err := s.Actions.Execute(ctx, actor, "send_emergency", nil)
 	switch {
 	case errors.Is(err, ErrEmergencyCooldown):
-		s.reply(ctx, c, chatID, "An alert was just sent. Please wait a minute before sending another.", nil)
+		s.reply(ctx, c, chatID, tr(lang, "telegram.emergency_cooldown"), nil)
 	case errors.Is(err, actions.ErrForbidden):
-		s.reply(ctx, c, chatID, "You are not allowed to send emergency alerts.", nil)
+		s.reply(ctx, c, chatID, tr(lang, "telegram.err_emergency_forbidden"), nil)
 	case err != nil:
 		s.Log.Error("emergency failed", "error", err)
-		s.reply(ctx, c, chatID, fmt.Sprintf("The alert could not be delivered: %s", explain(err)), nil)
+		s.reply(ctx, c, chatID, tr(lang, "telegram.emergency_failed", "reason", explain(lang, err)), nil)
 	default:
 		s.reply(ctx, c, chatID, res.Message, nil)
 	}

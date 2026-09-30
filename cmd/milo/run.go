@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/juancer/milo/internal/app"
-	"github.com/juancer/milo/internal/auth"
 	"github.com/juancer/milo/internal/backup"
 	"github.com/juancer/milo/internal/secrets"
 	"github.com/juancer/milo/internal/store"
@@ -52,14 +51,6 @@ func runServer(ctx context.Context, cfg system.Config) error {
 	}
 	defer st.Close()
 
-	// Started without `milo install` (for example by hand): still never run
-	// without an administrator, and never with a well-known password.
-	if created, user, pass, err := auth.NewAccounts(st).EnsureFirstAdmin(ctx); err != nil {
-		return err
-	} else if created {
-		system.PrintFirstAdmin(os.Stderr, "http://<this-device>"+cfg.Listen, user, pass)
-	}
-
 	key, err := secrets.LoadKey(cfg.KeyPath)
 	if err != nil {
 		return err
@@ -77,6 +68,7 @@ func runServer(ctx context.Context, cfg system.Config) error {
 		return err
 	}
 	defer application.Close()
+	application.Telegram.SetVersion(version)
 	application.Logs, application.RestartFunc = logs, func() {
 		time.Sleep(500 * time.Millisecond) // let the HTTP response go out first
 		restart()

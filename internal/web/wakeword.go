@@ -64,13 +64,13 @@ func (s *server) putWake(w http.ResponseWriter, r *http.Request) {
 	d.Phrase = strings.TrimSpace(d.Phrase)
 	switch {
 	case d.Engine != "template" && d.Engine != "external":
-		writeError(w, http.StatusBadRequest, "engine must be template or external")
+		writeError(w, http.StatusBadRequest, "web.err.engine_must_be_template_or_external")
 		return
 	case d.Phrase == "" || len([]rune(d.Phrase)) > 40:
-		writeError(w, http.StatusBadRequest, "the phrase label must be 1-40 characters")
+		writeError(w, http.StatusBadRequest, "web.err.the_phrase_label_must_be_1_40_characters")
 		return
 	case d.Sensitivity < 1 || d.Sensitivity > 10:
-		writeError(w, http.StatusBadRequest, "sensitivity must be 1-10")
+		writeError(w, http.StatusBadRequest, "web.err.sensitivity_must_be_1_10")
 		return
 	}
 	// Required for the external engine, and checked for any stored path, so an
@@ -87,7 +87,7 @@ func (s *server) putWake(w http.ResponseWriter, r *http.Request) {
 		wakeword.SettingSensitivity: strconv.Itoa(d.Sensitivity), wakeword.SettingExternalPath: d.ExternalPath,
 	} {
 		if err := s.app.Store.SetSetting(ctx, k, v); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error")
+			writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 			return
 		}
 	}
@@ -114,7 +114,7 @@ func (s *server) deleteWakeSample(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.app.Store.DeleteWakeTemplate(r.Context(), id); err != nil {
-		writeError(w, http.StatusNotFound, "no such sample")
+		writeError(w, http.StatusNotFound, "web.err.no_such_sample")
 		return
 	}
 	s.audit(r, "wakeword.sample_removed", strconv.FormatInt(id, 10), nil)
@@ -125,7 +125,7 @@ func (s *server) deleteWakeSample(w http.ResponseWriter, r *http.Request) {
 // simWake pretends the wake word was heard (development mode).
 func (s *server) simWake(w http.ResponseWriter, _ *http.Request) {
 	if err := s.app.Wake.Trigger(); err != nil {
-		writeError(w, http.StatusConflict, "turn the “wakeword” feature on first")
+		writeError(w, http.StatusConflict, "web.err.turn_the_wakeword_feature_on_first")
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)

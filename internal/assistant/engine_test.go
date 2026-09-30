@@ -17,6 +17,7 @@ import (
 	"github.com/juancer/milo/internal/app"
 	"github.com/juancer/milo/internal/assistant"
 	"github.com/juancer/milo/internal/audio"
+	"github.com/juancer/milo/internal/i18n"
 	"github.com/juancer/milo/internal/secrets"
 	"github.com/juancer/milo/internal/speech"
 	"github.com/juancer/milo/internal/store"
@@ -372,7 +373,7 @@ func TestHourlyTurnLimit(t *testing.T) {
 		h.turn("hi")
 	}
 	got, err := h.turn("one more")
-	if err != nil || got != assistant.ReplyBusy || h.llm.calls() != 5 {
+	if err != nil || got != i18n.T("en", assistant.ReplyBusy, nil) || h.llm.calls() != 5 {
 		t.Fatalf("got %q err=%v calls=%d", got, err, h.llm.calls())
 	}
 }
@@ -490,7 +491,7 @@ func TestVoiceSilenceAndOutageEndKindly(t *testing.T) {
 	h.llm.err = assistant.ErrUnavailable
 	h.app.MockAudio.SetUtterance("hello?")
 	h.app.Actions.Execute(h.ctx, device(), "gpt", nil)
-	h.waitSpoken(assistant.ReplyUnavailable)
+	h.waitSpoken(i18n.T("en", assistant.ReplyUnavailable, nil))
 }
 
 func TestSecondPressFinishesTheRecordingAndStillAnswers(t *testing.T) {

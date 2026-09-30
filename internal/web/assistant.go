@@ -12,6 +12,7 @@ import (
 
 	"github.com/juancer/milo/internal/app"
 	"github.com/juancer/milo/internal/assistant"
+	"github.com/juancer/milo/internal/i18n"
 	"github.com/juancer/milo/internal/secrets"
 	"github.com/juancer/milo/internal/speech"
 	"github.com/juancer/milo/internal/store"
@@ -32,36 +33,39 @@ func (s *server) assistantRoutes(mux *http.ServeMux) {
 }
 
 type assistantDTO struct {
-	ChildName         string `json:"child_name"`
-	Age               int    `json:"age"`
-	Personality       string `json:"personality"`
-	Language          string `json:"language"`
-	MaxResponseWords  int    `json:"max_response_words"`
-	ExtraInstructions string `json:"extra_instructions"`
-	RetentionDays     int    `json:"retention_days"`
-	InputModeration   bool   `json:"input_moderation"`
-	OutputModeration  bool   `json:"output_moderation"`
-	AlertParents      bool   `json:"alert_parents"`
-	FollowUp          bool   `json:"follow_up"`
-	MaxTurnsPerHour   int    `json:"max_turns_per_hour"`
-	LLMBaseURL        string `json:"llm_base_url"`
-	LLMModel          string `json:"llm_model"`
-	STTEngine         string `json:"stt_engine"`
-	STTBaseURL        string `json:"stt_base_url"`
-	STTModel          string `json:"stt_model"`
-	STTModelPath      string `json:"stt_model_path"`
-	TTSEngine         string `json:"tts_engine"`
-	TTSModelPath      string `json:"tts_model_path"`
-	TTSBaseURL        string `json:"tts_base_url"`
-	TTSModel          string `json:"tts_model"`
-	TTSVoice          string `json:"tts_voice"`
+	ChildName         string  `json:"child_name"`
+	Age               int     `json:"age"`
+	Personality       string  `json:"personality"`
+	Language          string  `json:"language"`
+	MaxResponseWords  int     `json:"max_response_words"`
+	ExtraInstructions string  `json:"extra_instructions"`
+	RetentionDays     int     `json:"retention_days"`
+	InputModeration   bool    `json:"input_moderation"`
+	OutputModeration  bool    `json:"output_moderation"`
+	AlertParents      bool    `json:"alert_parents"`
+	FollowUp          bool    `json:"follow_up"`
+	MaxTurnsPerHour   int     `json:"max_turns_per_hour"`
+	LLMBaseURL        string  `json:"llm_base_url"`
+	LLMModel          string  `json:"llm_model"`
+	STTEngine         string  `json:"stt_engine"`
+	STTBaseURL        string  `json:"stt_base_url"`
+	STTModel          string  `json:"stt_model"`
+	STTModelPath      string  `json:"stt_model_path"`
+	TTSEngine         string  `json:"tts_engine"`
+	TTSModelPath      string  `json:"tts_model_path"`
+	TTSBaseURL        string  `json:"tts_base_url"`
+	TTSModel          string  `json:"tts_model"`
+	TTSVoice          string  `json:"tts_voice"`
+	TTSLanguage       string  `json:"tts_language"` // "" follows the assistant language
+	TTSSpeed          float64 `json:"tts_speed"`
+	TTSVolume         int     `json:"tts_volume"`
 }
 
 func toAssistantDTO(g store.GPTSettings) assistantDTO {
 	return assistantDTO{g.ChildName, g.Age, g.Personality, g.Language, g.MaxResponseWords, g.ExtraInstructions,
 		g.RetentionDays, g.InputModeration, g.OutputModeration, g.AlertParents, g.FollowUp, g.MaxTurnsPerHour,
 		g.LLMBaseURL, g.LLMModel, g.STTEngine, g.STTBaseURL, g.STTModel, g.STTModelPath,
-		g.TTSEngine, g.TTSModelPath, g.TTSBaseURL, g.TTSModel, g.TTSVoice}
+		g.TTSEngine, g.TTSModelPath, g.TTSBaseURL, g.TTSModel, g.TTSVoice, g.TTSLanguage, g.TTSSpeed, g.TTSVolume}
 }
 
 func (d assistantDTO) toStore() store.GPTSettings {
@@ -70,7 +74,8 @@ func (d assistantDTO) toStore() store.GPTSettings {
 		InputModeration: d.InputModeration, OutputModeration: d.OutputModeration, AlertParents: d.AlertParents,
 		FollowUp: d.FollowUp, MaxTurnsPerHour: d.MaxTurnsPerHour, LLMBaseURL: d.LLMBaseURL, LLMModel: d.LLMModel,
 		STTEngine: d.STTEngine, STTBaseURL: d.STTBaseURL, STTModel: d.STTModel, STTModelPath: d.STTModelPath,
-		TTSEngine: d.TTSEngine, TTSModelPath: d.TTSModelPath, TTSBaseURL: d.TTSBaseURL, TTSModel: d.TTSModel, TTSVoice: d.TTSVoice}
+		TTSEngine: d.TTSEngine, TTSModelPath: d.TTSModelPath, TTSBaseURL: d.TTSBaseURL, TTSModel: d.TTSModel, TTSVoice: d.TTSVoice,
+		TTSLanguage: d.TTSLanguage, TTSSpeed: d.TTSSpeed, TTSVolume: d.TTSVolume}
 }
 
 func (s *server) validAPIURL(raw string) bool {
@@ -91,35 +96,41 @@ func (s *server) validAPIURL(raw string) bool {
 func (s *server) validateAssistant(d assistantDTO) string {
 	switch {
 	case len([]rune(d.ChildName)) > 40:
-		return "the child's name must be at most 40 characters"
+		return "web.err.the_child_s_name_must_be_at_most_40_characte"
 	case d.Age < 3 || d.Age > 17:
-		return "age must be between 3 and 17"
+		return "web.err.age_must_be_between_3_and_17"
 	case d.Personality == "" || len([]rune(d.Personality)) > 200:
-		return "personality must be 1-200 characters"
-	case len([]rune(d.Language)) > 40:
-		return "language must be at most 40 characters"
+		return "web.err.personality_must_be_1_200_characters"
+	case !validAssistantLanguage(d.Language):
+		return "web.err.the_assistant_language_must_be_a_supported_l"
 	case d.MaxResponseWords < 10 || d.MaxResponseWords > 300:
-		return "response length must be 10-300 words"
+		return "web.err.response_length_must_be_10_300_words"
 	case len([]rune(d.ExtraInstructions)) > 600:
-		return "extra instructions must be at most 600 characters"
+		return "web.err.extra_instructions_must_be_at_most_600_chara"
 	case d.RetentionDays != 0 && d.RetentionDays != 7 && d.RetentionDays != 30 && d.RetentionDays != 90:
-		return "history retention must be 0 (off), 7, 30 or 90 days"
+		return "web.err.history_retention_must_be_0_off_7_30_or_90_d"
 	case d.MaxTurnsPerHour < 5 || d.MaxTurnsPerHour > 600:
-		return "questions per hour must be 5-600"
+		return "web.err.questions_per_hour_must_be_5_600"
 	case !s.validAPIURL(d.LLMBaseURL) || !s.validAPIURL(d.STTBaseURL) || !s.validAPIURL(d.TTSBaseURL):
-		return "provider addresses must be https:// URLs"
+		return "web.err.provider_addresses_must_be_https_urls"
 	case !modelRe.MatchString(d.LLMModel) || !modelRe.MatchString(d.STTModel) || (d.TTSModel != "" && !modelRe.MatchString(d.TTSModel)):
-		return "model names may only contain letters, digits and . _ : / @ + -"
+		return "web.err.model_names_may_only_contain_letters_digits"
 	case len(d.TTSVoice) > 60 || strings.ContainsAny(d.TTSVoice, "\r\n\t"):
-		return "the voice name is too long or invalid"
+		return "web.err.the_voice_name_is_too_long_or_invalid"
+	case d.TTSLanguage != "" && !validLanguage(d.TTSLanguage):
+		return "web.err.the_voice_language_must_be_a_supported_langu"
+	case d.TTSSpeed < 0.5 || d.TTSSpeed > 2:
+		return "web.err.voice_speed_must_be_0_5_2"
+	case d.TTSVolume < 0 || d.TTSVolume > 100:
+		return "web.err.voice_volume_must_be_0_100"
 	case d.STTEngine != "cloud" && d.STTEngine != "whispercpp":
-		return "speech-to-text engine must be cloud or whispercpp"
+		return "web.err.speech_to_text_engine_must_be_cloud_or_whisp"
 	case d.STTEngine == "whispercpp" && d.STTModelPath != "" && !speech.ValidWhisperModelPath(d.STTModelPath):
-		return "the whisper.cpp model must be a path ending in .bin or .gguf"
+		return "web.err.the_whisper_cpp_model_must_be_a_path_ending"
 	case d.TTSEngine != "piper" && d.TTSEngine != "cloud" && d.TTSEngine != "none":
-		return "text-to-speech engine must be piper, cloud or none"
+		return "web.err.text_to_speech_engine_must_be_piper_cloud_or"
 	case d.TTSEngine == "piper" && d.TTSModelPath != "" && !speech.ValidModelPath(d.TTSModelPath):
-		return "the Piper voice must be a path ending in .onnx"
+		return "web.err.the_piper_voice_must_be_a_path_ending_in_onn"
 	}
 	return ""
 }
@@ -147,7 +158,7 @@ func (s *server) writeAssistant(w http.ResponseWriter, r *http.Request, cleared 
 	ctx := r.Context()
 	g, err := s.app.Store.GetGPTSettings(ctx)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	status := map[string]any{"enabled": false, "running": false}
@@ -165,7 +176,7 @@ func (s *server) writeAssistant(w http.ResponseWriter, r *http.Request, cleared 
 	}
 	if len(cleared) > 0 {
 		resp["keys_cleared"] = cleared
-		resp["notice"] = "The provider address changed, so the stored key was removed for: " + strings.Join(cleared, ", ") + ". Enter the key again."
+		resp["notice"] = i18n.Tf(i18n.Interface(r.Context(), s.app.Store), "web.notice.provider_key_removed", "keys", strings.Join(cleared, ", "))
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -178,18 +189,19 @@ func sameHost(a, b string) bool {
 }
 
 func (s *server) putAssistant(w http.ResponseWriter, r *http.Request) {
-	var d assistantDTO
+	old, err := s.app.Store.GetGPTSettings(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
+		return
+	}
+	// A body that leaves out the voice options keeps what is stored.
+	d := assistantDTO{TTSLanguage: old.TTSLanguage, TTSSpeed: old.TTSSpeed, TTSVolume: old.TTSVolume}
 	if !decodeJSONLimit(w, r, &d, 16<<10) {
 		return
 	}
 	d.ChildName, d.Personality = strings.TrimSpace(d.ChildName), strings.TrimSpace(d.Personality)
 	if msg := s.validateAssistant(d); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
-		return
-	}
-	old, err := s.app.Store.GetGPTSettings(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	// A stored key must never be sent to a different host than the one it was
@@ -204,7 +216,7 @@ func (s *server) putAssistant(w http.ResponseWriter, r *http.Request) {
 	} {
 		if !sameHost(k.oldURL, k.newURL) && s.mayHaveKey(r.Context(), k.secret) {
 			if err := s.app.Store.DeleteSecret(r.Context(), k.secret); err != nil {
-				writeError(w, http.StatusInternalServerError, "internal error")
+				writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 				return
 			}
 			s.audit(r, "assistant.key_removed", k.label+" (address changed)", nil)
@@ -216,7 +228,7 @@ func (s *server) putAssistant(w http.ResponseWriter, r *http.Request) {
 		s.restartFeature(r.Context(), assistant.FeatureName)
 	}
 	if saveErr != nil {
-		writeError(w, http.StatusInternalServerError, "could not save the settings")
+		writeError(w, http.StatusInternalServerError, "web.err.could_not_save_the_settings")
 		return
 	}
 	s.audit(r, "assistant.settings_updated", "", nil)
@@ -239,11 +251,11 @@ func (s *server) putKeys(w http.ResponseWriter, r *http.Request) {
 			return true // unchanged
 		}
 		if len(value) < 8 || len(value) > 300 || strings.ContainsAny(value, " \t\r\n") {
-			writeError(w, http.StatusBadRequest, label+" does not look like an API key")
+			writeError(w, http.StatusBadRequest, "web.err.not_an_api_key", "label", label)
 			return false
 		}
 		if err := s.app.Vault.Put(r.Context(), name, []byte(value)); err != nil {
-			writeError(w, http.StatusInternalServerError, "could not store the key")
+			writeError(w, http.StatusInternalServerError, "web.err.could_not_store_the_key")
 			return false
 		}
 		s.audit(r, "assistant.key_set", label, nil) // never the value
@@ -260,11 +272,11 @@ func (s *server) putKeys(w http.ResponseWriter, r *http.Request) {
 func (s *server) deleteKey(w http.ResponseWriter, r *http.Request) {
 	name := map[string]string{"llm": app.SecretLLMKey, "stt": app.SecretSTTKey, "tts": app.SecretTTSKey}[r.PathValue("which")]
 	if name == "" {
-		writeError(w, http.StatusNotFound, "unknown key")
+		writeError(w, http.StatusNotFound, "web.err.unknown_key")
 		return
 	}
 	if err := s.app.Store.DeleteSecret(r.Context(), name); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, "assistant.key_removed", r.PathValue("which"), nil)
@@ -285,7 +297,7 @@ func (s *server) restartFeature(ctx context.Context, name string) {
 func (s *server) listRules(w http.ResponseWriter, r *http.Request) {
 	rules, err := s.app.Store.ListModerationRules(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	type row struct {
@@ -311,12 +323,12 @@ func (s *server) createRule(w http.ResponseWriter, r *http.Request) {
 	}
 	body.Pattern = strings.TrimSpace(body.Pattern)
 	if l := len([]rune(body.Pattern)); l < 2 || l > 80 || (body.AppliesTo != "input" && body.AppliesTo != "output" && body.AppliesTo != "both") {
-		writeError(w, http.StatusBadRequest, "a word or phrase (2-80 characters) and where it applies are required")
+		writeError(w, http.StatusBadRequest, "web.err.a_word_or_phrase_2_80_characters_and_where_i")
 		return
 	}
 	id, err := s.app.Store.CreateModerationRule(r.Context(), store.ModerationRule{Pattern: body.Pattern, AppliesTo: body.AppliesTo, Enabled: true})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, "moderation.rule_added", strconv.FormatInt(id, 10), nil)
@@ -329,10 +341,10 @@ func (s *server) deleteRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.app.Store.DeleteModerationRule(r.Context(), id); errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "no such rule")
+		writeError(w, http.StatusNotFound, "web.err.no_such_rule")
 		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, "moderation.rule_removed", strconv.FormatInt(id, 10), nil)
@@ -344,7 +356,7 @@ func (s *server) deleteRule(w http.ResponseWriter, r *http.Request) {
 func (s *server) listConversations(w http.ResponseWriter, r *http.Request) {
 	convs, err := s.app.Store.ListConversations(r.Context(), 20)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	type line struct {
@@ -372,9 +384,18 @@ func (s *server) listConversations(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) deleteConversations(w http.ResponseWriter, r *http.Request) {
 	if err := s.app.Store.DeleteAllConversations(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, "assistant.history_erased", "", nil)
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// validLanguage reports whether code is an installed language.
+func validLanguage(code string) bool {
+	c, ok := i18n.Normalize(code)
+	return ok && c == code
+}
+
+// validAssistantLanguage also accepts "auto" (answer in the language the child speaks).
+func validAssistantLanguage(code string) bool { return code == i18n.Auto || validLanguage(code) }

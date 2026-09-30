@@ -54,6 +54,12 @@ func TestSetVolumeActionAbsoluteRelativeAndClamped(t *testing.T) {
 	if v := a.MockAudio.Status(ctx).Volume; v != 40 {
 		t.Fatalf("volume = %d", v)
 	}
+	if _, err := a.Actions.Execute(ctx, dev, "set_volume", map[string]any{"level_10": float64(7)}); err != nil {
+		t.Fatal(err)
+	}
+	if v := a.MockAudio.Status(ctx).Volume; v != 70 {
+		t.Fatalf("level_10 7 gave volume %d, want 70", v)
+	}
 	a.Actions.Execute(ctx, dev, "set_volume", map[string]any{"change": float64(-100)})
 	if v := a.MockAudio.Status(ctx).Volume; v != 0 {
 		t.Fatalf("clamped volume = %d", v)
@@ -61,7 +67,7 @@ func TestSetVolumeActionAbsoluteRelativeAndClamped(t *testing.T) {
 	if got := a.Setting(ctx, "audio.volume", ""); got != "0" {
 		t.Fatalf("volume not persisted: %q", got)
 	}
-	for _, bad := range []map[string]any{nil, {"level": float64(1), "change": float64(1)}} {
+	for _, bad := range []map[string]any{nil, {"level": float64(1), "change": float64(1)}, {"level": float64(50), "level_10": float64(5)}, {"level_10": float64(11)}} {
 		if _, err := a.Actions.Execute(ctx, dev, "set_volume", bad); err == nil {
 			t.Errorf("accepted %v", bad)
 		}

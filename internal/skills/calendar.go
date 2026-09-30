@@ -63,7 +63,7 @@ func (c *Calendar) Name() string { return "calendar" }
 // Start implements features.Feature.
 func (c *Calendar) Start(ctx context.Context) error {
 	if _, err := c.Vault.Get(ctx, SecretCalendarURL); errors.Is(err, secrets.ErrNotFound) {
-		return errors.New("no calendar address is set: add your calendar's secret .ics address in the Skills tab")
+		return errors.New("no calendar address is set: add your calendar's secret .ics address under Skills in the admin")
 	}
 	return nil
 }

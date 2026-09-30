@@ -22,7 +22,7 @@ func (s *server) accountRoutes(mux *http.ServeMux) {
 func (s *server) requireOwner(next http.HandlerFunc) http.Handler {
 	return s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		if !adminFrom(r).IsOwner {
-			writeError(w, http.StatusForbidden, "only the owner can manage administrators")
+			writeError(w, http.StatusForbidden, "web.err.only_the_owner_can_manage_administrators")
 			return
 		}
 		next(w, r)
@@ -42,17 +42,17 @@ func (s *server) changePassword(w http.ResponseWriter, r *http.Request) {
 	user := adminFrom(r)
 	ip := clientIP(r)
 	if !s.pwLimiter.Try(ip) {
-		writeError(w, http.StatusTooManyRequests, "too many failed attempts, try again later")
+		writeError(w, http.StatusTooManyRequests, "web.err.too_many_failed_attempts_try_again_later")
 		return
 	}
 	err := s.accounts.ChangePassword(r.Context(), user.ID, body.Current, body.New)
 	switch {
 	case errors.Is(err, auth.ErrBusy):
 		s.pwLimiter.Refund(ip)
-		writeError(w, http.StatusServiceUnavailable, "the server is busy, try again shortly")
+		writeError(w, http.StatusServiceUnavailable, "web.err.the_server_is_busy_try_again_shortly")
 		return
 	case errors.Is(err, auth.ErrBadCredentials):
-		writeError(w, http.StatusUnauthorized, "the current password is not correct")
+		writeError(w, http.StatusUnauthorized, "web.err.the_current_password_is_not_correct")
 		return
 	case err != nil:
 		s.pwLimiter.Refund(ip) // not a wrong-password guess (for example a too-short new password)
@@ -63,7 +63,7 @@ func (s *server) changePassword(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, "admin.password_changed", user.Username, nil)
 	fresh, err := s.app.Store.GetAdmin(r.Context(), user.ID)
 	if err != nil || s.startSession(w, fresh) != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"authenticated": true, "username": fresh.Username, "is_owner": fresh.IsOwner, "must_change_password": false})
@@ -82,7 +82,7 @@ type adminDTO struct {
 func (s *server) listAdmins(w http.ResponseWriter, r *http.Request) {
 	list, err := s.app.Store.ListAdmins(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	me := adminFrom(r)
@@ -122,16 +122,16 @@ func (s *server) resetAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	target, err := s.app.Store.GetAdmin(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "no such administrator")
+		writeError(w, http.StatusNotFound, "web.err.no_such_administrator")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	pw, err := s.accounts.Reset(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, "admin.password_reset", target.Username, nil)
@@ -150,11 +150,11 @@ func (s *server) deleteAdmin(w http.ResponseWriter, r *http.Request) {
 	err := s.accounts.Delete(r.Context(), adminFrom(r).ID, id)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		writeError(w, http.StatusNotFound, "no such administrator")
+		writeError(w, http.StatusNotFound, "web.err.no_such_administrator")
 	case errors.Is(err, auth.ErrSelf), errors.Is(err, auth.ErrLastOwner):
 		writeError(w, http.StatusConflict, err.Error())
 	case err != nil:
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 	default:
 		s.audit(r, "admin.removed", target.Username, nil)
 		w.WriteHeader(http.StatusNoContent)

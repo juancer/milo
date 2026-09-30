@@ -20,7 +20,7 @@ func (s *server) simRoutes(mux *http.ServeMux) {
 func (s *server) simPress(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid id")
+		writeError(w, http.StatusBadRequest, "web.err.invalid_id")
 		return
 	}
 	var body struct {
@@ -30,12 +30,12 @@ func (s *server) simPress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.HoldMS < 10 || body.HoldMS > 5000 {
-		writeError(w, http.StatusBadRequest, "hold_ms must be 10-5000")
+		writeError(w, http.StatusBadRequest, "web.err.hold_ms_must_be_10_5000")
 		return
 	}
 	b, err := s.app.Store.GetButton(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "no such button")
+		writeError(w, http.StatusNotFound, "web.err.no_such_button")
 		return
 	}
 	go s.app.MockGPIO.Hold(b.GPIO, time.Duration(body.HoldMS)*time.Millisecond)
@@ -69,7 +69,7 @@ func (s *server) simUtterance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len([]rune(body.Text)) > 300 {
-		writeError(w, http.StatusBadRequest, "text too long")
+		writeError(w, http.StatusBadRequest, "web.err.text_too_long")
 		return
 	}
 	s.app.MockAudio.SetUtterance(body.Text)

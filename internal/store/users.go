@@ -13,6 +13,11 @@ type User struct {
 	DisplayName string
 	Role        string
 	Active      bool
+	Language    string // locale code; "" follows the notification language
+	// ForwardIncoming asks for a copy of what others send to the device; DeviceAlerts asks to be
+	// told when a feature fails or the device starts. Both are opt-in and default to off.
+	ForwardIncoming bool
+	DeviceAlerts    bool
 }
 
 // CreateUser inserts a user. The role must be one of the roles allowed by the schema.
@@ -27,8 +32,8 @@ func (s *Store) CreateUser(ctx context.Context, displayName, role string) (int64
 // GetUser returns the user with the given id, or ErrNotFound.
 func (s *Store) GetUser(ctx context.Context, id int64) (User, error) {
 	var u User
-	err := s.db.QueryRowContext(ctx, `SELECT id, display_name, role, active FROM users WHERE id = ?`, id).
-		Scan(&u.ID, &u.DisplayName, &u.Role, &u.Active)
+	err := s.db.QueryRowContext(ctx, `SELECT id, display_name, role, active, language, forward_incoming, device_alerts FROM users WHERE id = ?`, id).
+		Scan(&u.ID, &u.DisplayName, &u.Role, &u.Active, &u.Language, &u.ForwardIncoming, &u.DeviceAlerts)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
@@ -65,4 +70,38 @@ func (s *Store) UserPermissions(ctx context.Context, userID int64) (map[string]b
 		out[p] = g
 	}
 	return out, rows.Err()
+}
+
+// SetUserLanguage stores a person's preferred language ("" follows the notification language).
+func (s *Store) SetUserLanguage(ctx context.Context, id int64, language string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE users SET language = ? WHERE id = ?`, language, id)
+	if err != nil {
+		return fmt.Errorf("store: set user language: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetUserForwardIncoming switches the copy of incoming messages on or off for a person.
+func (s *Store) SetUserForwardIncoming(ctx context.Context, id int64, on bool) error {
+	return s.setUserFlag(ctx, "forward_incoming", id, on)
+}
+
+// SetUserDeviceAlerts switches device alerts on or off for a person.
+func (s *Store) SetUserDeviceAlerts(ctx context.Context, id int64, on bool) error {
+	return s.setUserFlag(ctx, "device_alerts", id, on)
+}
+
+// setUserFlag updates one of the fixed boolean columns above (never a caller-chosen name).
+func (s *Store) setUserFlag(ctx context.Context, column string, id int64, on bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE users SET `+column+` = ? WHERE id = ?`, on, id)
+	if err != nil {
+		return fmt.Errorf("store: set user %s: %w", column, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
