@@ -28,6 +28,14 @@ const (
 	maxToolResultLen = 800
 )
 
+// Some tool results carry text written by other people, such as calendar event titles. Nothing
+// the model does after reading them may send text to someone else or schedule speech in the same
+// turn: a line in the prompt asking the model to ignore such text is not a control.
+var (
+	outsiderTextTools = map[string]bool{"get_calendar": true}
+	textOutTools      = map[string]bool{"send_message": true, "create_reminder": true}
+)
+
 // Backends builds the providers from the current settings and secrets, so a
 // parent changing a key or model takes effect on the next conversation without
 // restarting the device.
@@ -215,6 +223,7 @@ func (e *Engine) runModel(ctx context.Context, sess *Session, provider AIProvide
 	tools := e.toolDefs(ctx)
 	msgs := append([]Message{{Role: "system", Content: e.systemPrompt(ctx, sess.settings)}}, sess.history...)
 	calls := 0
+	readOutsiderText := false
 	for round := 0; round <= maxToolRounds; round++ {
 		req := ChatRequest{Model: sess.settings.LLMModel, Messages: msgs, MaxTokens: 700}
 		if round < maxToolRounds { // the final round must produce words, not more tool calls
@@ -234,7 +243,15 @@ func (e *Engine) runModel(ctx context.Context, sess *Session, provider AIProvide
 				result = toolError("too many tool calls in one turn")
 			} else {
 				calls++
-				result = e.runTool(ctx, sess, tc)
+				if readOutsiderText && textOutTools[tc.Name] {
+					e.log.Info("assistant tool refused", "tool", tc.Name, "reason", "outsider text was read this turn")
+					result = toolError("not allowed in the same request that read the calendar")
+				} else {
+					result = e.runTool(ctx, sess, tc)
+				}
+				if outsiderTextTools[tc.Name] {
+					readOutsiderText = true
+				}
 			}
 			msgs = append(msgs, Message{Role: "tool", ToolCallID: tc.ID, Content: result})
 		}

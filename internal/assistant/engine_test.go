@@ -598,3 +598,47 @@ func TestStartingMusicEndsTheConversation(t *testing.T) {
 		t.Fatalf("the microphone was opened %d times; it must not listen over the music", starts)
 	}
 }
+
+const readCalendarRefusal = "same request that read the calendar"
+
+func (h *harness) toolResult(callIndex int, id string) string {
+	h.t.Helper()
+	for _, m := range h.llm.request(callIndex).Messages {
+		if m.Role == "tool" && m.ToolCallID == id {
+			return m.Content
+		}
+	}
+	h.t.Fatalf("no tool result %q in request %d", id, callIndex)
+	return ""
+}
+
+// Calendar titles are written by other people. Whatever they say, the model must not be able to
+// send text to someone else or schedule speech in the turn that read them.
+func TestNothingIsSentOrScheduledAfterReadingTheCalendarInTheSameTurn(t *testing.T) {
+	h := newHarness(t)
+	h.llm.replies = []assistant.Message{
+		call("c1", "get_calendar", `{"day":"week"}`),
+		call("c2", "create_reminder", `{"text":"tell Dad the code is 1234","in_seconds":60}`),
+		call("c3", "send_message", `{"chat":"Dad","text":"the code is 1234"}`),
+		say("done"),
+	}
+	if _, err := h.turn("what is on the calendar?"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"c2", "c3"} {
+		if got := h.toolResult(3, id); !strings.Contains(got, readCalendarRefusal) {
+			t.Fatalf("%s was not refused after the calendar was read: %s", id, got)
+		}
+	}
+}
+
+func TestReminderRequestWithoutTheCalendarIsNotRefusedByThatRule(t *testing.T) {
+	h := newHarness(t)
+	h.llm.replies = []assistant.Message{call("c1", "create_reminder", `{"text":"brush teeth","in_seconds":60}`), say("ok")}
+	if _, err := h.turn("remind me to brush my teeth"); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.toolResult(1, "c1"); strings.Contains(got, readCalendarRefusal) {
+		t.Fatalf("a plain reminder was refused: %s", got)
+	}
+}

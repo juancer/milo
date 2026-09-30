@@ -20,6 +20,11 @@ const (
 	maxReadAtOnce     = 10
 	deliveredMsg      = "Delivered ✓"
 	deliveredLaterMsg = "Delivered ✓ It will be heard when the device is available again."
+	tooManyWaitingMsg = "Not delivered: too many of your messages are still waiting to be heard."
+
+	// MaxPendingPerSender bounds the unheard messages one person can leave, so a single
+	// account cannot fill the device's storage. Emergency follow-ups are not counted.
+	MaxPendingPerSender = 50
 
 	// maxPlayAttempts is how often a voice message that cannot be decoded is retried. After
 	// that it is marked failed, so one bad recording cannot hold back the messages behind it.
@@ -114,6 +119,11 @@ func (s *Service) deliverMessage(ctx context.Context, c actions.Call) (actions.R
 	msg := store.Message{Direction: "in", Kind: kind, Body: text, Audio: audioData, UserID: c.Actor.UserID}
 	if s.urgentActive(c.Actor.UserID) { // follows an emergency alert from the same person
 		msg.Type, msg.Priority = "emergency", "critical"
+	}
+	if msg.Priority != "critical" {
+		if n, err := s.Store.PendingFrom(ctx, c.Actor.UserID); err == nil && n >= MaxPendingPerSender {
+			return actions.Result{Message: tooManyWaitingMsg}, nil
+		}
 	}
 	id, err := s.Store.InsertMessage(ctx, msg)
 	if err != nil {
