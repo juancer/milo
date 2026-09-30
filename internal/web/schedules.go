@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/juancer/nexo/internal/schedules"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/schedules"
+	"github.com/juancer/milo/internal/store"
 )
 
 func (s *server) scheduleRoutes(mux *http.ServeMux) {

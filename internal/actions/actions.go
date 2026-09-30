@@ -1,4 +1,4 @@
-// Package actions is Nexo's security boundary.
+// Package actions is Milo's security boundary.
 //
 // Buttons, Telegram commands, voice and LLM tool calls are all reduced to the
 // same thing: "actor X asks to run action Y with parameters Z". The Engine
@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/juancer/nexo/internal/permissions"
+	"github.com/juancer/milo/internal/permissions"
 )
 
 // ActorKind says where a request came from.

@@ -9,12 +9,12 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/juancer/nexo/internal/audio"
-	"github.com/juancer/nexo/internal/auth"
-	"github.com/juancer/nexo/internal/secrets"
-	"github.com/juancer/nexo/internal/store"
-	"github.com/juancer/nexo/internal/system"
-	"github.com/juancer/nexo/internal/telegram"
+	"github.com/juancer/milo/internal/audio"
+	"github.com/juancer/milo/internal/auth"
+	"github.com/juancer/milo/internal/secrets"
+	"github.com/juancer/milo/internal/store"
+	"github.com/juancer/milo/internal/system"
+	"github.com/juancer/milo/internal/telegram"
 )
 
 // devSeed prepares a demo installation for local development: an admin
@@ -23,7 +23,7 @@ import (
 // database, so it can never touch a real device or overwrite parent settings.
 func devSeed(ctx context.Context, cfg system.Config) error {
 	if cfg.Hardware != "mock" {
-		return fmt.Errorf("dev-seed only runs with NEXO_HARDWARE=mock; it will never modify a real installation")
+		return fmt.Errorf("dev-seed only runs with MILO_HARDWARE=mock; it will never modify a real installation")
 	}
 	st, err := store.Open(ctx, cfg.DBPath())
 	if err != nil {
@@ -68,14 +68,14 @@ func devSeed(ctx context.Context, cfg system.Config) error {
 	}
 
 	// A fake token that only the simulator accepts.
-	token := getenv("NEXO_SIM_BOT_TOKEN", "123456:DEMO-TOKEN-NOT-A-REAL-BOT-abcdefghijk")
+	token := getenv("MILO_SIM_BOT_TOKEN", "123456:DEMO-TOKEN-NOT-A-REAL-BOT-abcdefghijk")
 	if err := vault.Put(ctx, telegram.SecretBotToken, []byte(token)); err != nil {
 		return err
 	}
 
 	// The assistant talks to the simulator's fake OpenAI-compatible endpoints.
 	// These keys are placeholders that only the simulator accepts.
-	simURLBase := getenv("NEXO_SIM_URL", "http://sim:8081")
+	simURLBase := getenv("MILO_SIM_URL", "http://sim:8081")
 	simURL := simURLBase + "/v1"
 	if err := vault.Put(ctx, "assistant.llm_api_key", []byte("sim-llm-key-not-real")); err != nil {
 		return err
@@ -94,7 +94,7 @@ func devSeed(ctx context.Context, cfg system.Config) error {
 
 	// Skills: a small music folder of public-domain melodies, and the simulator's
 	// fake weather service and calendar.
-	musicDir := getenv("NEXO_DEV_MUSIC", filepath.Join(cfg.DataDir, "music"))
+	musicDir := getenv("MILO_DEV_MUSIC", filepath.Join(cfg.DataDir, "music"))
 	if err := writeDemoMusic(musicDir); err != nil {
 		return err
 	}
@@ -102,7 +102,7 @@ func devSeed(ctx context.Context, cfg system.Config) error {
 	for k, v := range map[string]string{
 		"weather.api_base": simURLBase + "/weather", "weather.geo_base": simURLBase + "/weather",
 		"weather.latitude": "40.4168", "weather.longitude": "-3.7038", "weather.place": "Madrid, Demoland",
-		"system.timezone": getenv("NEXO_DEV_TIMEZONE", "Europe/Madrid"),
+		"system.timezone": getenv("MILO_DEV_TIMEZONE", "Europe/Madrid"),
 	} {
 		st.SetSetting(ctx, k, v) //nolint:errcheck
 	}
@@ -133,18 +133,18 @@ func devSeed(ctx context.Context, cfg system.Config) error {
 		st.SetFeatureEnabled(ctx, name, true) //nolint:errcheck
 	}
 	st.SetSetting(ctx, "dev.seeded", "1") //nolint:errcheck
-	// Printed once: it is not stored anywhere in the clear. Set NEXO_DEV_PASSWORD to choose it.
-	fmt.Printf("dev-seed: sign in as admin or mom with password %q (shown once; set NEXO_DEV_PASSWORD to choose your own); demo family Dad/Mum/Grandma; features enabled\n", password)
+	// Printed once: it is not stored anywhere in the clear. Set MILO_DEV_PASSWORD to choose it.
+	fmt.Printf("dev-seed: sign in as admin or mom with password %q (shown once; set MILO_DEV_PASSWORD to choose your own); demo family Dad/Mum/Grandma; features enabled\n", password)
 	return nil
 }
 
 // devFeatures are switched on in the demo. Later phases append to this list.
 var devFeatures = []string{"telegram", "assistant", "wakeword", "timer", "reminders", "music", "weather", "calendar"}
 
-// devPassword is NEXO_DEV_PASSWORD, or a random one when it is unset, so a demo
+// devPassword is MILO_DEV_PASSWORD, or a random one when it is unset, so a demo
 // installation never has a password that is the same everywhere.
 func devPassword() (string, error) {
-	if p := os.Getenv("NEXO_DEV_PASSWORD"); p != "" {
+	if p := os.Getenv("MILO_DEV_PASSWORD"); p != "" {
 		return p, nil
 	}
 	b := make([]byte, 12)

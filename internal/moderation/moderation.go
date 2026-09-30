@@ -1,4 +1,4 @@
-// Package moderation is Nexo's own safety layer around the assistant. It runs
+// Package moderation is Milo's own safety layer around the assistant. It runs
 // in the application, in addition to whatever the model does, and never trusts
 // the model: what the child says and what the model answers are both checked.
 //

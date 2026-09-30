@@ -17,7 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/juancer/nexo/internal/assistant"
+	"github.com/juancer/milo/internal/assistant"
 )
 
 // DefaultBaseURL is OpenRouter's API.
@@ -137,7 +137,7 @@ func (c *Client) once(ctx context.Context, payload []byte) (assistant.Message, e
 	}
 	req.Header.Set("Authorization", "Bearer "+c.key)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Title", "Nexo") // optional OpenRouter attribution
+	req.Header.Set("X-Title", "Milo") // optional OpenRouter attribution
 	resp, err := c.http.Do(req)
 	if err != nil {
 		var ue *url.Error

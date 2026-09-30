@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/store"
 )
 
 // Errors returned by Accounts.

@@ -1,20 +1,20 @@
 # Telegram
 
-Telegram is Nexo's family channel: authorized relatives send voice or text messages to the
+Telegram is Milo's family channel: authorized relatives send voice or text messages to the
 device, and the child sends voice messages back to chosen relatives. Telegram is only a
 transport. It identifies people by **Telegram user id** (never phone numbers) and never
 authorizes anyone by itself.
 
 ## Create your bot (once per installation)
 
-There is no shared "Nexo bot". Each family creates its own:
+There is no shared "Milo bot". Each family creates its own:
 
 1. In Telegram, talk to **@BotFather**, send `/newbot` and follow the steps.
 2. Copy the token it gives you (`123456:ABC...`). Treat it like a password.
 3. In the admin UI open **Telegram**, paste the token and save. It is stored encrypted.
 4. On the Dashboard turn on the **telegram** feature.
 
-Nexo asks the bot for its own username, so invitation links always point at *your* bot.
+Milo asks the bot for its own username, so invitation links always point at *your* bot.
 
 ## Inviting someone
 
@@ -24,7 +24,7 @@ Anyone can find a bot, so being able to message it grants nothing. To let a rela
    is valid and an optional note. An invitation can never grant OWNER.
 2. Send the link (`https://t.me/<your bot>?start=<token>`) to the person. It is shown once;
    only its SHA-256 is stored.
-3. They open it. Nexo records a **pending authorization request** (name, username, Telegram
+3. They open it. Milo records a **pending authorization request** (name, username, Telegram
    id, role from the invitation). The invitation is now used up.
 4. You see the request under **Authorization requests** and approve or reject it. Approving
    creates the user and can add them as a chat the child can talk to.
@@ -88,11 +88,11 @@ The **Message activity** list shows who and when, never the content.
 ## Group chats
 
 A chat can point at a Telegram group (add the bot to the group, use the group's chat id,
-usually negative). Nexo only *sends* to groups; it never listens to them.
+usually negative). Milo only *sends* to groups; it never listens to them.
 
 ## Privacy
 
-Message content is stored in `nexo.db` until pruned. Messages you no longer need are removed
+Message content is stored in `milo.db` until pruned. Messages you no longer need are removed
 after `messages.retention_days` (default 30) once played or sent. Logs never contain tokens or
 message text.
 

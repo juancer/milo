@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""EXAMPLE helper for Nexo's "external" wake-word engine using openWakeWord.
+"""EXAMPLE helper for Milo's "external" wake-word engine using openWakeWord.
 
-Untested on real hardware. Nexo does not need Python; this file only exists for people who
+Untested on real hardware. Milo does not need Python; this file only exists for people who
 want a neural detector. Install it yourself:
 
-    python3 -m venv /opt/nexo/wake-venv
-    /opt/nexo/wake-venv/bin/pip install openwakeword
-    sudo install -m 0755 -o root -g root openwakeword-helper.py /opt/nexo/wake-helper
-    # edit the first line of the installed copy to /opt/nexo/wake-venv/bin/python
+    python3 -m venv /opt/milo/wake-venv
+    /opt/milo/wake-venv/bin/pip install openwakeword
+    sudo install -m 0755 -o root -g root openwakeword-helper.py /opt/milo/wake-helper
+    # edit the first line of the installed copy to /opt/milo/wake-venv/bin/python
 
-Then choose "External helper" in the Wake word tab and enter /opt/nexo/wake-helper.
+Then choose "External helper" in the Wake word tab and enter /opt/milo/wake-helper.
 
 Protocol: raw 16 kHz mono signed 16-bit little-endian PCM arrives on stdin; print one line
 to stdout each time the wake phrase is heard.

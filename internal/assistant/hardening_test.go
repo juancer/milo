@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juancer/nexo/internal/assistant"
-	"github.com/juancer/nexo/internal/moderation"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/assistant"
+	"github.com/juancer/milo/internal/moderation"
+	"github.com/juancer/milo/internal/store"
 )
 
 func TestSendMessageTextIsOutputModerated(t *testing.T) {

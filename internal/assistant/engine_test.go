@@ -13,14 +13,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancer/nexo/internal/actions"
-	"github.com/juancer/nexo/internal/app"
-	"github.com/juancer/nexo/internal/assistant"
-	"github.com/juancer/nexo/internal/audio"
-	"github.com/juancer/nexo/internal/secrets"
-	"github.com/juancer/nexo/internal/speech"
-	"github.com/juancer/nexo/internal/store"
-	"github.com/juancer/nexo/internal/system"
+	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/app"
+	"github.com/juancer/milo/internal/assistant"
+	"github.com/juancer/milo/internal/audio"
+	"github.com/juancer/milo/internal/secrets"
+	"github.com/juancer/milo/internal/speech"
+	"github.com/juancer/milo/internal/store"
+	"github.com/juancer/milo/internal/system"
 )
 
 // scripted plays back canned model replies and records every request.
@@ -497,7 +497,7 @@ func TestSecondPressFinishesTheRecordingAndStillAnswers(t *testing.T) {
 	h := newHarness(t)
 	h.app.Features.SetEnabled(h.ctx, "assistant", true)
 	h.llm.replies = []assistant.Message{say("I heard you!")}
-	h.app.MockAudio.SetUtterance("hello nexo")
+	h.app.MockAudio.SetUtterance("hello milo")
 	if res, err := h.app.Actions.Execute(h.ctx, device(), "gpt", nil); err != nil || res.Message != "Listening" {
 		t.Fatalf("first press = %+v, %v", res, err)
 	}

@@ -9,13 +9,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/juancer/nexo/internal/actions"
-	"github.com/juancer/nexo/internal/audio"
-	"github.com/juancer/nexo/internal/audit"
-	"github.com/juancer/nexo/internal/notifications"
-	"github.com/juancer/nexo/internal/permissions"
-	"github.com/juancer/nexo/internal/secrets"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/audio"
+	"github.com/juancer/milo/internal/audit"
+	"github.com/juancer/milo/internal/notifications"
+	"github.com/juancer/milo/internal/permissions"
+	"github.com/juancer/milo/internal/secrets"
+	"github.com/juancer/milo/internal/store"
 )
 
 // FeatureName is the name under which the service is registered.
@@ -184,7 +184,7 @@ func (s *Service) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Restart applies a changed token without restarting Nexo.
+// Restart applies a changed token without restarting Milo.
 func (s *Service) Restart(ctx context.Context) error {
 	s.mu.Lock()
 	was := s.running

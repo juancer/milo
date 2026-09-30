@@ -11,14 +11,14 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/juancer/nexo/internal/app"
-	"github.com/juancer/nexo/internal/auth"
-	"github.com/juancer/nexo/internal/backup"
-	"github.com/juancer/nexo/internal/secrets"
-	"github.com/juancer/nexo/internal/store"
-	"github.com/juancer/nexo/internal/system"
-	"github.com/juancer/nexo/internal/web"
-	"github.com/juancer/nexo/web/admin"
+	"github.com/juancer/milo/internal/app"
+	"github.com/juancer/milo/internal/auth"
+	"github.com/juancer/milo/internal/backup"
+	"github.com/juancer/milo/internal/secrets"
+	"github.com/juancer/milo/internal/store"
+	"github.com/juancer/milo/internal/system"
+	"github.com/juancer/milo/internal/web"
+	"github.com/juancer/milo/web/admin"
 )
 
 func runServer(ctx context.Context, cfg system.Config) error {
@@ -30,7 +30,7 @@ func runServer(ctx context.Context, cfg system.Config) error {
 	log := slog.New(system.WithRing(base.Handler(), logs))
 	ctx, restart := context.WithCancel(ctx)
 	defer restart()
-	log.Info("starting nexo", "version", version, "hardware", cfg.Hardware, "listen", cfg.Listen)
+	log.Info("starting milo", "version", version, "hardware", cfg.Hardware, "listen", cfg.Listen)
 
 	// A restore chosen in the admin UI waits for this moment: the database is
 	// not open yet, so it can be swapped safely.
@@ -52,7 +52,7 @@ func runServer(ctx context.Context, cfg system.Config) error {
 	}
 	defer st.Close()
 
-	// Started without `nexo install` (for example by hand): still never run
+	// Started without `milo install` (for example by hand): still never run
 	// without an administrator, and never with a well-known password.
 	if created, user, pass, err := auth.NewAccounts(st).EnsureFirstAdmin(ctx); err != nil {
 		return err

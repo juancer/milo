@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancer/nexo/internal/skills"
+	"github.com/juancer/milo/internal/skills"
 )
 
 // POST /api/reminders obeys the same feature switch and cap as the create_reminder action.

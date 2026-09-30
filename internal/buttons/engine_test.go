@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancer/nexo/internal/gpio"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/gpio"
+	"github.com/juancer/milo/internal/store"
 )
 
 type fakeSource struct {

@@ -13,7 +13,8 @@ import (
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
-// File format ("NEXOBAK1"):
+// File format ("MILOBAK1"; files written under the project's former name start with "NEXOBAK1" and are
+// still read):
 //
 //	magic(8) | salt(16) | argon2 time(4) | argon2 memory KiB(4) | argon2 threads(1) | nonce prefix(16)
 //	then chunks, each: length(4, big endian) | XChaCha20-Poly1305 ciphertext of up to 64 KiB
@@ -23,7 +24,8 @@ import (
 // together with the whole header, so chunks cannot be reordered, dropped,
 // truncated or moved to another file without detection.
 const (
-	magic        = "NEXOBAK1"
+	magic        = "MILOBAK1"
+	legacyMagic  = "NEXOBAK1" // backups made before the project was renamed
 	chunkSize    = 64 << 10
 	headerLen    = 8 + 16 + 4 + 4 + 1 + 16
 	argonTime    = 3
@@ -31,9 +33,12 @@ const (
 	argonThreads = 1
 )
 
+// writeMagic is what new backups start with (a variable so a test can write the legacy format).
+var writeMagic = magic
+
 // Errors.
 var (
-	ErrNotABackup      = errors.New("this is not a Nexo backup file")
+	ErrNotABackup      = errors.New("this is not a Milo backup file")
 	ErrWrongPassphrase = errors.New("wrong passphrase, or the file is damaged")
 	ErrTruncated       = errors.New("the backup file is incomplete")
 )
@@ -55,7 +60,7 @@ type encWriter struct {
 // newEncWriter writes the header and returns a writer that encrypts what it is given.
 func newEncWriter(w io.Writer, passphrase string) (io.WriteCloser, error) {
 	header := make([]byte, headerLen)
-	copy(header, magic)
+	copy(header, writeMagic)
 	if _, err := rand.Read(header[8:24]); err != nil { // salt
 		return nil, err
 	}
@@ -145,7 +150,7 @@ type decReader struct {
 // A wrong passphrase is detected on the first read.
 func newDecReader(r io.Reader, passphrase string) (io.Reader, error) {
 	header := make([]byte, headerLen)
-	if _, err := io.ReadFull(r, header); err != nil || string(header[:8]) != magic {
+	if _, err := io.ReadFull(r, header); err != nil || (string(header[:8]) != magic && string(header[:8]) != legacyMagic) {
 		return nil, ErrNotABackup
 	}
 	t, m, p := binary.BigEndian.Uint32(header[24:]), binary.BigEndian.Uint32(header[28:]), header[32]

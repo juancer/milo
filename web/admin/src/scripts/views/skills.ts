@@ -58,7 +58,7 @@ export async function render(root: HTMLElement): Promise<void> {
   const dir = h("input", { type: "text", value: s.music.dir, ariaLabel: "Music folder" });
   const query = h("input", { type: "text", placeholder: "song name (empty = surprise)", maxLength: 100, ariaLabel: "Song to play" });
   root.append(h("section", { class: "card" }, h("h2", {}, "Music"),
-    note("Copy .mp3 or .wav files into the music folder (for example with a USB stick or scp). The child asks “play the Frozen song”; the closest name wins. Nexo keeps playing through the folder until told to stop, and a notification or spoken answer interrupts it."),
+    note("Copy .mp3 or .wav files into the music folder (for example with a USB stick or scp). The child asks “play the Frozen song”; the closest name wins. Milo keeps playing through the folder until told to stop, and a notification or spoken answer interrupts it."),
     h("p", {}, s.music.state === "playing" ? badge(`playing: ${s.music.title ?? ""}`) : s.music.state === "paused" ? badge(`paused: ${s.music.title ?? ""}`, true) : badge("stopped"), ` ${s.music.count} songs found`),
     h("form", { class: "inline", onsubmit: (ev: Event) => { ev.preventDefault(); void run(() => api("PUT", "/api/music", { dir: dir.value.trim() }), "Folder saved"); } },
       dir, h("button", { type: "submit" }, "Use this folder"), h("button", { type: "button", class: "secondary", onclick: () => run(() => api("POST", "/api/music/rescan"), "Rescanned") }, "Rescan")),

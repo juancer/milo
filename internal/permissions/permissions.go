@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/store"
 )
 
 // Role is a named bundle of default permissions.

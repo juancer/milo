@@ -35,7 +35,7 @@ export async function render(root: HTMLElement): Promise<void> {
           announce_sender: f.announce.checked, long_press_ms: Number(f.long.value), double_press_ms: Number(f.dbl.value),
           audio: { capture_device: f.cap.value.trim(), playback_device: f.play.value.trim(), mixer_card: f.card.value.trim(), mixer_control: f.ctl.value.trim() },
         });
-        toast("Saved. Restart Nexo to apply the button and audio settings.");
+        toast("Saved. Restart Milo to apply the button and audio settings.");
       } catch (e) {
         toast(errorMessage(e), true);
       }
@@ -54,11 +54,11 @@ export async function render(root: HTMLElement): Promise<void> {
     h("div", { class: "actions" }, h("button", { type: "submit" }, "Save"))));
 
   root.append(h("section", { class: "card" }, h("h2", {}, "Restart"),
-    h("p", { class: "muted" }, "Restarts the Nexo program (not the whole Raspberry Pi). It is back within a few seconds."),
+    h("p", { class: "muted" }, "Restarts the Milo program (not the whole Raspberry Pi). It is back within a few seconds."),
     h("div", { class: "actions" }, h("button", {
       type: "button", class: "secondary",
       onclick: async (ev: Event) => {
-        if (!confirmTwice(ev.currentTarget as HTMLButtonElement, "Restart Nexo")) return;
+        if (!confirmTwice(ev.currentTarget as HTMLButtonElement, "Restart Milo")) return;
         try {
           await api("POST", "/api/system/restart");
           toast("Restarting… reload this page in a few seconds.");
@@ -66,10 +66,10 @@ export async function render(root: HTMLElement): Promise<void> {
           toast(errorMessage(e), true);
         }
       },
-    }, "Restart Nexo"))));
+    }, "Restart Milo"))));
 
   root.append(h("section", { class: "card" }, h("h2", {}, "Recent log"),
-    h("p", { class: "muted" }, "The latest events since Nexo started. Secrets and message contents never appear here."),
+    h("p", { class: "muted" }, "The latest events since Milo started. Secrets and message contents never appear here."),
     h("pre", { class: "log" }, logs.lines.length ? logs.lines.join("\n") : "(empty)"),
     h("div", { class: "actions" }, h("button", { type: "button", class: "secondary", onclick: () => render(root) }, "Refresh"))));
 }

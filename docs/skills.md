@@ -15,8 +15,8 @@ are spoken when text-to-speech is set up; otherwise the child hears an alarm or 
 
 ## Music
 
-Copy files into the music folder (default `/var/lib/nexo/music`, changeable under Skills → Music;
-the service can only write below `/var/lib/nexo` unless you add a `ReadWritePaths=` drop-in for a
+Copy files into the music folder (default `/var/lib/milo/music`, changeable under Skills → Music;
+the service can only write below `/var/lib/milo` unless you add a `ReadWritePaths=` drop-in for a
 USB stick). Sub-folders are scanned (four levels); symbolic links and hidden files are ignored,
 so a request can never reach a file outside the folder.
 
@@ -31,14 +31,14 @@ over the song. Pausing keeps the position; playing again with no name resumes.
 
 ## Weather
 
-Skills → Weather: type your town. Nexo looks it up once and remembers the coordinates. Units
+Skills → Weather: type your town. Milo looks it up once and remembers the coordinates. Units
 can be Celsius or Fahrenheit. Nothing about the family is sent, only latitude and longitude.
 
 ## Calendar
 
 Skills → Calendar: paste the secret iCalendar address (Google Calendar: *Settings → your
 calendar → Secret address in iCal format*; Nextcloud and iCloud have equivalents). It works like a
-password, so it is stored encrypted and never shown again. Nexo reads it (cached for 10 minutes),
+password, so it is stored encrypted and never shown again. Milo reads it (cached for 10 minutes),
 expands repeating events and honours cancellations and exceptions. Unusual repeat rules may be
 missed. Event titles are spoken and, when the assistant reads them, sent to the AI service. Titles are
 written by other people, so in the turn where the assistant reads the calendar it can only use a short

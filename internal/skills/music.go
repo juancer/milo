@@ -21,8 +21,8 @@ import (
 
 	"github.com/hajimehoshi/go-mp3"
 
-	"github.com/juancer/nexo/internal/actions"
-	"github.com/juancer/nexo/internal/audio"
+	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/audio"
 )
 
 const (
@@ -35,7 +35,7 @@ const (
 	maxMP3Bytes = 200 << 20
 	maxID3Bytes = 1 << 20
 	// DefaultMusicDir is where parents put audio files (.mp3 and .wav).
-	DefaultMusicDir = "/var/lib/nexo/music"
+	DefaultMusicDir = "/var/lib/milo/music"
 )
 
 // Track is a playable file found in the music folder.

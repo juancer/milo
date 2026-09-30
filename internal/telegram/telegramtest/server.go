@@ -1,5 +1,5 @@
 // Package telegramtest is an in-memory imitation of the Telegram Bot API. It is
-// used by tests and by the development simulator (cmd/nexo-sim), so the whole
+// used by tests and by the development simulator (cmd/milo-sim), so the whole
 // Telegram flow can be exercised with no Telegram account and no Internet.
 package telegramtest
 
@@ -40,7 +40,7 @@ type Person struct {
 	Username  string `json:"username"`
 }
 
-// Server implements the subset of the Bot API that Nexo uses.
+// Server implements the subset of the Bot API that Milo uses.
 type Server struct {
 	mu      sync.Mutex
 	cond    *sync.Cond
@@ -209,7 +209,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	switch rest {
 	case "getMe":
-		reply(w, map[string]any{"id": 999, "is_bot": true, "first_name": "Nexo", "username": s.botName})
+		reply(w, map[string]any{"id": 999, "is_bot": true, "first_name": "Milo", "username": s.botName})
 	case "getUpdates":
 		s.getUpdates(w, r)
 	case "sendMessage":

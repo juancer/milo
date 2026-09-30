@@ -23,7 +23,7 @@ export async function render(root: HTMLElement): Promise<void> {
     h("section", { class: "card" }, h("h2", {}, "Audio"),
       h("p", {}, `Backend: ${status.audio.backend} · ${status.audio.available ? "available" : "unavailable"} · speaker volume ${status.audio.volume}%`),
       status.audio.detail ? h("p", { class: "muted" }, status.audio.detail) : null,
-      h("p", { class: "muted" }, "Speaker volume is changed with the volume buttons (set_volume action) or by voice. Test the hardware on the device with: nexo test-audio")),
+      h("p", { class: "muted" }, "Speaker volume is changed with the volume buttons (set_volume action) or by voice. Test the hardware on the device with: milo test-audio")),
     h("form", {
       class: "card",
       onsubmit: async (ev: Event) => {

@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/juancer/nexo/internal/app"
-	"github.com/juancer/nexo/internal/backup"
+	"github.com/juancer/milo/internal/app"
+	"github.com/juancer/milo/internal/backup"
 )
 
 const maxUpload = 1 << 30 // 1 GiB
@@ -49,17 +49,17 @@ func (s *server) putBackup(w http.ResponseWriter, r *http.Request) {
 	b.Dir = strings.TrimSpace(b.Dir)
 	switch {
 	case !dirRe.MatchString(b.Dir) || strings.Contains(b.Dir, ".."):
-		writeError(w, http.StatusBadRequest, "enter an absolute folder path such as /var/lib/nexo/backups")
+		writeError(w, http.StatusBadRequest, "enter an absolute folder path such as /var/lib/milo/backups")
 		return
 	case !s.app.BackupDirAllowed(b.Dir):
-		writeError(w, http.StatusBadRequest, "the folder must be inside Nexo's data folder, for example "+filepath.Join(s.app.Cfg.DataDir, "backups"))
+		writeError(w, http.StatusBadRequest, "the folder must be inside Milo's data folder, for example "+filepath.Join(s.app.Cfg.DataDir, "backups"))
 		return
 	case b.Keep < 1 || b.Keep > 60 || b.EveryHours < 1 || b.EveryHours > 168:
 		writeError(w, http.StatusBadRequest, "keep 1-60 copies, every 1-168 hours")
 		return
 	}
 	if err := os.MkdirAll(b.Dir, 0o700); err != nil {
-		writeError(w, http.StatusBadRequest, "that folder cannot be created or written by Nexo (only /var/lib/nexo is writable by default)")
+		writeError(w, http.StatusBadRequest, "that folder cannot be created or written by Milo (only /var/lib/milo is writable by default)")
 		return
 	}
 	if err := s.app.SaveBackupSettings(r.Context(), b); err != nil {
@@ -93,12 +93,12 @@ func (s *server) downloadBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name, _ := s.app.Store.DeviceName(r.Context())
-	opts := backup.Options{Passphrase: body.Passphrase, NexoVersion: s.version, DeviceName: name, WorkDir: s.app.Cfg.DataDir}
+	opts := backup.Options{Passphrase: body.Passphrase, MiloVersion: s.version, DeviceName: name, WorkDir: s.app.Cfg.DataDir}
 	if body.IncludeKey {
 		opts.KeyPath = s.app.Cfg.KeyPath
 	}
 	// Build the file on disk first so a failure becomes a clean error, not a broken download.
-	tmp, err := os.CreateTemp(s.app.Cfg.DataDir, "download-*.nexo")
+	tmp, err := os.CreateTemp(s.app.Cfg.DataDir, "download-*.milo")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot prepare the backup")
 		return
@@ -114,14 +114,14 @@ func (s *server) downloadBackup(w http.ResponseWriter, r *http.Request) {
 	tmp.Seek(0, io.SeekStart)                                                                           //nolint:errcheck
 	s.audit(r, "backup.downloaded", "", map[string]string{"includes_key": fmt.Sprint(body.IncludeKey)}) // never the passphrase
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", `attachment; filename="nexo-backup-`+time.Now().Format("2006-01-02")+`.nexo"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="milo-backup-`+time.Now().Format("2006-01-02")+`.milo"`)
 	w.Header().Set("Content-Length", fmt.Sprint(info.Size()))
 	w.Header().Set("Cache-Control", "no-store")
 	io.Copy(w, tmp) //nolint:errcheck
 }
 
 // restoreBackup verifies an uploaded backup and stages it; it takes effect
-// when Nexo restarts. Form fields: "passphrase" first, then the file.
+// when Milo restarts. Form fields: "passphrase" first, then the file.
 func (s *server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	// Their own bucket: a mistyped restore passphrase must not count against signing in.
@@ -180,7 +180,7 @@ func (s *server) stageRestore(w http.ResponseWriter, r *http.Request, file io.Re
 	if err := backup.Stage(c, s.app.Cfg.DataDir, s.app.Cfg.KeyPath); err != nil {
 		msg := err.Error()
 		if errors.Is(err, backup.ErrKeyMismatch) && c.Manifest.IncludesKey {
-			msg += ". Restore it from the command line instead (sudo nexo restore FILE --replace-key)"
+			msg += ". Restore it from the command line instead (sudo milo restore FILE --replace-key)"
 		}
 		writeError(w, http.StatusUnprocessableEntity, msg)
 		return false

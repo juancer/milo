@@ -11,7 +11,7 @@ export class ApiError extends Error {
 export async function api<T = void>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
-    headers: { "Content-Type": "application/json", "X-Requested-With": "nexo-admin" },
+    headers: { "Content-Type": "application/json", "X-Requested-With": "milo-admin" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
@@ -35,7 +35,7 @@ export interface Status {
 export async function apiFile(method: string, path: string, body?: unknown): Promise<{ blob: Blob; filename: string }> {
   const res = await fetch(path, {
     method,
-    headers: { "Content-Type": "application/json", "X-Requested-With": "nexo-admin" },
+    headers: { "Content-Type": "application/json", "X-Requested-With": "milo-admin" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) {
@@ -49,12 +49,12 @@ export async function apiFile(method: string, path: string, body?: unknown): Pro
     throw new ApiError(res.status, message);
   }
   const match = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "");
-  return { blob: await res.blob(), filename: match?.[1] ?? "nexo-backup.nexo" };
+  return { blob: await res.blob(), filename: match?.[1] ?? "milo-backup.milo" };
 }
 
 /** Uploads a form (fields first, then the file) and returns the JSON answer. */
 export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
-  const res = await fetch(path, { method: "POST", headers: { "X-Requested-With": "nexo-admin" }, body: form });
+  const res = await fetch(path, { method: "POST", headers: { "X-Requested-With": "milo-admin" }, body: form });
   const text = await res.text();
   const data = text ? JSON.parse(text) : undefined;
   if (!res.ok) throw new ApiError(res.status, data?.error ?? res.statusText);

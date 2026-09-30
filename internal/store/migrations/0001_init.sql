@@ -3,7 +3,7 @@
 
 CREATE TABLE device (
     id         INTEGER PRIMARY KEY CHECK (id = 1),
-    name       TEXT NOT NULL DEFAULT 'Nexo',
+    name       TEXT NOT NULL DEFAULT 'Milo',
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 INSERT INTO device (id) VALUES (1);

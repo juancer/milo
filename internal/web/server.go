@@ -15,16 +15,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juancer/nexo/internal/app"
-	"github.com/juancer/nexo/internal/auth"
-	"github.com/juancer/nexo/internal/features"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/app"
+	"github.com/juancer/milo/internal/auth"
+	"github.com/juancer/milo/internal/features"
+	"github.com/juancer/milo/internal/store"
 )
 
 const (
-	cookieName        = "nexo_session"
+	cookieName        = "milo_session"
 	clientHeader      = "X-Requested-With"
-	clientHeaderValue = "nexo-admin"
+	clientHeaderValue = "milo-admin"
 	sessionTTL        = 12 * time.Hour
 	maxBody           = 4 << 10
 )

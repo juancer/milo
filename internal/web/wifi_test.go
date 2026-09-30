@@ -10,11 +10,11 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/juancer/nexo/internal/app"
-	"github.com/juancer/nexo/internal/auth"
-	"github.com/juancer/nexo/internal/secrets"
-	"github.com/juancer/nexo/internal/store"
-	"github.com/juancer/nexo/internal/system"
+	"github.com/juancer/milo/internal/app"
+	"github.com/juancer/milo/internal/auth"
+	"github.com/juancer/milo/internal/secrets"
+	"github.com/juancer/milo/internal/store"
+	"github.com/juancer/milo/internal/system"
 )
 
 func TestWifiRowIsRemovedWhenThePasswordCannotBeStored(t *testing.T) {

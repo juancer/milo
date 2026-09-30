@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juancer/nexo/internal/actions"
-	"github.com/juancer/nexo/internal/audio"
-	"github.com/juancer/nexo/internal/permissions"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/audio"
+	"github.com/juancer/milo/internal/permissions"
+	"github.com/juancer/milo/internal/store"
 )
 
 const (

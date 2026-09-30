@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/juancer/nexo/internal/gpio"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/gpio"
+	"github.com/juancer/milo/internal/store"
 )
 
 // Event types, matching the values stored in button_actions.event_type.
@@ -101,7 +101,7 @@ func (e *Engine) Reload(ctx context.Context) error {
 	return e.reloadLocked()
 }
 
-// SetDispatcher replaces the dispatcher. Used by `nexo test-buttons` to print
+// SetDispatcher replaces the dispatcher. Used by `milo test-buttons` to print
 // events instead of running their actions.
 func (e *Engine) SetDispatcher(d Dispatcher) {
 	e.mu.Lock()

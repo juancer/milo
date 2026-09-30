@@ -7,7 +7,7 @@ import (
 )
 
 // The simulator drives mock hardware so the whole device can be seen working
-// without a Raspberry Pi. Its routes exist only when NEXO_HARDWARE=mock.
+// without a Raspberry Pi. Its routes exist only when MILO_HARDWARE=mock.
 func (s *server) simRoutes(mux *http.ServeMux) {
 	if s.app.MockGPIO == nil {
 		return

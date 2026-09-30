@@ -26,7 +26,7 @@ What "closed" means:
 - Child-side actions (talk, choose chat, ask the assistant...) are refused; the device plays a
   short error tone.
 - Incoming messages are **stored, never deleted**. They arrive silently and stay pending.
-- When the allowed hours begin, Nexo plays one "piii" for the whole backlog (switch this off
+- When the allowed hours begin, Milo plays one "piii" for the whole backlog (switch this off
   under Sound → "Announce messages that arrived outside usage hours").
 - The child can still hear **emergency** messages with LISTEN.
 

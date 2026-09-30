@@ -17,7 +17,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.DataDir != DefaultDataDir || cfg.Listen != ":8080" || cfg.KeyPath != DefaultKeyPath || cfg.Hardware != "real" {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
-	if cfg.DBPath() != "/var/lib/nexo/nexo.db" {
+	if cfg.DBPath() != "/var/lib/milo/milo.db" {
 		t.Fatalf("DBPath = %s", cfg.DBPath())
 	}
 }
@@ -27,14 +27,14 @@ func TestLoadConfigKeyPrecedence(t *testing.T) {
 	if cfg.KeyPath != "/run/creds/master.key" {
 		t.Fatalf("systemd credential not used: %s", cfg.KeyPath)
 	}
-	cfg, _ = LoadConfig(env(map[string]string{"CREDENTIALS_DIRECTORY": "/run/creds", "NEXO_MASTER_KEY_FILE": "/x.key"}))
+	cfg, _ = LoadConfig(env(map[string]string{"CREDENTIALS_DIRECTORY": "/run/creds", "MILO_MASTER_KEY_FILE": "/x.key"}))
 	if cfg.KeyPath != "/x.key" {
 		t.Fatalf("explicit key file must win: %s", cfg.KeyPath)
 	}
 }
 
 func TestLoadConfigRejectsBadHardware(t *testing.T) {
-	if _, err := LoadConfig(env(map[string]string{"NEXO_HARDWARE": "quantum"})); err == nil {
+	if _, err := LoadConfig(env(map[string]string{"MILO_HARDWARE": "quantum"})); err == nil {
 		t.Fatal("expected error")
 	}
 }

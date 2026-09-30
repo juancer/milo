@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juancer/nexo/internal/app"
-	"github.com/juancer/nexo/internal/assistant"
-	"github.com/juancer/nexo/internal/secrets"
-	"github.com/juancer/nexo/internal/speech"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/app"
+	"github.com/juancer/milo/internal/assistant"
+	"github.com/juancer/milo/internal/secrets"
+	"github.com/juancer/milo/internal/speech"
+	"github.com/juancer/milo/internal/store"
 )
 
 var modelRe = regexp.MustCompile(`^[A-Za-z0-9._:/@+-]{1,100}$`)

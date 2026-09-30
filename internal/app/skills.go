@@ -5,10 +5,10 @@ import (
 	"errors"
 	"time"
 
-	"github.com/juancer/nexo/internal/audio"
-	"github.com/juancer/nexo/internal/moderation"
-	"github.com/juancer/nexo/internal/skills"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/audio"
+	"github.com/juancer/milo/internal/moderation"
+	"github.com/juancer/milo/internal/skills"
+	"github.com/juancer/milo/internal/store"
 )
 
 // initSkills builds the optional skills and registers their actions and features.

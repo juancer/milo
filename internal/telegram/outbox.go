@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/juancer/nexo/internal/permissions"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/permissions"
+	"github.com/juancer/milo/internal/store"
 )
 
 const maxAttempts = 20

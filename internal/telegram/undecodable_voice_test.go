@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancer/nexo/internal/audio"
+	"github.com/juancer/milo/internal/audio"
 )
 
 // stereoDecoder applies the same check as audio.Opus.OggToWAV after opusdec runs: only

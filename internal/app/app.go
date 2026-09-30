@@ -1,4 +1,4 @@
-// Package app wires Nexo together: it builds the store, hardware, engines and
+// Package app wires Milo together: it builds the store, hardware, engines and
 // features and owns their lifecycle. Everything here is assembly; behaviour
 // lives in the packages it connects.
 package app
@@ -12,23 +12,23 @@ import (
 	"sync"
 	"time"
 
-	"github.com/juancer/nexo/internal/actions"
-	"github.com/juancer/nexo/internal/assistant"
-	"github.com/juancer/nexo/internal/audio"
-	"github.com/juancer/nexo/internal/audit"
-	"github.com/juancer/nexo/internal/buttons"
-	"github.com/juancer/nexo/internal/features"
-	"github.com/juancer/nexo/internal/gpio"
-	"github.com/juancer/nexo/internal/notifications"
-	"github.com/juancer/nexo/internal/permissions"
-	"github.com/juancer/nexo/internal/schedules"
-	"github.com/juancer/nexo/internal/secrets"
-	"github.com/juancer/nexo/internal/skills"
-	"github.com/juancer/nexo/internal/store"
-	"github.com/juancer/nexo/internal/system"
-	"github.com/juancer/nexo/internal/telegram"
-	"github.com/juancer/nexo/internal/wakeword"
-	"github.com/juancer/nexo/internal/wifi"
+	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/assistant"
+	"github.com/juancer/milo/internal/audio"
+	"github.com/juancer/milo/internal/audit"
+	"github.com/juancer/milo/internal/buttons"
+	"github.com/juancer/milo/internal/features"
+	"github.com/juancer/milo/internal/gpio"
+	"github.com/juancer/milo/internal/notifications"
+	"github.com/juancer/milo/internal/permissions"
+	"github.com/juancer/milo/internal/schedules"
+	"github.com/juancer/milo/internal/secrets"
+	"github.com/juancer/milo/internal/skills"
+	"github.com/juancer/milo/internal/store"
+	"github.com/juancer/milo/internal/system"
+	"github.com/juancer/milo/internal/telegram"
+	"github.com/juancer/milo/internal/wakeword"
+	"github.com/juancer/milo/internal/wifi"
 )
 
 // App is the assembled application.
@@ -71,7 +71,7 @@ type App struct {
 	// RestartFunc, when set, gracefully restarts the process (systemd starts it again).
 	RestartFunc func()
 
-	// Set only when NEXO_HARDWARE=mock, for tests and the simulator.
+	// Set only when MILO_HARDWARE=mock, for tests and the simulator.
 	MockAudio *audio.Mock
 	MockGPIO  *gpio.Mock
 

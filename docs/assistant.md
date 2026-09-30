@@ -1,6 +1,6 @@
 # The assistant
 
-Press the GPT button (or, later, say the wake word) and talk. Nexo records until you stop
+Press the GPT button (or, later, say the wake word) and talk. Milo records until you stop
 talking, turns the recording into text, asks a language model, and speaks the answer.
 
 ```
@@ -18,7 +18,7 @@ microphone → speech-to-text → moderation → AI model ⇄ actions → modera
 Both cloud providers use the OpenAI-compatible wire format, so any compatible service works:
 change the address, model name and key. OpenRouter is only an LLM provider; it does not do
 speech recognition, which is why speech-to-text is a separate provider. Free models are rate
-limited: Nexo retries with backoff and, if the service stays unavailable, the child hears
+limited: Milo retries with backoff and, if the service stays unavailable, the child hears
 *"I can't think right now. Please try again in a little while."* instead of silence. A per-hour
 question limit (default 60) protects free-tier quotas.
 
@@ -36,18 +36,18 @@ API keys are stored encrypted (see [security.md](security.md)) and are never sho
 ### Talking to it
 
 Press the GPT button once and speak; it stops listening when you fall silent. Press it again
-while it is listening to finish early. Press it while Nexo is thinking or speaking to interrupt.
+while it is listening to finish early. Press it while Milo is thinking or speaking to interrupt.
 
 ### Text-to-speech with Piper
 
 Install a Piper build for ARM64 and a voice, then set the voice file (a `.onnx` path) under
-Assistant → Providers. Nexo runs `piper --model <voice> --output_file <tmp>` with the text on
+Assistant → Providers. Milo runs `piper --model <voice> --output_file <tmp>` with the text on
 standard input; the command line is fixed. With text-to-speech off, the child hears tones
 instead of spoken answers.
 
 ## What the model can do: only registered actions
 
-The model never runs commands. It can only ask Nexo to run **actions** that are explicitly
+The model never runs commands. It can only ask Milo to run **actions** that are explicitly
 registered *and* marked as available to the assistant. Every request goes through the Action
 Engine, which checks that the action exists, that the feature is enabled, that the usage
 schedule allows it and that the parameters are valid.
@@ -58,11 +58,11 @@ and, when Telegram is on, `send_message`, `read_messages`, `get_pending_messages
 Never available to the assistant: emergency alerts, delivering messages *as* a family member,
 changing settings, contacts, schedules, permissions or secrets. There is no shell, file or
 network tool. Tool results are given to the model as data with an instruction not to obey
-them, and the assistant is never shown message contents (it can only make Nexo play them).
+them, and the assistant is never shown message contents (it can only make Milo play them).
 
 ## Safety
 
-Nexo adds its own checks around the model, because a model cannot be trusted with a child:
+Milo adds its own checks around the model, because a model cannot be trusted with a child:
 
 - **Input check.** What the child says is checked before the model sees it.
 - **Output check.** What the model says is checked before it is spoken, and shortened to the

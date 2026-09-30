@@ -11,8 +11,8 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/juancer/nexo/internal/backup"
-	"github.com/juancer/nexo/internal/system"
+	"github.com/juancer/milo/internal/backup"
+	"github.com/juancer/milo/internal/system"
 )
 
 // readPassphrase gets a passphrase from stdin (--passphrase-stdin) or the terminal.
@@ -78,7 +78,7 @@ func parseBackupArgs(args []string) (backupArgs, error) {
 	return a, nil
 }
 
-// backupCmd writes an encrypted backup file. It is safe to run while Nexo is running.
+// backupCmd writes an encrypted backup file. It is safe to run while Milo is running.
 func backupCmd(ctx context.Context, cfg system.Config, args []string) error {
 	a, err := parseBackupArgs(args)
 	if err != nil {
@@ -98,7 +98,7 @@ func backupCmd(ctx context.Context, cfg system.Config, args []string) error {
 	defer st.Close()
 	name, _ := st.DeviceName(ctx)
 
-	opts := backup.Options{Passphrase: pass, NexoVersion: version, DeviceName: name, WorkDir: cfg.DataDir}
+	opts := backup.Options{Passphrase: pass, MiloVersion: version, DeviceName: name, WorkDir: cfg.DataDir}
 	if !a.noKey {
 		opts.KeyPath = cfg.KeyPath
 	}
@@ -122,7 +122,7 @@ func backupCmd(ctx context.Context, cfg system.Config, args []string) error {
 	return nil
 }
 
-// restoreCmd installs a backup file. Nexo must be stopped first.
+// restoreCmd installs a backup file. Milo must be stopped first.
 func restoreCmd(ctx context.Context, cfg system.Config, args []string) error {
 	a, err := parseBackupArgs(args)
 	if err != nil {
@@ -146,7 +146,7 @@ func restoreCmd(ctx context.Context, cfg system.Config, args []string) error {
 	}
 	defer c.Close()
 	m := c.Manifest
-	fmt.Printf("backup of %q made %s (Nexo %s, %s)\n", m.DeviceName, m.CreatedAt.Local().Format(time.DateTime), m.NexoVersion,
+	fmt.Printf("backup of %q made %s (Milo %s, %s)\n", m.DeviceName, m.CreatedAt.Local().Format(time.DateTime), m.MiloVersion,
 		map[bool]string{true: "with master key", false: "without master key"}[m.IncludesKey])
 
 	previous, err := backup.Install(c, cfg.DataDir, cfg.KeyPath, a.replaceKey)
@@ -156,10 +156,10 @@ func restoreCmd(ctx context.Context, cfg system.Config, args []string) error {
 		}
 		return err
 	}
-	fmt.Printf("restored into %s\n", filepath.Join(cfg.DataDir, "nexo.db"))
+	fmt.Printf("restored into %s\n", filepath.Join(cfg.DataDir, "milo.db"))
 	if previous != "" {
 		fmt.Printf("the previous database was kept as %s (delete it when you are sure)\n", previous)
 	}
-	fmt.Println("Now start Nexo again: sudo systemctl start nexo")
+	fmt.Println("Now start Milo again: sudo systemctl start milo")
 	return nil
 }

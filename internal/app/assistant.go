@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/juancer/nexo/internal/assistant"
-	"github.com/juancer/nexo/internal/notifications"
-	"github.com/juancer/nexo/internal/openrouter"
-	"github.com/juancer/nexo/internal/permissions"
-	"github.com/juancer/nexo/internal/secrets"
-	"github.com/juancer/nexo/internal/speech"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/assistant"
+	"github.com/juancer/milo/internal/notifications"
+	"github.com/juancer/milo/internal/openrouter"
+	"github.com/juancer/milo/internal/permissions"
+	"github.com/juancer/milo/internal/secrets"
+	"github.com/juancer/milo/internal/speech"
+	"github.com/juancer/milo/internal/store"
 )
 
 // Secret names for the assistant's providers.
@@ -87,8 +87,8 @@ func (a *App) alertParents(ctx context.Context, quote string) {
 	if err != nil {
 		return
 	}
-	msg := fmt.Sprintf("💛 Nexo noticed something that may need your attention. The child said: “%s”. "+
-		"Nexo answered kindly and suggested talking to a trusted adult. You can review conversations in the admin under Assistant.", quote)
+	msg := fmt.Sprintf("💛 Milo noticed something that may need your attention. The child said: “%s”. "+
+		"Milo answered kindly and suggested talking to a trusted adult. You can review conversations in the admin under Assistant.", quote)
 	sent := 0
 	for _, u := range users {
 		if !u.Active || u.TelegramID == 0 || (u.Role != string(permissions.RoleOwner) && u.Role != string(permissions.RoleParent)) {

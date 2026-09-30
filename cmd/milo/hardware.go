@@ -6,12 +6,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/juancer/nexo/internal/app"
-	"github.com/juancer/nexo/internal/audio"
-	"github.com/juancer/nexo/internal/buttons"
-	"github.com/juancer/nexo/internal/secrets"
-	"github.com/juancer/nexo/internal/store"
-	"github.com/juancer/nexo/internal/system"
+	"github.com/juancer/milo/internal/app"
+	"github.com/juancer/milo/internal/audio"
+	"github.com/juancer/milo/internal/buttons"
+	"github.com/juancer/milo/internal/secrets"
+	"github.com/juancer/milo/internal/store"
+	"github.com/juancer/milo/internal/system"
 )
 
 // openApp builds the application for a one-off hardware check.
@@ -79,7 +79,7 @@ func testAudio(ctx context.Context, cfg system.Config) error {
 // button mapping stored in SQLite but never runs the mapped actions.
 func testButtons(ctx context.Context, cfg system.Config) error {
 	if cfg.Hardware == "mock" {
-		return fmt.Errorf("test-buttons needs real GPIO; NEXO_HARDWARE is mock (use the simulator in the web admin instead)")
+		return fmt.Errorf("test-buttons needs real GPIO; MILO_HARDWARE is mock (use the simulator in the web admin instead)")
 	}
 	a, done, err := openApp(ctx, cfg)
 	if err != nil {

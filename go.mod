@@ -1,4 +1,4 @@
-module github.com/juancer/nexo
+module github.com/juancer/milo
 
 go 1.26.0
 

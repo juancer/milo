@@ -59,7 +59,7 @@ func calls(t *testing.T, log string) [][]string {
 	return out
 }
 
-func TestApplyAddsUpdatesAndRemovesOnlyNexoProfiles(t *testing.T) {
+func TestApplyAddsUpdatesAndRemovesOnlyMiloProfiles(t *testing.T) {
 	stale := profileName("Old Network")
 	home := profileName("Home")
 	bin, log := fakeNM(t, "Wired connection 1:802-3-ethernet\nmyown:802-11-wireless\n"+home+":802-11-wireless\n"+stale+":802-11-wireless\n")
@@ -91,7 +91,7 @@ func TestApplyAddsUpdatesAndRemovesOnlyNexoProfiles(t *testing.T) {
 	if len(add) != 1 || !contains(add[0], `Evil "; rm -rf / $(id)`) || contains(add[0], "wifi-sec.psk") {
 		t.Fatalf("add = %v", add)
 	}
-	// Only the stale Nexo profile is deleted; the user's own profiles are untouched.
+	// Only the stale Milo profile is deleted; the user's own profiles are untouched.
 	if len(del) != 1 || del[0][2] != stale {
 		t.Fatalf("delete = %v", del)
 	}

@@ -38,7 +38,7 @@ func (s *sim) calendar(w http.ResponseWriter, _ *http.Request) {
 	stamp := func(t time.Time) string { return t.UTC().Format("20060102T150405Z") }
 	day := func(t time.Time) string { return t.Format("20060102") }
 	var b strings.Builder
-	b.WriteString("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//nexo-sim//EN\r\n")
+	b.WriteString("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//milo-sim//EN\r\n")
 	event := func(uid, summary, extra string) {
 		fmt.Fprintf(&b, "BEGIN:VEVENT\r\nUID:%s\r\nDTSTAMP:%s\r\nSUMMARY:%s\r\n%sEND:VEVENT\r\n", uid, stamp(now), summary, extra)
 	}

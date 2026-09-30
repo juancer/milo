@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juancer/nexo/internal/actions"
+	"github.com/juancer/milo/internal/actions"
 )
 
 // Weather settings (system_settings keys).

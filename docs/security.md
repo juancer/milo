@@ -9,7 +9,7 @@ change parental configuration. The Action Engine (Phase 5) is the central bounda
 Telegram tokens, API keys and Wi-Fi passwords are encrypted with XChaCha20-Poly1305 before
 they reach SQLite. The secret's name is bound to the ciphertext, so rows cannot be swapped.
 
-The master key is `/etc/nexo/master.key` (root, mode 0600), handed to the service with
+The master key is `/etc/milo/master.key` (root, mode 0600), handed to the service with
 systemd `LoadCredential`. It is **not** stored next to the database.
 
 This protects against someone who obtains only the database (a backup, a copied SD card).
@@ -28,7 +28,7 @@ At startup a canary secret detects a key that does not match the database and re
   actor with the most rows go first, so one admin's volume cannot push out another's history). Identical
   events from the same actor within a minute are counted on one row instead of adding rows.
 - **Several people can manage the device**, each with their own username and password
-  (`mom`, `dad`...). The first account, `admin`, is the **owner**: created by `nexo install` with a
+  (`mom`, `dad`...). The first account, `admin`, is the **owner**: created by `milo install` with a
   **generated password shown once** on the terminal (it is never logged or stored in clear text).
   Whoever signs in with a generated password must choose their own before anything else works.
 - The owner adds, resets and removes administrators, and is the only one who can download or
@@ -40,15 +40,15 @@ At startup a canary secret detects a key that does not match the database and re
   so nobody can lock the owner out by naming `admin`; at most two Argon2 checks run at once. Unknown
   usernames cost the same time as wrong passwords. Changing a password, or removing an account, ends its sessions immediately.
 - Every audit entry names the administrator who acted.
-- Lost owner access: on the device, `sudo -u nexo nexo admin-reset` (needs shell access).
-- State-changing requests require the `X-Requested-With: nexo-admin` header and a matching
+- Lost owner access: on the device, `sudo -u milo milo admin-reset` (needs shell access).
+- State-changing requests require the `X-Requested-With: milo-admin` header and a matching
   `Origin`. Strict CSP, `X-Frame-Options: DENY`, no external assets.
 
 ## Backups
 
 Downloadable backups are encrypted with a passphrase (Argon2id + XChaCha20-Poly1305, authenticated
 chunks). The passphrase is never stored or logged. Restores are verified and staged; a crafted
-file cannot write outside its own folder or install a database from a newer Nexo. See
+file cannot write outside its own folder or install a database from a newer Milo. See
 [backup.md](backup.md).
 
 ## Logging and audit

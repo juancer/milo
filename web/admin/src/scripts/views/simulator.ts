@@ -69,7 +69,7 @@ export async function render(root: HTMLElement): Promise<void> {
             toast(errorMessage(e), true);
           }
         },
-      }, "Say “Hey Nexo”")),
+      }, "Say “Hey Milo”")),
     h("section", { class: "card" },
       h("h2", {}, "Microphone"),
       h("form", {

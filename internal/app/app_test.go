@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancer/nexo/internal/actions"
-	"github.com/juancer/nexo/internal/secrets"
-	"github.com/juancer/nexo/internal/store"
-	"github.com/juancer/nexo/internal/system"
+	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/secrets"
+	"github.com/juancer/milo/internal/store"
+	"github.com/juancer/milo/internal/system"
 )
 
 func newApp(t *testing.T) *App {

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juancer/nexo/internal/backup"
+	"github.com/juancer/milo/internal/backup"
 )
 
 // Setting keys for local backups.

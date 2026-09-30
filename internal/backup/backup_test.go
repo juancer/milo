@@ -18,8 +18,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/juancer/nexo/internal/secrets"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/secrets"
+	"github.com/juancer/milo/internal/store"
 )
 
 const pass = "correct horse battery staple"
@@ -183,7 +183,7 @@ func newDevice(t *testing.T) *device {
 		t.Fatal(err)
 	}
 	key, _ := secrets.LoadKey(keyPath)
-	st, err := store.Open(context.Background(), filepath.Join(dir, "nexo.db"))
+	st, err := store.Open(context.Background(), filepath.Join(dir, "milo.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func (d *device) fill(t *testing.T) {
 
 func createBackup(t *testing.T, d *device, includeKey bool) []byte {
 	t.Helper()
-	opts := Options{Passphrase: pass, NexoVersion: "test", DeviceName: "Test Nexo", WorkDir: t.TempDir()}
+	opts := Options{Passphrase: pass, MiloVersion: "test", DeviceName: "Test Milo", WorkDir: t.TempDir()}
 	if includeKey {
 		opts.KeyPath = d.keyPath
 	}
@@ -234,14 +234,14 @@ func TestBackupRestoreRoundTripOnANewDevice(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	if c.Manifest.DeviceName != "Test Nexo" || !c.Manifest.IncludesKey || c.Manifest.SchemaVersion < 9 || c.Manifest.NexoVersion != "test" {
+	if c.Manifest.DeviceName != "Test Milo" || !c.Manifest.IncludesKey || c.Manifest.SchemaVersion < 9 || c.Manifest.MiloVersion != "test" {
 		t.Fatalf("manifest = %+v", c.Manifest)
 	}
 	if _, err := Install(c, fresh, freshKey, false); err != nil {
 		t.Fatal(err)
 	}
 
-	st, err := store.Open(ctx, filepath.Join(fresh, "nexo.db"))
+	st, err := store.Open(ctx, filepath.Join(fresh, "milo.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +346,7 @@ func TestInstallProtectsAgainstAKeyMismatchAndKeepsTheOldDatabase(t *testing.T) 
 
 func readMotto(t *testing.T, dataDir string) string {
 	t.Helper()
-	st, err := store.Open(context.Background(), filepath.Join(dataDir, "nexo.db"))
+	st, err := store.Open(context.Background(), filepath.Join(dataDir, "milo.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,15 +412,15 @@ func TestOpenRejectsMaliciousAndBrokenArchives(t *testing.T) {
 	}
 	goodMan := []byte(`{"version":1}`)
 	d := newDevice(t)
-	realDB, _ := os.ReadFile(filepath.Join(d.dataDir, "nexo.db"))
+	realDB, _ := os.ReadFile(filepath.Join(d.dataDir, "milo.db"))
 	for name, entries := range map[string]map[string][]byte{
-		"path traversal":   {"manifest.json": goodMan, "nexo.db": realDB, "../../etc/cron.d/evil": []byte("* * * * * root id")},
-		"absolute path":    {"manifest.json": goodMan, "nexo.db": realDB, "/etc/passwd": []byte("x")},
-		"unknown entry":    {"manifest.json": goodMan, "nexo.db": realDB, "extra.sh": []byte("#!/bin/sh")},
+		"path traversal":   {"manifest.json": goodMan, "milo.db": realDB, "../../etc/cron.d/evil": []byte("* * * * * root id")},
+		"absolute path":    {"manifest.json": goodMan, "milo.db": realDB, "/etc/passwd": []byte("x")},
+		"unknown entry":    {"manifest.json": goodMan, "milo.db": realDB, "extra.sh": []byte("#!/bin/sh")},
 		"no database":      {"manifest.json": goodMan},
-		"no manifest":      {"nexo.db": realDB},
-		"future manifest":  {"manifest.json": []byte(`{"version":99}`), "nexo.db": realDB},
-		"garbage database": {"manifest.json": goodMan, "nexo.db": []byte("this is not sqlite at all, not even close, honest")},
+		"no manifest":      {"milo.db": realDB},
+		"future manifest":  {"manifest.json": []byte(`{"version":99}`), "milo.db": realDB},
+		"garbage database": {"manifest.json": goodMan, "milo.db": []byte("this is not sqlite at all, not even close, honest")},
 	} {
 		dir := t.TempDir()
 		if _, err := Open(ctx, bytes.NewReader(build(entries)), pass, dir); err == nil {
@@ -435,7 +435,7 @@ func TestOpenRejectsMaliciousAndBrokenArchives(t *testing.T) {
 	}
 }
 
-func TestOpenRefusesADatabaseFromANewerNexo(t *testing.T) {
+func TestOpenRefusesADatabaseFromANewerMilo(t *testing.T) {
 	ctx := context.Background()
 	d := newDevice(t)
 	// Simulate a backup taken by a future version by inserting an unknown migration.
@@ -454,7 +454,7 @@ func TestOpenRefusesADatabaseFromANewerNexo(t *testing.T) {
 	tw := tar.NewWriter(gz)
 	tw.WriteHeader(&tar.Header{Name: "manifest.json", Mode: 0o600, Size: 13})
 	tw.Write([]byte(`{"version":1}`))
-	tw.WriteHeader(&tar.Header{Name: "nexo.db", Mode: 0o600, Size: int64(len(raw))})
+	tw.WriteHeader(&tar.Header{Name: "milo.db", Mode: 0o600, Size: int64(len(raw))})
 	tw.Write(raw)
 	tw.Close()
 	gz.Close()
@@ -484,7 +484,7 @@ func TestSnapshotsAreKeptNewestFirstAndPruned(t *testing.T) {
 	if err != nil || len(files) != 3 {
 		t.Fatalf("files = %+v, %v", files, err)
 	}
-	if files[0].Name != "nexo-20260305-100000.db" || files[2].Name != "nexo-20260303-100000.db" {
+	if files[0].Name != "milo-20260305-100000.db" || files[2].Name != "milo-20260303-100000.db" {
 		t.Fatalf("order/pruning wrong: %+v", files)
 	}
 	if info, _ := os.Stat(last); info.Mode().Perm() != 0o600 {
@@ -518,7 +518,7 @@ func TestSwapDatabaseRefusesASymlinkedSource(t *testing.T) {
 	if err := os.Symlink(secret, src); err != nil {
 		t.Fatal(err)
 	}
-	live := filepath.Join(dir, "nexo.db")
+	live := filepath.Join(dir, "milo.db")
 	os.WriteFile(live, []byte("current database"), 0o600)
 
 	if _, err := swapDatabase(src, dir); err == nil {
@@ -540,7 +540,7 @@ func pack(t *testing.T, size int64, data []byte) []byte {
 	tw := tar.NewWriter(gz)
 	tw.WriteHeader(&tar.Header{Name: "manifest.json", Mode: 0o600, Size: 13})
 	tw.Write([]byte(`{"version":1}`))
-	tw.WriteHeader(&tar.Header{Name: "nexo.db", Mode: 0o600, Size: size})
+	tw.WriteHeader(&tar.Header{Name: "milo.db", Mode: 0o600, Size: size})
 	tw.Write(data)
 	gz.Close()
 	enc.Close()
@@ -587,7 +587,7 @@ func TestOpenRejectsADatabaseWithAnotherSchema(t *testing.T) {
 		t.Fatalf("a database with another schema was accepted: %v", err)
 	}
 	// The untouched database still passes.
-	good, _ := os.ReadFile(filepath.Join(d.dataDir, "nexo.db"))
+	good, _ := os.ReadFile(filepath.Join(d.dataDir, "milo.db"))
 	c, err := Open(ctx, bytes.NewReader(createBackup(t, d, false)), pass, t.TempDir())
 	if err != nil {
 		t.Fatalf("a genuine database was refused (%d bytes): %v", len(good), err)
@@ -637,7 +637,7 @@ func TestApplyPendingNeverReappliesALeftoverCopy(t *testing.T) {
 	// What a crash between the swap and the cleanup used to leave behind.
 	left := filepath.Join(d.dataDir, pendingDir+".applying")
 	os.MkdirAll(left, 0o700)
-	os.WriteFile(filepath.Join(left, "nexo.db"), []byte("stale"), 0o600)
+	os.WriteFile(filepath.Join(left, "milo.db"), []byte("stale"), 0o600)
 	if applied, _, err := ApplyPending(d.dataDir); applied || err != nil {
 		t.Fatalf("apply = %v %v", applied, err)
 	}
@@ -650,11 +650,11 @@ func TestApplyPendingKeepsTheStagedCopyWhenTheSwapFails(t *testing.T) {
 	d := newDevice(t)
 	d.st.Close()
 	staged := filepath.Join(d.dataDir, pendingDir)
-	os.MkdirAll(filepath.Join(staged, "nexo.db"), 0o700) // a directory: it cannot be copied
+	os.MkdirAll(filepath.Join(staged, "milo.db"), 0o700) // a directory: it cannot be copied
 	if applied, _, err := ApplyPending(d.dataDir); applied || err == nil {
 		t.Fatalf("apply = %v %v", applied, err)
 	}
-	if _, err := os.Stat(filepath.Join(staged, "nexo.db")); err != nil {
+	if _, err := os.Stat(filepath.Join(staged, "milo.db")); err != nil {
 		t.Fatalf("a failed apply lost the staged restore: %v", err)
 	}
 }
@@ -662,23 +662,23 @@ func TestApplyPendingKeepsTheStagedCopyWhenTheSwapFails(t *testing.T) {
 func TestSwapDatabaseKeepsOnlyTheNewestThreePreviousDatabases(t *testing.T) {
 	dir := t.TempDir()
 	for _, n := range []string{"20240101-000000", "20240102-000000", "20240103-000000", "20240104-000000", "20240105-000000"} {
-		os.WriteFile(filepath.Join(dir, "nexo.db.before-restore-"+n), []byte("old"), 0o600)
+		os.WriteFile(filepath.Join(dir, "milo.db.before-restore-"+n), []byte("old"), 0o600)
 	}
 	src := filepath.Join(dir, "new.db")
 	os.WriteFile(src, []byte("new"), 0o600)
-	os.WriteFile(filepath.Join(dir, "nexo.db"), []byte("current"), 0o600)
+	os.WriteFile(filepath.Join(dir, "milo.db"), []byte("current"), 0o600)
 	previous, err := swapDatabase(src, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	left, _ := filepath.Glob(filepath.Join(dir, "nexo.db.before-restore-*"))
+	left, _ := filepath.Glob(filepath.Join(dir, "milo.db.before-restore-*"))
 	if len(left) != 3 {
 		t.Fatalf("kept %v", left)
 	}
 	if _, err := os.Stat(previous); err != nil {
 		t.Fatal("the database just replaced was pruned")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "nexo.db.before-restore-20240101-000000")); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, "milo.db.before-restore-20240101-000000")); err == nil {
 		t.Fatal("the oldest copy was kept")
 	}
 }

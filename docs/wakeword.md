@@ -1,6 +1,6 @@
 # Wake word
 
-Say the phrase ("Hey Nexo" by default) and the assistant starts listening, hands-free. The
+Say the phrase ("Hey Milo" by default) and the assistant starts listening, hands-free. The
 buttons work with or without it.
 
 ## Privacy
@@ -22,8 +22,8 @@ apply to it too.
 ### Why not openWakeWord built in?
 
 openWakeWord is the obvious open-source choice, but it is a Python + ONNX/TFLite stack, which
-would break Nexo's promise of a single self-contained binary with no Python on the Pi, and a
-Raspberry Pi 3B has little CPU to spare. So Nexo ships a small pure-Go detector and offers a
+would break Milo's promise of a single self-contained binary with no Python on the Pi, and a
+Raspberry Pi 3B has little CPU to spare. So Milo ships a small pure-Go detector and offers a
 plug for the neural ones. Porcupine is proprietary and needs a licence key, so it is only
 available through the helper plug.
 
@@ -44,7 +44,7 @@ synthetic speech, so real-world accuracy has not been measured; treat it as a st
 ### External helper protocol
 
 A helper is any executable you install yourself. In the admin, give its absolute path (no
-arguments). It must be executable and not writable by group or others. Nexo starts it and
+arguments). It must be executable and not writable by group or others. Milo starts it and
 restarts it if it stops.
 
 - **stdin**: raw audio, 16 kHz, mono, signed 16-bit little-endian.

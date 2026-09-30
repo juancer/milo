@@ -8,7 +8,7 @@ There is no buildx or ARM emulation requirement: the Go binary is cross-compiled
 |---|---|
 | `make test` | `go vet` + `go test` in the `go` service |
 | `make build-arm64` | Astro build (pnpm, via corepack) in a Node container, then the ARM64 binary in `dist/` |
-| `make dev` | Builds the UI and runs Nexo (`:8080`) with mocked hardware, plus the simulator (`:8090`) |
+| `make dev` | Builds the UI and runs Milo (`:8080`) with mocked hardware, plus the simulator (`:8090`) |
 | `make web-dev` | Astro dev server (`:4321`) proxying `/api` to the `dev` service |
 | `make shell` | Bash in the Go container |
 
@@ -36,11 +36,11 @@ migration that has shipped; add a new one.
 
 `make dev` starts two containers:
 
-- **dev**: Nexo with `NEXO_HARDWARE=mock`. On first start `nexo dev-seed` creates a demo
-  installation: administrators `admin` (owner) and `mom` with a random password printed once (or the one in `NEXO_DEV_PASSWORD`), the simulator's fake bot token, a demo
+- **dev**: Milo with `MILO_HARDWARE=mock`. On first start `milo dev-seed` creates a demo
+  installation: administrators `admin` (owner) and `mom` with a random password printed once (or the one in `MILO_DEV_PASSWORD`), the simulator's fake bot token, a demo
   family (Dad and Mum as PARENT, Grandma as FAMILY) and enabled features. It refuses to run
   unless hardware is mocked, so it can never touch a real device.
-- **sim** (`cmd/nexo-sim`): fake family phones and a fake Telegram Bot API on
+- **sim** (`cmd/milo-sim`): fake family phones and a fake Telegram Bot API on
   <http://localhost:8090>. Chat as Dad, Mum, Grandma or a Stranger, paste invitation links,
   tap inline buttons and simulate a Telegram outage.
 

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/store"
 )
 
 func newVault(t *testing.T) (*Vault, *store.Store, []byte) {

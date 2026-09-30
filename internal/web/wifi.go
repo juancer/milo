@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juancer/nexo/internal/store"
-	"github.com/juancer/nexo/internal/wifi"
+	"github.com/juancer/milo/internal/store"
+	"github.com/juancer/milo/internal/wifi"
 )
 
 func (s *server) wifiRoutes(mux *http.ServeMux) {

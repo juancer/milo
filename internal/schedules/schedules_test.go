@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/store"
 )
 
 func at(t *testing.T, zone, ts string) time.Time {

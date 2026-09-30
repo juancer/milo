@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juancer/nexo/internal/actions"
-	"github.com/juancer/nexo/internal/audio"
+	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/audio"
 )
 
 const (
@@ -109,7 +109,7 @@ const (
 
 // ToggleVoice is what the GPT button does. With nothing running it starts a
 // conversation. Pressed again while the microphone is open, it ends the
-// recording early and lets Nexo answer; pressed while Nexo is thinking or
+// recording early and lets Milo answer; pressed while Milo is thinking or
 // speaking, it interrupts. The wake word will use the same entry point.
 func (e *Engine) ToggleVoice() (VoiceState, error) {
 	e.mu.Lock()

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancer/nexo/internal/assistant"
+	"github.com/juancer/milo/internal/assistant"
 )
 
 const key = "sk-or-TEST-KEY-NOT-REAL-0123456789"

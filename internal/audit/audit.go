@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/juancer/nexo/internal/store"
-	"github.com/juancer/nexo/internal/system"
+	"github.com/juancer/milo/internal/store"
+	"github.com/juancer/milo/internal/system"
 )
 
 // Logger writes audit entries to SQLite.
