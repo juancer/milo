@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"os/exec"
@@ -197,9 +198,14 @@ func chownTree(root string, uid, gid int) error {
 	return chownDir(r, ".", uid, gid)
 }
 
+// lchown is r.Lchown; tests replace it to imitate the service changing the tree mid-walk.
+var lchown = func(r *os.Root, name string, uid, gid int) error { return r.Lchown(name, uid, gid) }
+
 func chownDir(r *os.Root, dir string, uid, gid int) error {
 	d, err := r.Open(dir)
-	if err != nil {
+	if errors.Is(err, fs.ErrNotExist) { // the running service removed it since it was listed
+		return nil
+	} else if err != nil {
 		return err
 	}
 	entries, err := d.ReadDir(-1)
@@ -209,7 +215,16 @@ func chownDir(r *os.Root, dir string, uid, gid int) error {
 	}
 	for _, e := range entries {
 		p := filepath.Join(dir, e.Name())
-		if err := r.Lchown(p, uid, gid); err != nil {
+		// A file with other names is also reachable from somewhere else, perhaps outside the
+		// tree: re-owning it would change that other name's owner too.
+		if fi, err := r.Lstat(p); err == nil && !fi.IsDir() {
+			if st, ok := fi.Sys().(*syscall.Stat_t); ok && st.Nlink > 1 {
+				continue
+			}
+		}
+		if err := lchown(r, p, uid, gid); errors.Is(err, fs.ErrNotExist) {
+			continue // the service deleted it mid-walk
+		} else if err != nil {
 			return err
 		}
 		if e.IsDir() {

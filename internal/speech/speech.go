@@ -99,6 +99,26 @@ func (s *OpenAICompatSTT) Transcribe(ctx context.Context, wav []byte) (string, e
 
 // ---------------------------------------------------------------- TTS
 
+const (
+	// maxTTSDuration is the longest speech a provider may return: the text is capped at
+	// 4000 bytes, which is a few minutes of speech at most.
+	maxTTSDuration = 5 * time.Minute
+	maxTTSFile     = 32 << 20 // bytes of WAV read from Piper's output file
+	maxWhisperOut  = 16 << 20 // bytes of transcript read from whisper.cpp
+)
+
+// checkTTSWAV accepts a provider's WAV only if it is valid 16-bit mono PCM at a sane
+// sample rate and not longer than maxTTSDuration.
+func checkTTSWAV(wav []byte) error {
+	if _, _, err := audio.DecodeWAV(wav); err != nil {
+		return err
+	}
+	if audio.Duration(wav) > maxTTSDuration {
+		return fmt.Errorf("audio is longer than %d minutes", int(maxTTSDuration.Minutes()))
+	}
+	return nil
+}
+
 var (
 	modelPathRe  = regexp.MustCompile(`^[A-Za-z0-9_./-]{1,200}\.onnx$`)
 	binaryPathRe = regexp.MustCompile(`^[A-Za-z0-9_./-]{1,200}$`)
@@ -153,19 +173,22 @@ func (p *Piper) Synthesize(ctx context.Context, text string) ([]byte, error) {
 	defer cancel()
 	cmd := exec.CommandContext(cctx, p.binary, "--model", p.model, "--output_file", out)
 	cmd.Stdin = strings.NewReader(text + "\n")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	stderr := audio.NewStderrBuffer()
+	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
 		if _, lookErr := exec.LookPath(p.binary); lookErr != nil {
 			return nil, fmt.Errorf("piper not found: install Piper or set the text-to-speech engine to none")
 		}
 		return nil, fmt.Errorf("piper failed: %s", strings.TrimSpace(stderr.String()))
 	}
+	if info, err := os.Stat(out); err == nil && info.Size() > maxTTSFile {
+		return nil, errors.New("piper output is too large")
+	}
 	wav, err := os.ReadFile(out)
 	if err != nil {
 		return nil, fmt.Errorf("piper produced no audio: %w", err)
 	}
-	if _, _, err := audio.DecodeWAV(wav); err != nil {
+	if err := checkTTSWAV(wav); err != nil {
 		return nil, fmt.Errorf("piper output is not usable audio: %w", err)
 	}
 	return wav, nil
@@ -244,7 +267,7 @@ func (t *OpenAICompatTTS) Synthesize(ctx context.Context, text string) ([]byte, 
 	if err != nil {
 		return nil, err
 	}
-	if _, _, err := audio.DecodeWAV(wav); err != nil {
+	if err := checkTTSWAV(wav); err != nil {
 		return nil, fmt.Errorf("text-to-speech returned unusable audio: %w", err)
 	}
 	return wav, nil
@@ -294,13 +317,34 @@ func (w *WhisperCpp) Transcribe(ctx context.Context, wav []byte) (string, error)
 	defer cancel()
 	// -nt: no timestamps, -np: print only the transcript.
 	cmd := exec.CommandContext(cctx, w.binary, "-m", w.model, "-f", in, "-nt", "-np")
-	var out, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &stderr
+	out := &cappedOutput{max: maxWhisperOut, stop: cancel}
+	stderr := audio.NewStderrBuffer()
+	cmd.Stdout, cmd.Stderr = out, stderr
 	if err := cmd.Run(); err != nil {
+		if out.over {
+			return "", errors.New("whisper.cpp wrote too much output")
+		}
 		if _, lookErr := exec.LookPath(w.binary); lookErr != nil {
 			return "", errors.New("whisper.cpp not found: install it or use the cloud speech-to-text engine")
 		}
 		return "", fmt.Errorf("whisper.cpp failed: %s", strings.TrimSpace(stderr.String()))
 	}
-	return strings.Join(strings.Fields(out.String()), " "), nil
+	return strings.Join(strings.Fields(out.buf.String()), " "), nil
+}
+
+// cappedOutput collects a process's stdout and stops the process once it has written more than max.
+type cappedOutput struct {
+	buf  bytes.Buffer // a named field: embedding it would promote ReadFrom and skip the check
+	max  int
+	stop func()
+	over bool
+}
+
+func (c *cappedOutput) Write(p []byte) (int, error) {
+	if c.buf.Len()+len(p) > c.max {
+		c.over = true
+		c.stop()
+		return 0, errors.New("output too large")
+	}
+	return c.buf.Write(p)
 }

@@ -48,6 +48,9 @@ func validateSchema(params []Param) error {
 		default:
 			return fmt.Errorf("parameter %q has unsupported type %q", p.Name, p.Type)
 		}
+		if (p.Type == Integer || p.Type == Number) && (p.Min == nil || p.Max == nil) {
+			return fmt.Errorf("parameter %q needs both Min and Max", p.Name)
+		}
 	}
 	return nil
 }

@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"bufio"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 	"unicode"
 
@@ -28,6 +30,10 @@ const (
 	maxDepth     = 4
 	rescanEvery  = time.Minute
 	settingMusic = "music.dir"
+	// maxMP3Bytes and maxID3Bytes bound what the mp3 decoder is asked to read: it
+	// allocates a leading ID3 tag whole, and a 10-byte file may claim 256 MiB.
+	maxMP3Bytes = 200 << 20
+	maxID3Bytes = 1 << 20
 	// DefaultMusicDir is where parents put audio files (.mp3 and .wav).
 	DefaultMusicDir = "/var/lib/nexo/music"
 )
@@ -39,8 +45,9 @@ type Track struct {
 	Rel   string // path relative to the music folder, used for matching
 }
 
-// ScanLibrary lists .mp3 and .wav files below dir. Symbolic links and hidden
-// files are ignored, so nothing outside the folder can be reached.
+// ScanLibrary lists .mp3 and .wav files below dir. Only regular files count:
+// symbolic links, pipes, devices and hidden files are ignored, so nothing
+// outside the folder can be reached and nothing can block the player.
 func ScanLibrary(dir string) ([]Track, error) {
 	root, err := filepath.Abs(dir)
 	if err != nil {
@@ -69,6 +76,9 @@ func ScanLibrary(dir string) ([]Track, error) {
 			if rel != "." && strings.Count(rel, string(filepath.Separator)) >= maxDepth {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		if !d.Type().IsRegular() {
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(name))
@@ -139,15 +149,59 @@ type pcmSource struct {
 	channels   int
 }
 
-// openTrack opens an .mp3 or .wav as raw 16-bit PCM.
+// openTrackFunc is openTrack; tests replace it.
+var openTrackFunc = openTrack
+
+// openTrackCtx runs openTrackFunc but returns as soon as ctx ends, so stopping
+// the player never waits on a slow file. A source that arrives late is closed.
+func openTrackCtx(ctx context.Context, path string) (*pcmSource, error) {
+	type result struct {
+		src *pcmSource
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		src, err := openTrackFunc(path)
+		ch <- result{src, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.src, r.err
+	case <-ctx.Done():
+		go func() {
+			if r := <-ch; r.src != nil {
+				r.src.closer.Close()
+			}
+		}()
+		return nil, ctx.Err()
+	}
+}
+
+// openTrack opens an .mp3 or .wav as raw 16-bit PCM. The file must be a regular
+// file (a symbolic link or a pipe swapped in after the scan is refused, and
+// opening never blocks).
 func openTrack(path string) (*pcmSource, error) {
-	f, err := os.Open(path)
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		f.Close()
+		return nil, errors.New("not a regular file")
+	}
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".mp3":
-		dec, err := decodeMP3Safe(f)
+		if info.Size() > maxMP3Bytes {
+			f.Close()
+			return nil, fmt.Errorf("cannot decode %s: file too large", filepath.Base(path))
+		}
+		if err := checkID3Size(f); err != nil {
+			f.Close()
+			return nil, fmt.Errorf("cannot decode %s: %w", filepath.Base(path), err)
+		}
+		// bufio hides the file's Seek, so the decoder does not scan the whole file up front.
+		dec, err := decodeMP3Safe(bufio.NewReaderSize(f, 64<<10))
 		if err != nil {
 			f.Close()
 			return nil, fmt.Errorf("cannot decode %s: %w", filepath.Base(path), err)
@@ -163,6 +217,23 @@ func openTrack(path string) (*pcmSource, error) {
 	}
 	f.Close()
 	return nil, errors.New("unsupported file type")
+}
+
+// checkID3Size refuses a file whose leading ID3v2 tag is larger than maxID3Bytes
+// and leaves f at the start.
+func checkID3Size(f *os.File) error {
+	var h [10]byte
+	n, _ := io.ReadFull(f, h[:])
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	if n == len(h) && string(h[:3]) == "ID3" {
+		size := int(h[6]&0x7f)<<21 | int(h[7]&0x7f)<<14 | int(h[8]&0x7f)<<7 | int(h[9]&0x7f)
+		if size > maxID3Bytes {
+			return errors.New("ID3 tag too large")
+		}
+	}
+	return nil
 }
 
 // decodeMP3Safe is mp3.NewDecoder, but a decoder panic on a malformed file
@@ -481,7 +552,13 @@ func (m *Music) run(ctx context.Context) {
 		track, offset := m.current, m.offset
 		m.mu.Unlock()
 
-		src, err := openTrack(track.Path)
+		src, err := openTrackCtx(ctx, track.Path)
+		if ctx.Err() != nil {
+			if err == nil {
+				src.closer.Close()
+			}
+			return // stopped while opening
+		}
 		if err != nil {
 			m.Log.Warn("music: cannot open track", "track", track.Rel, "error", err)
 		} else {

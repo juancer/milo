@@ -221,3 +221,12 @@ func TestStaleButtonDoesNotDispatchAfterReload(t *testing.T) {
 		t.Fatal("an emit from a replaced button still dispatched")
 	}
 }
+
+func TestAPanickingDispatcherDoesNotCrashThePress(t *testing.T) {
+	b := &buttonState{cfg: btn(1, "A", 17, map[string]store.ButtonAction{ShortPress: {Action: "talk"}})}
+	e := New(gpio.NewMock(), &fakeSource{}, func(context.Context, Event) { panic("dispatcher blew up") },
+		testOpts, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	e.ctx = context.Background()
+	e.buttons[1] = b
+	e.emit(b, ShortPress) // a panic here would fail the test
+}

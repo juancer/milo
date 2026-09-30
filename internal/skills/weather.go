@@ -28,6 +28,9 @@ const (
 	defaultGeoAPI      = "https://geocoding-api.open-meteo.com"
 )
 
+// maxPlaceLabel is the most runes of a place name that are stored.
+const maxPlaceLabel = 80
+
 // Place is a geocoded location.
 type Place struct {
 	Name    string  `json:"name"`
@@ -77,7 +80,7 @@ func (w *Weather) client() *http.Client {
 	if w.Client != nil {
 		return w.Client
 	}
-	return &http.Client{Timeout: 15 * time.Second, CheckRedirect: w.checkRedirect}
+	return w.httpClient(15 * time.Second)
 }
 
 func (w *Weather) fetchJSON(ctx context.Context, base, path string, q url.Values, out any) error {
@@ -127,6 +130,9 @@ func (w *Weather) SetPlace(ctx context.Context, name string) (Place, error) {
 	label := p.Name
 	if p.Country != "" {
 		label += ", " + p.Country
+	}
+	if r := []rune(label); len(r) > maxPlaceLabel { // the geocoder's text is spoken later
+		label = string(r[:maxPlaceLabel])
 	}
 	for k, v := range map[string]string{
 		SettingWeatherLat: strconv.FormatFloat(p.Lat, 'f', 4, 64), SettingWeatherLon: strconv.FormatFloat(p.Lon, 'f', 4, 64),

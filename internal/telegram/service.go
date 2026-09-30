@@ -76,6 +76,8 @@ type Service struct {
 	now              func() time.Time
 	retryBase        time.Duration // first retry delay; tests shorten it
 	strangerCooldown time.Duration
+	strangerLogAt    time.Time     // last "unauthorized user" warning, across all strangers
+	strangerLogSkips int           // warnings suppressed since then
 	tick             time.Duration // maintenance interval; tests shorten it
 
 	emergencyConfirm map[int64]time.Time // user id -> confirmation expiry

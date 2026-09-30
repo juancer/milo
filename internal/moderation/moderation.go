@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Direction says what is being checked.
@@ -147,9 +148,27 @@ func (c *Checker) Check(text string, dir Direction) Verdict {
 	return Verdict{}
 }
 
-// Clamp shortens text to at most maxWords words, ending at a sentence boundary
-// when there is one, so a spoken answer never rambles.
+// MaxReplyBytes bounds any model reply that is kept or spoken; the speech engines cut at about
+// this size anyway.
+const MaxReplyBytes = 4000
+
+// Cap shortens text to at most MaxReplyBytes, on a character boundary. It bounds text that has no
+// spaces, which a word count does not.
+func Cap(text string) string {
+	if len(text) <= MaxReplyBytes {
+		return text
+	}
+	cut := MaxReplyBytes
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut]
+}
+
+// Clamp shortens text to at most maxWords words (and MaxReplyBytes bytes), ending at a sentence
+// boundary when there is one, so a spoken answer never rambles.
 func Clamp(text string, maxWords int) string {
+	text = Cap(text)
 	words := strings.Fields(text)
 	if maxWords <= 0 || len(words) <= maxWords {
 		return strings.TrimSpace(text)

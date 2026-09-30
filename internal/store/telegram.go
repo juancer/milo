@@ -298,11 +298,12 @@ func (s *Store) ApprovePending(ctx context.Context, id int64, displayName string
 	if err != nil {
 		return TelegramUser{}, err
 	}
+	// Names taken from Telegram get the same 40-character cap as names typed by an admin.
 	if displayName == "" {
-		displayName = p.FirstName
+		displayName = capRunes(p.FirstName, 40)
 	}
 	if displayName == "" {
-		displayName = p.Username
+		displayName = capRunes(p.Username, 40)
 	}
 	if displayName == "" {
 		displayName = "Family member"
@@ -319,6 +320,13 @@ func (s *Store) ApprovePending(ctx context.Context, id int64, displayName string
 	}
 	return TelegramUser{User: User{ID: uid, DisplayName: displayName, Role: p.Role, Active: true},
 		TelegramID: p.TelegramID, TelegramUsername: p.Username}, nil
+}
+
+func capRunes(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n])
+	}
+	return s
 }
 
 // RejectPending marks a pending request as rejected and returns the Telegram id.

@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +25,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/crypto/chacha20poly1305"
 
 	"github.com/juancer/nexo/internal/secrets"
 	"github.com/juancer/nexo/internal/store"
@@ -44,6 +47,7 @@ const (
 	dbName       = "nexo.db"
 	keyName      = "master.key"
 	maxDBBytes   = 1 << 30 // decompressed: the upload cap only covers the ciphertext
+	maxKeyBytes  = 1024
 	// MinPassphrase is the shortest accepted backup passphrase.
 	MinPassphrase = 12
 )
@@ -212,11 +216,17 @@ func Open(ctx context.Context, r io.Reader, passphrase, workDir string) (c *Cont
 			}
 			haveDB = true
 		case keyName:
-			b, e := io.ReadAll(io.LimitReader(tr, 1024))
+			b, e := io.ReadAll(io.LimitReader(tr, maxKeyBytes+1))
 			if e != nil {
 				return nil, unwrap(e)
 			}
+			if len(b) > maxKeyBytes {
+				return nil, errors.New("backup: the master key entry is too long")
+			}
 			out.Key = bytes.TrimSpace(b)
+			if e := validateKey(out.Key); e != nil {
+				return nil, e
+			}
 		default:
 			return nil, fmt.Errorf("backup: unexpected entry %q", h.Name)
 		}
@@ -228,6 +238,14 @@ func Open(ctx context.Context, r io.Reader, passphrase, workDir string) (c *Cont
 		return nil, e
 	}
 	return out, nil
+}
+
+// validateKey accepts only what secrets.LoadKey would: a 32-byte key written as hex.
+func validateKey(key []byte) error {
+	if raw, err := hex.DecodeString(string(key)); err != nil || len(raw) != chacha20poly1305.KeySize {
+		return fmt.Errorf("backup: the master key inside is not a valid %d-byte hex key", chacha20poly1305.KeySize)
+	}
+	return nil
 }
 
 func unwrap(err error) error {
@@ -272,18 +290,29 @@ func verifyDB(ctx context.Context, path string) error {
 	return nil
 }
 
-// checkCanary makes sure a backup without its own key can be read with the device's key:
-// the canary secret in the restored database must decrypt. Without this the service would
-// crash-loop at the next start. A device with no key file yet cannot be checked.
-func checkCanary(ctx context.Context, c *Contents, keyPath string) error {
+// checkCanary makes sure the restored database can be read with the key it will run with:
+// the canary secret must decrypt. That key is the backup's own when replaceKey is set and
+// the device's otherwise (a database without any canary passes only in the first case).
+// Without this the service would crash-loop at the next start. A device with no key file
+// yet cannot be checked.
+func checkCanary(ctx context.Context, c *Contents, keyPath string, replaceKey bool) error {
+	var key []byte
 	if c.Key != nil {
-		return nil
-	}
-	key, err := secrets.LoadKey(keyPath)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	} else if err != nil {
-		return err
+		if !replaceKey {
+			return nil
+		}
+		if err := validateKey(c.Key); err != nil {
+			return err
+		}
+		key, _ = hex.DecodeString(string(c.Key))
+	} else {
+		var err error
+		key, err = secrets.LoadKey(keyPath)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		} else if err != nil {
+			return err
+		}
 	}
 	st, err := store.Open(ctx, c.DBPath)
 	if err != nil {
@@ -294,7 +323,13 @@ func checkCanary(ctx context.Context, c *Contents, keyPath string) error {
 	if err != nil {
 		return err
 	}
-	if err := v.VerifyCanary(ctx); err != nil {
+	err = v.VerifyCanary(ctx)
+	if err != nil && c.Key != nil && errors.Is(err, secrets.ErrNotFound) {
+		// A database that never ran has no canary yet; the backup's own key creates it at the
+		// first start. Only a canary that is there and does not decrypt proves a wrong key.
+		return nil
+	}
+	if err != nil {
 		return ErrKeyMismatch
 	}
 	return nil
@@ -327,8 +362,18 @@ func Install(c *Contents, dataDir, keyPath string, replaceKey bool) (previous st
 	if err != nil {
 		return "", err
 	}
-	if err := checkCanary(context.Background(), c, keyPath); err != nil {
+	if writeKey {
+		if err := validateKey(c.Key); err != nil {
+			return "", err
+		}
+	}
+	if err := checkCanary(context.Background(), c, keyPath, writeKey); err != nil {
 		return "", err
+	}
+	if writeKey { // the database kept aside still holds secrets sealed with the old key
+		if err := keepOldKey(keyPath, time.Now().UTC().Format("20060102-150405")); err != nil {
+			return "", err
+		}
 	}
 	previous, err = swapDatabase(c.DBPath, dataDir)
 	if err != nil {
@@ -345,6 +390,29 @@ func Install(c *Contents, dataDir, keyPath string, replaceKey bool) (previous st
 	return previous, nil
 }
 
+// keepOldKey saves the device's current master key as <key>.before-restore-<stamp> before
+// --replace-key overwrites it: the database kept aside still holds secrets sealed with it.
+func keepOldKey(keyPath, stamp string) error {
+	old, err := os.ReadFile(keyPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("cannot read the current master key to keep a copy: %w", err)
+	}
+	f, err := os.OpenFile(keyPath+".before-restore-"+stamp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("cannot keep a copy of the current master key: %w", err)
+	}
+	if _, err := f.Write(old); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// sideFiles are SQLite's write-ahead log and shared-memory index, which belong to one database file.
+var sideFiles = []string{"-wal", "-shm"}
+
 // swapDatabase moves the current database aside and puts src in its place.
 func swapDatabase(src, dataDir string) (previous string, err error) {
 	live := filepath.Join(dataDir, dbName)
@@ -354,37 +422,63 @@ func swapDatabase(src, dataDir string) (previous string, err error) {
 			return "", err
 		}
 	}
-	for _, ext := range []string{"-wal", "-shm"} { // stale side files would corrupt the restored copy
-		os.Remove(live + ext)
+	// The side files travel with the database they belong to: committed frames that were never
+	// checkpointed live only there, and a failed copy must be able to put everything back.
+	var moved []string
+	for _, ext := range sideFiles {
+		if previous == "" {
+			os.Remove(live + ext) // no database to keep them with: stale, they would corrupt the restored copy
+		} else if os.Rename(live+ext, previous+ext) == nil {
+			moved = append(moved, ext)
+		}
 	}
 	if err := copyFile(src, live); err != nil {
 		if previous != "" {
 			os.Rename(previous, live) //nolint:errcheck // put the old one back
+			for _, ext := range moved {
+				os.Rename(previous+ext, live+ext) //nolint:errcheck
+			}
 		}
 		return "", err
 	}
 	pruneBeforeRestore(live, 3)
-	// Keep the files usable by the service user when a root shell restored them.
-	if info, err := os.Stat(dataDir); err == nil {
-		if st, ok := info.Sys().(*syscall.Stat_t); ok {
-			// Through the open file, not the path: the service user owns the folder and could
-			// swap the name for a symlink between the copy and this call.
-			if f, err := os.OpenFile(live, os.O_RDONLY|syscall.O_NOFOLLOW, 0); err == nil {
-				f.Chown(int(st.Uid), int(st.Gid)) //nolint:errcheck
-				f.Close()
-			}
+	chownToDirOwner(live, dataDir)
+	return previous, nil
+}
+
+// chownToDirOwner keeps the file usable by the service user when a root shell restored it.
+func chownToDirOwner(path, dataDir string) {
+	info, err := os.Stat(dataDir)
+	if err != nil {
+		return
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok {
+		// Through the open file, not the path: the service user owns the folder and could
+		// swap the name for a symlink between the copy and this call. O_NONBLOCK keeps a
+		// FIFO swapped in for the file from blocking the open forever.
+		if f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0); err == nil {
+			f.Chown(int(st.Uid), int(st.Gid)) //nolint:errcheck
+			f.Close()
 		}
 	}
-	return previous, nil
 }
 
 // pruneBeforeRestore keeps the newest `keep` saved pre-restore databases (they hold admin
 // hashes and messages) and deletes the older ones.
 func pruneBeforeRestore(live string, keep int) {
-	old, _ := filepath.Glob(live + ".before-restore-*")
+	all, _ := filepath.Glob(live + ".before-restore-*")
+	var old []string
+	for _, p := range all {
+		if !strings.HasSuffix(p, "-wal") && !strings.HasSuffix(p, "-shm") { // those go with their database
+			old = append(old, p)
+		}
+	}
 	sort.Sort(sort.Reverse(sort.StringSlice(old))) // the timestamps sort chronologically
 	for i := keep; i < len(old); i++ {
 		os.Remove(old[i])
+		for _, ext := range sideFiles {
+			os.Remove(old[i] + ext)
+		}
 	}
 }
 
@@ -428,7 +522,7 @@ func Stage(c *Contents, dataDir, keyPath string) error {
 		// The device has no key file at all: the backup's key cannot be installed from here.
 		return ErrKeyMismatch
 	}
-	if err := checkCanary(context.Background(), c, keyPath); err != nil {
+	if err := checkCanary(context.Background(), c, keyPath, false); err != nil {
 		return err
 	}
 	dir := filepath.Join(dataDir, pendingDir)
@@ -467,6 +561,42 @@ func ApplyPending(dataDir string) (applied bool, previous string, err error) {
 	return true, previous, nil
 }
 
+const failedPrefix = "restore-failed-"
+
+// Quarantine sets a staged restore aside as restore-failed-<time> so that one which keeps
+// failing does not stop the service from starting on the current database. Only the newest
+// quarantined copy is kept: each one is as large as the database.
+func Quarantine(dataDir string) (string, error) {
+	pending := filepath.Join(dataDir, pendingDir)
+	if _, err := os.Lstat(pending); err != nil {
+		return "", nil
+	}
+	old, _ := filepath.Glob(filepath.Join(dataDir, failedPrefix+"*"))
+	dest := filepath.Join(dataDir, failedPrefix+time.Now().UTC().Format("20060102-150405"))
+	if err := os.Rename(pending, dest); err != nil {
+		return "", err
+	}
+	for _, p := range old {
+		if p != dest {
+			os.RemoveAll(p)
+		}
+	}
+	return dest, nil
+}
+
+// SweepTemp deletes the temporary files a crash or kill left in dataDir (nexo-restore-*,
+// nexo-backup-* and download-*.nexo) once they are older than minAge.
+func SweepTemp(dataDir string, minAge time.Duration) {
+	for _, pat := range []string{"nexo-restore-*", "nexo-backup-*", "download-*.nexo"} {
+		matches, _ := filepath.Glob(filepath.Join(dataDir, pat))
+		for _, p := range matches {
+			if info, err := os.Lstat(p); err == nil && time.Since(info.ModTime()) >= minAge {
+				os.RemoveAll(p)
+			}
+		}
+	}
+}
+
 // ---------------------------------------------------------------- local snapshots
 
 // Snapshot writes an unencrypted copy of the database into dir (0600) and keeps
@@ -476,8 +606,19 @@ func Snapshot(ctx context.Context, src Source, dir string, keep int, now time.Ti
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
+	if keep < 1 {
+		keep = 1 // a bad setting must neither delete every copy nor panic below
+	}
 	path := filepath.Join(dir, "nexo-"+now.UTC().Format("20060102-150405")+".db")
+	// SQLite's VACUUM INTO accepts an empty file: create it 0600 so the snapshot is never
+	// readable by others, not even briefly.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return "", err
+	}
+	f.Close()
 	if err := src.Snapshot(ctx, path); err != nil {
+		os.Remove(path)
 		return "", err
 	}
 	os.Chmod(path, 0o600)

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,13 +43,16 @@ func devSeed(ctx context.Context, cfg system.Config) error {
 		return err
 	}
 
-	password := getenv("NEXO_DEV_PASSWORD", "nexo-demo-password")
+	password, err := devPassword()
+	if err != nil {
+		return err
+	}
 	hash, err := auth.HashPassword(password)
 	if err != nil {
 		return err
 	}
-	// Demo accounts with a well-known password. Real devices never get these:
-	// dev-seed refuses to run unless the hardware is mocked.
+	// Demo accounts. Real devices never get these: dev-seed refuses to run unless
+	// the hardware is mocked.
 	for _, a := range []struct {
 		name  string
 		owner bool
@@ -128,12 +133,26 @@ func devSeed(ctx context.Context, cfg system.Config) error {
 		st.SetFeatureEnabled(ctx, name, true) //nolint:errcheck
 	}
 	st.SetSetting(ctx, "dev.seeded", "1") //nolint:errcheck
-	fmt.Printf("dev-seed: sign in as admin or mom with password %q; demo family Dad/Mum/Grandma; features enabled\n", password)
+	// Printed once: it is not stored anywhere in the clear. Set NEXO_DEV_PASSWORD to choose it.
+	fmt.Printf("dev-seed: sign in as admin or mom with password %q (shown once; set NEXO_DEV_PASSWORD to choose your own); demo family Dad/Mum/Grandma; features enabled\n", password)
 	return nil
 }
 
 // devFeatures are switched on in the demo. Later phases append to this list.
 var devFeatures = []string{"telegram", "assistant", "wakeword", "timer", "reminders", "music", "weather", "calendar"}
+
+// devPassword is NEXO_DEV_PASSWORD, or a random one when it is unset, so a demo
+// installation never has a password that is the same everywhere.
+func devPassword() (string, error) {
+	if p := os.Getenv("NEXO_DEV_PASSWORD"); p != "" {
+		return p, nil
+	}
+	b := make([]byte, 12)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
 
 func getenv(k, def string) string {
 	if v := os.Getenv(k); v != "" {

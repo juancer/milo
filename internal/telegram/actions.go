@@ -29,6 +29,15 @@ const (
 	// emergency alert and its urgent follow-ups.
 	EmergencyPendingAllowance = 8
 
+	// MaxPendingTotal bounds the unheard messages across all senders, so many approved
+	// accounts together cannot fill the device's storage. Emergencies keep their allowance.
+	MaxPendingTotal = 500
+	// MaxQueuedPerChat and MaxQueuedTotal bound the outgoing messages waiting to be sent,
+	// so an outage or a disabled feature cannot grow the queue without limit.
+	MaxQueuedPerChat = 100
+	MaxQueuedTotal   = 500
+	notQueuedMsg     = "Not queued: too many messages are still waiting to be sent."
+
 	// maxPlayAttempts is how often a voice message that cannot be decoded is retried. After
 	// that it is marked failed, so one bad recording cannot hold back the messages behind it.
 	maxPlayAttempts = 3
@@ -145,7 +154,22 @@ func (s *Service) senderAtCeiling(ctx context.Context, userID int64, urgent bool
 		limit += EmergencyPendingAllowance
 	}
 	n, err := s.Store.PendingFrom(ctx, userID)
-	return err == nil && n >= limit
+	if err == nil && n >= limit {
+		return true
+	}
+	total, _, err := s.Store.PendingCounts(ctx)
+	globalLimit := MaxPendingTotal
+	if urgent {
+		globalLimit += EmergencyPendingAllowance
+	}
+	return err == nil && total >= globalLimit
+}
+
+// outboxFull reports whether the outgoing queue already holds as many messages as
+// it may, for this chat or overall.
+func (s *Service) outboxFull(ctx context.Context, chatID int64) bool {
+	forChat, total, err := s.Store.QueuedOut(ctx, chatID)
+	return err == nil && (forChat >= MaxQueuedPerChat || total >= MaxQueuedTotal)
 }
 
 // senderMayBeHeard reports whether a pending message may still be played: its
@@ -431,6 +455,11 @@ func (s *Service) recordAndQueue(ctx context.Context, chat store.Chat) {
 		s.Notify.Notify(bg, audio.NotifyError) //nolint:errcheck
 		return
 	}
+	if s.outboxFull(bg, chat.ID) {
+		s.Log.Warn("telegram: outgoing queue is full, voice message dropped", "chat", chat.Name)
+		s.Notify.Notify(bg, audio.NotifyError) //nolint:errcheck
+		return
+	}
 	if _, err := s.Store.InsertMessage(bg, store.Message{Direction: "out", Kind: "voice", ChatID: chat.ID, Audio: ogg}); err != nil {
 		s.Log.Error("cannot queue voice message", "error", err)
 		s.Notify.Notify(bg, audio.NotifyError) //nolint:errcheck
@@ -458,6 +487,9 @@ func (s *Service) sendMessage(ctx context.Context, c actions.Call) (actions.Resu
 			text := strings.TrimSpace(c.Args.String("text"))
 			if text == "" {
 				return actions.Result{}, fmt.Errorf("%w: text is empty", actions.ErrInvalidParams)
+			}
+			if s.outboxFull(ctx, ch.ID) {
+				return actions.Result{Message: notQueuedMsg}, nil
 			}
 			if _, err := s.Store.InsertMessage(ctx, store.Message{Direction: "out", Kind: "text", ChatID: ch.ID, Body: text}); err != nil {
 				return actions.Result{}, err

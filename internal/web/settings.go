@@ -16,10 +16,22 @@ func (s *server) getNotifications(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) putNotifications(w http.ResponseWriter, r *http.Request) {
-	var c notifications.Config
-	if !decodeJSON(w, r, &c) {
+	// Pointers, so a body that leaves a field out is refused instead of silently
+	// switching the sound off or the volume to 0.
+	var d struct {
+		NewMessageSound    *bool `json:"new_message_sound_enabled"`
+		EmergencySound     *bool `json:"emergency_sound_enabled"`
+		NotifyPendingAfter *bool `json:"notify_pending_after_schedule"`
+		Volume             *int  `json:"volume"`
+	}
+	if !decodeJSON(w, r, &d) {
 		return
 	}
+	if d.NewMessageSound == nil || d.EmergencySound == nil || d.NotifyPendingAfter == nil || d.Volume == nil {
+		writeError(w, http.StatusBadRequest, "send all four notification settings")
+		return
+	}
+	c := notifications.Config{NewMessageSound: *d.NewMessageSound, EmergencySound: *d.EmergencySound, NotifyPendingAfter: *d.NotifyPendingAfter, Volume: *d.Volume}
 	if c.Volume < 0 || c.Volume > 100 {
 		writeError(w, http.StatusBadRequest, "volume must be 0-100")
 		return

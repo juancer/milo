@@ -109,6 +109,14 @@ func (s *Store) PendingFrom(ctx context.Context, userID int64) (int, error) {
 	return n, err
 }
 
+// QueuedOut counts the outgoing messages still waiting to be sent: those for
+// one chat and in total.
+func (s *Store) QueuedOut(ctx context.Context, chatID int64) (forChat, total int, err error) {
+	err = s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(chat_id = ?), 0), COUNT(*) FROM messages
+		WHERE direction = 'out' AND status = 'queued'`, chatID).Scan(&forChat, &total)
+	return
+}
+
 // ExpireMessage marks a pending incoming message as expired so it is never played.
 func (s *Store) ExpireMessage(ctx context.Context, id int64) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE messages SET status = 'expired' WHERE id = ? AND direction = 'in' AND status = 'pending'`, id)

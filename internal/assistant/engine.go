@@ -156,6 +156,10 @@ func (e *Engine) allowTurn(limit int) bool {
 const (
 	ReplyBusy        = "I need a little rest. Let's talk again in a while!"
 	ReplyUnavailable = "I can't think right now. Please try again in a little while."
+
+	// replyFromOutsiderText stands in, in the session memory, for a reply written after the model
+	// read the calendar.
+	replyFromOutsiderText = "(I answered from the calendar; that answer is not repeated here.)"
 )
 
 // Converse handles one utterance and returns what to say. Errors mean the
@@ -201,7 +205,7 @@ func (e *Engine) Converse(ctx context.Context, sess *Session, utterance string) 
 	sess.history = append(sess.history, Message{Role: "user", Content: utterance})
 	sess.history = trim(sess.history, maxHistory)
 
-	reply, err := e.runModel(ctx, sess, provider)
+	reply, tainted, err := e.runModel(ctx, sess, provider, checker)
 	if err != nil {
 		return "", err
 	}
@@ -218,15 +222,22 @@ func (e *Engine) Converse(ctx context.Context, sess *Session, utterance string) 
 	if reply == "" {
 		reply = "Hmm, I don't know what to say. Can you ask me another way?"
 	}
-	sess.history = append(sess.history, Message{Role: "assistant", Content: reply})
+	// A reply composed after reading text written by other people (the calendar) is spoken and
+	// stored, but later turns must not take it for the assistant's own words.
+	remembered := reply
+	if tainted {
+		remembered = replyFromOutsiderText
+	}
+	sess.history = append(sess.history, Message{Role: "assistant", Content: remembered})
 	sess.history = trim(sess.history, maxHistory)
 	e.record(ctx, sess, "assistant", reply, "")
 	return reply, nil
 }
 
 // runModel runs the model <-> tool loop. Every tool call goes through the
-// Action Engine, the only place where the model can affect the device.
-func (e *Engine) runModel(ctx context.Context, sess *Session, provider AIProvider) (string, error) {
+// Action Engine, the only place where the model can affect the device. tainted
+// reports that the turn read text written by other people.
+func (e *Engine) runModel(ctx context.Context, sess *Session, provider AIProvider, checker *moderation.Checker) (reply string, tainted bool, err error) {
 	tools := e.toolDefs(ctx)
 	msgs := append([]Message{{Role: "system", Content: e.systemPrompt(ctx, sess.settings)}}, sess.history...)
 	calls := 0
@@ -238,13 +249,18 @@ func (e *Engine) runModel(ctx context.Context, sess *Session, provider AIProvide
 		}
 		resp, err := provider.Chat(ctx, req)
 		if err != nil {
-			return "", err
+			return "", readOutsiderText, err
 		}
 		if len(resp.ToolCalls) == 0 {
-			return resp.Content, nil
+			return moderation.Cap(resp.Content), readOutsiderText, nil
 		}
 		if round == maxToolRounds { // no tools were offered: do not run what came back anyway
 			break
+		}
+		// Bound what is kept and sent back to the provider in the next round.
+		resp.Content = moderation.Cap(resp.Content)
+		if len(resp.ToolCalls) > maxToolCalls {
+			resp.ToolCalls = resp.ToolCalls[:maxToolCalls]
 		}
 		msgs = append(msgs, resp)
 		for _, tc := range resp.ToolCalls {
@@ -257,7 +273,7 @@ func (e *Engine) runModel(ctx context.Context, sess *Session, provider AIProvide
 					e.log.Info("assistant tool refused", "tool", tc.Name, "reason", "outsider text was read this turn")
 					result = toolError("not allowed in the same request that read the calendar")
 				} else {
-					result = e.runTool(ctx, sess, tc)
+					result = e.runTool(ctx, sess, tc, checker)
 				}
 				if outsiderTextTools[tc.Name] {
 					readOutsiderText = true
@@ -266,16 +282,25 @@ func (e *Engine) runModel(ctx context.Context, sess *Session, provider AIProvide
 			msgs = append(msgs, Message{Role: "tool", ToolCallID: tc.ID, Content: result})
 		}
 	}
-	return "", fmt.Errorf("%w: the model kept asking for tools", ErrUnavailable)
+	return "", readOutsiderText, fmt.Errorf("%w: the model kept asking for tools", ErrUnavailable)
 }
 
 // runTool executes one model-requested action and returns the JSON result the
 // model sees. Arguments are untrusted input.
-func (e *Engine) runTool(ctx context.Context, sess *Session, tc ToolCall) string {
+func (e *Engine) runTool(ctx context.Context, sess *Session, tc ToolCall, checker *moderation.Checker) string {
 	var args map[string]any
 	if strings.TrimSpace(tc.Arguments) != "" {
 		if err := json.Unmarshal([]byte(tc.Arguments), &args); err != nil {
 			return toolError("arguments must be a JSON object")
+		}
+	}
+	// Text the model composes for a chat is output like any other reply: check it before it leaves.
+	if tc.Name == "send_message" && sess.settings.OutputModeration {
+		if text, _ := args["text"].(string); checker.Check(text, moderation.Output).Blocked {
+			e.log.Info("assistant tool refused", "tool", tc.Name, "reason", "output moderation")
+			out := toolError(toolReason(actions.ErrForbidden))
+			e.record(ctx, sess, "tool", out, tc.Name)
+			return out
 		}
 	}
 	actor := actions.Actor{Kind: actions.ActorAssistant, Label: "assistant"}

@@ -8,6 +8,13 @@ import (
 
 // SyncWifi applies the configured Wi-Fi networks to the operating system.
 func (a *App) SyncWifi(ctx context.Context) error {
+	a.WifiMu.Lock()
+	defer a.WifiMu.Unlock()
+	return a.SyncWifiLocked(ctx)
+}
+
+// SyncWifiLocked is SyncWifi for a caller that already holds WifiMu.
+func (a *App) SyncWifiLocked(ctx context.Context) error {
 	nets, err := a.Store.ListWifiNetworks(ctx)
 	if err != nil {
 		return err

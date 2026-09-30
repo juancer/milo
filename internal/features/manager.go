@@ -43,6 +43,10 @@ type entry struct {
 
 // Manager keeps running features in line with the flags stored in SQLite.
 type Manager struct {
+	// opMu serialises lifecycle changes (Sync, SetEnabled, Restart, Shutdown).
+	// A feature's Start may probe the network for many seconds, so List must not
+	// wait on it: mu only guards the registry and the status fields, briefly.
+	opMu     sync.Mutex
 	mu       sync.Mutex
 	store    *store.Store
 	log      *slog.Logger
@@ -70,14 +74,14 @@ func (m *Manager) Register(ctx context.Context, f Feature) error {
 
 // Sync starts every enabled feature and stops every disabled one.
 func (m *Manager) Sync(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
 	rows, err := m.store.ListFeatures(ctx)
 	if err != nil {
 		return err
 	}
 	for _, row := range rows {
-		if e, ok := m.features[row.Name]; ok {
+		if e, ok := m.lookup(row.Name); ok {
 			m.reconcile(ctx, e, row.Enabled)
 		}
 	}
@@ -86,9 +90,9 @@ func (m *Manager) Sync(ctx context.Context) error {
 
 // SetEnabled persists the flag and immediately starts or stops the feature.
 func (m *Manager) SetEnabled(ctx context.Context, name string, enabled bool) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	e, ok := m.features[name]
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+	e, ok := m.lookup(name)
 	if !ok {
 		return ErrUnknownFeature
 	}
@@ -119,19 +123,37 @@ func (m *Manager) List(ctx context.Context) ([]Status, error) {
 
 // Shutdown stops all running features.
 func (m *Manager) Shutdown(ctx context.Context) {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	all := make([]*entry, 0, len(m.features))
 	for _, e := range m.features {
+		all = append(all, e)
+	}
+	m.mu.Unlock()
+	for _, e := range all {
 		m.reconcile(ctx, e, false)
 	}
 }
 
-// reconcile must be called with m.mu held.
+// lookup returns a registered feature.
+func (m *Manager) lookup(name string) (*entry, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, ok := m.features[name]
+	return e, ok
+}
+
+// reconcile must be called with m.opMu held (not m.mu: Start and Stop can be
+// slow). Only reconcile changes running, so reading it here needs no lock.
 func (m *Manager) reconcile(ctx context.Context, e *entry, enabled bool) {
 	name := e.feature.Name()
 	switch {
 	case enabled && !e.running:
-		if err := e.feature.Start(ctx); err != nil {
+		err := e.feature.Start(ctx)
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if err != nil {
 			e.lastErr = err.Error()
 			m.log.Error("feature failed to start", "feature", name, "error", err)
 			return
@@ -139,7 +161,10 @@ func (m *Manager) reconcile(ctx context.Context, e *entry, enabled bool) {
 		e.running, e.lastErr = true, ""
 		m.log.Info("feature started", "feature", name)
 	case !enabled && e.running:
-		if err := e.feature.Stop(ctx); err != nil {
+		err := e.feature.Stop(ctx)
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if err != nil {
 			e.lastErr = err.Error()
 			m.log.Error("feature failed to stop cleanly", "feature", name, "error", err)
 		}
@@ -157,10 +182,10 @@ func (m *Manager) Enabled(ctx context.Context, name string) (bool, error) {
 // Restart stops and starts a feature again if it is enabled, for example after
 // its credentials changed.
 func (m *Manager) Restart(ctx context.Context, name string) error {
-	// The flag is read with the lock held, so a switch-off that lands meanwhile is honoured.
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	e, ok := m.features[name]
+	// The flag is read with the lifecycle lock held, so a switch-off that lands meanwhile is honoured.
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+	e, ok := m.lookup(name)
 	if !ok {
 		return ErrUnknownFeature
 	}

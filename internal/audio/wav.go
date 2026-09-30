@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// The sample rates DecodeWAV accepts.
+const (
+	MinWAVRate = 8000
+	MaxWAVRate = 192000
+)
+
 // EncodeWAV wraps 16-bit little-endian mono PCM in a WAV container.
 func EncodeWAV(pcm []byte, rate int) []byte {
 	var b bytes.Buffer
@@ -48,6 +54,9 @@ func DecodeWAV(wav []byte) (pcm []byte, rate int, err error) {
 			channels := binary.LittleEndian.Uint16(wav[body+2:])
 			rate = int(binary.LittleEndian.Uint32(wav[body+4:]))
 			bits := binary.LittleEndian.Uint16(wav[body+14:])
+			if rate < MinWAVRate || rate > MaxWAVRate {
+				return nil, 0, fmt.Errorf("audio: unsupported sample rate %d Hz (need %d to %d)", rate, MinWAVRate, MaxWAVRate)
+			}
 			if format != 1 || channels != 1 || bits != 16 {
 				return nil, 0, fmt.Errorf("audio: unsupported WAV (format %d, %d channels, %d bits); need 16-bit mono PCM", format, channels, bits)
 			}

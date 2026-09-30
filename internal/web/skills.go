@@ -115,6 +115,10 @@ func (s *server) createReminder(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
+	if on, err := s.app.Features.Enabled(r.Context(), "reminders"); err != nil || !on {
+		writeError(w, http.StatusConflict, "turn this feature on in the Dashboard first")
+		return
+	}
 	loc := s.app.Schedules.Location(r.Context())
 	due, err := time.ParseInLocation("2006-01-02T15:04", body.Due, loc)
 	text := strings.TrimSpace(body.Text)
@@ -130,6 +134,13 @@ func (s *server) createReminder(w http.ResponseWriter, r *http.Request) {
 		return
 	case s.app.CheckText(r.Context(), text) != nil:
 		writeError(w, http.StatusBadRequest, "that text contains a blocked word")
+		return
+	}
+	if pending, err := s.app.Store.PendingReminders(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	} else if len(pending) >= skills.MaxReminders {
+		writeError(w, http.StatusBadRequest, "there are already "+strconv.Itoa(skills.MaxReminders)+" reminders")
 		return
 	}
 	id, err := s.app.Store.CreateReminder(r.Context(), text, due, "admin")

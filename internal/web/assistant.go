@@ -12,6 +12,7 @@ import (
 
 	"github.com/juancer/nexo/internal/app"
 	"github.com/juancer/nexo/internal/assistant"
+	"github.com/juancer/nexo/internal/secrets"
 	"github.com/juancer/nexo/internal/speech"
 	"github.com/juancer/nexo/internal/store"
 )
@@ -128,6 +129,16 @@ func (s *server) hasKey(ctx context.Context, name string) bool {
 	return err == nil && len(v) > 0
 }
 
+// mayHaveKey is hasKey for deciding whether to delete: a key that exists but cannot be read
+// counts as present.
+func (s *server) mayHaveKey(ctx context.Context, name string) bool {
+	v, err := s.app.Vault.Get(ctx, name)
+	if errors.Is(err, secrets.ErrNotFound) {
+		return false
+	}
+	return err != nil || len(v) > 0
+}
+
 func (s *server) getAssistant(w http.ResponseWriter, r *http.Request) { s.writeAssistant(w, r, nil) }
 
 // writeAssistant answers with the settings; cleared names the keys that were
@@ -181,19 +192,17 @@ func (s *server) putAssistant(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	if err := s.app.Store.UpdateGPTSettings(r.Context(), d.toStore()); err != nil {
-		writeError(w, http.StatusInternalServerError, "could not save the settings")
-		return
-	}
 	// A stored key must never be sent to a different host than the one it was
 	// entered for: drop it when the address changes (keys are set separately).
+	// The key goes first, so no provider call can pair the new address with the
+	// old key. A key that cannot be read counts as present.
 	var cleared []string
 	for _, k := range []struct{ label, secret, oldURL, newURL string }{
 		{"AI", app.SecretLLMKey, old.LLMBaseURL, d.LLMBaseURL},
 		{"speech-to-text", app.SecretSTTKey, old.STTBaseURL, d.STTBaseURL},
 		{"text-to-speech", app.SecretTTSKey, old.TTSBaseURL, d.TTSBaseURL},
 	} {
-		if !sameHost(k.oldURL, k.newURL) && s.hasKey(r.Context(), k.secret) {
+		if !sameHost(k.oldURL, k.newURL) && s.mayHaveKey(r.Context(), k.secret) {
 			if err := s.app.Store.DeleteSecret(r.Context(), k.secret); err != nil {
 				writeError(w, http.StatusInternalServerError, "internal error")
 				return
@@ -202,8 +211,13 @@ func (s *server) putAssistant(w http.ResponseWriter, r *http.Request) {
 			cleared = append(cleared, k.label)
 		}
 	}
+	saveErr := s.app.Store.UpdateGPTSettings(r.Context(), d.toStore())
 	if len(cleared) > 0 {
 		s.restartFeature(r.Context(), assistant.FeatureName)
+	}
+	if saveErr != nil {
+		writeError(w, http.StatusInternalServerError, "could not save the settings")
+		return
 	}
 	s.audit(r, "assistant.settings_updated", "", nil)
 	s.app.Assistant.PruneHistory(r.Context()) // apply a shorter retention right away
