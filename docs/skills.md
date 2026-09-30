@@ -61,5 +61,5 @@ the wake word, not only when the action is requested; the child can always stop 
 
 ## Ideas that are deliberately not here
 
-Streaming services (Spotify...) need accounts and licences and are not included. Music files
-must be supplied by the family.
+Music files must be supplied by the family. Spotify is available as an optional Spotify Connect
+speaker that you set up yourself, see [spotify.md](spotify.md); no other streaming service is included.

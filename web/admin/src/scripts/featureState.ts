@@ -23,6 +23,7 @@ const KNOWN_ERRORS: [RegExp, string][] = [
   [/API key/i, "needs.assistantKey"],
   [/wake-word samples/i, "needs.wakeSamples"],
   [/no place is set/i, "needs.weatherPlace"],
+  [/go-librespot/i, "needs.spotifyBinary"],
 ];
 
 /** Translation key of the friendly explanation for a known "not set up yet" error, if it is one. */
@@ -74,7 +75,7 @@ export function featureStrip(features: Feature[], onchange: () => void): HTMLEle
 
 /** "Set up" on an enabled-but-unconfigured feature: ask for the missing keys, or point at the form below. */
 async function setUp(f: Feature, needsKey: string, onchange: () => void): Promise<void> {
-  if (needsKey === "needs.wakeSamples") {
+  if (needsKey === "needs.wakeSamples" || needsKey === "needs.spotifyBinary") {
     document.querySelector(".feature-strip")?.nextElementSibling?.scrollIntoView({ behavior: "smooth" });
     return;
   }

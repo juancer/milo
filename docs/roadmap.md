@@ -19,6 +19,8 @@ Each phase leaves the repository compiling, tested and documented.
   instead of a generated install-time password; "volume 7" on a 0-10 scale.
 - [x] **Phase 11** - Remote administration from Telegram (status and volume, access requests,
   features, usage hours, alerts) and opt-in copies of incoming messages to administrators.
+- [x] **Phase 12** - Optional Spotify Connect speaker through a user-installed go-librespot, with
+  pairing in the admin and opt-in voice verbs ([spotify.md](spotify.md)).
 
 ## Not done yet
 
@@ -28,5 +30,8 @@ Each phase leaves the repository compiling, tested and documented.
   and synthetic data ([hardware.md](hardware.md)).
 - Setup protection: first-run setup is refused from outside the home network, but until the owner
   exists anyone on that network can still claim the device. There is no setup token yet.
+- Spotify: not yet verified on a real Pi with a Premium account (go-librespot's `device_auth` login,
+  the `speaker` device type and saved-credentials behaviour are taken from its documentation);
+  searching for arbitrary songs is out of scope (needs Spotify's Web API).
 - Translating messages that come from lower layers (for example backup passphrase rules), the CLI,
   logs and audit entries.

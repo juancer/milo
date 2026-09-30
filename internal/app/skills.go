@@ -25,19 +25,30 @@ func (a *App) initSkills(ctx context.Context) error {
 	a.Music = &skills.Music{Common: common, Audio: a.Audio,
 		// Music only resumes when there is no speech, alert or conversation going on.
 		Idle: func() bool { return !a.Audio.Busy() && !a.Assistant.Busy() }}
+	idle := func() bool { return !a.Audio.Busy() && !a.Assistant.Busy() }
+	a.Spotify = &skills.Spotify{Common: common, Audio: a.Audio, DataDir: a.Cfg.DataDir, Idle: idle,
+		DeviceNameOf: func(ctx context.Context) string {
+			n, _ := a.Store.DeviceName(ctx)
+			return n
+		},
+		OnPlay: a.Music.Halt, // starting Spotify ends the local music
+	}
+	// Starting a local song pauses Spotify, and pause, stop and skip reach Spotify when no local song plays.
+	a.Music.BeforePlay, a.Music.Other = a.Spotify.YieldToLocal, a.Spotify
 	a.Weather = &skills.Weather{Common: common}
 	a.Calendar = &skills.Calendar{Common: common, Vault: a.Vault}
 
 	a.Timers.RegisterActions(a.Actions)
 	a.Reminders.RegisterActions(a.Actions)
 	a.Music.RegisterActions(a.Actions)
+	a.Spotify.RegisterActions(a.Actions)
 	a.Weather.RegisterActions(a.Actions)
 	a.Calendar.RegisterActions(a.Actions)
 	for _, f := range []interface {
 		Name() string
 		Start(context.Context) error
 		Stop(context.Context) error
-	}{a.Timers, a.Reminders, a.Music, a.Weather, a.Calendar} {
+	}{a.Timers, a.Reminders, a.Music, a.Spotify, a.Weather, a.Calendar} {
 		if err := a.Features.Register(ctx, f); err != nil {
 			return err
 		}

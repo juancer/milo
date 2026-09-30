@@ -14,6 +14,7 @@ import * as people from "./views/people";
 import * as schedules from "./views/schedules";
 import * as simulator from "./views/simulator";
 import * as skills from "./views/skills";
+import * as spotify from "./views/spotify";
 import * as sound from "./views/sound";
 import * as system from "./views/system";
 import * as telegram from "./views/telegram";
@@ -45,6 +46,7 @@ export const SECTIONS: Section[] = [
   { id: "assistant", group: "assistant", icon: "assistant", tone: "purple", render: assistant.render, features: ["assistant"] },
   { id: "wakeword", group: "assistant", icon: "wakeword", tone: "pink", render: wakeword.render, stop: wakeword.stop, features: ["wakeword"] },
   { id: "skills", group: "assistant", icon: "skills", tone: "orange", render: skills.render, stop: skills.stop, features: ["timer", "reminders", "weather", "music", "calendar"] },
+  { id: "spotify", group: "assistant", icon: "music", tone: "green", render: spotify.render, stop: spotify.stop, features: ["spotify"] },
   { id: "sound", group: "assistant", icon: "sound", tone: "red", render: sound.render },
   { id: "buttons", group: "device", icon: "buttons", tone: "gray", render: buttons.render },
   { id: "device", group: "device", icon: "device", tone: "blue", render: dashboard.renderDevice },

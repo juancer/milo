@@ -35,7 +35,7 @@ configuration, persistence, UI.
 | `assistant` | Conversations, tool loop, voice session; states the configured language explicitly in the prompt; talks to an `AIProvider` interface | 5, 10 |
 | `openrouter` | OpenAI-compatible chat client (OpenRouter, Groq...) | 5 |
 | `speech` | Speech-to-text and text-to-speech providers; TTS receives language, voice, speed and volume | 5, 10 |
-| `skills` | Timers, reminders, music, weather, calendar (each a feature with actions) | 8 |
+| `skills` | Timers, reminders, music, weather, calendar (each a feature with actions), and the optional Spotify Connect receiver supervisor (`spotify*.go`, see [spotify.md](spotify.md)) | 8 |
 | `wakeword` | Local wake-word detection (template matcher, external helper plug) | 7 |
 | `wifi` | Wi-Fi networks applied to NetworkManager (`nmcli`) | 6 |
 | `moderation` | Input/output safety net and parent-defined blocked phrases | 5 |
