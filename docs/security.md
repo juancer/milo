@@ -24,7 +24,9 @@ At startup a canary secret detects a key that does not match the database and re
   cookie is `HttpOnly` + `SameSite=Strict` but not `Secure`, and the login password and cookie
   cross the network unencrypted. Run it only on an isolated home network you trust (no
   untrusted devices on the same LAN or Wi-Fi).
-- The audit log keeps the newest 5000 entries; older ones are pruned daily.
+- The audit log keeps 90 days of entries (at most 50000 rows; if that is exceeded the oldest rows of the
+  actor with the most rows go first, so one admin's volume cannot push out another's history). Identical
+  events from the same actor within a minute are counted on one row instead of adding rows.
 - **Several people can manage the device**, each with their own username and password
   (`mom`, `dad`...). The first account, `admin`, is the **owner**: created by `nexo install` with a
   **generated password shown once** on the terminal (it is never logged or stored in clear text).
@@ -33,7 +35,8 @@ At startup a canary secret detects a key that does not match the database and re
   restore a backup (a backup carries every account and, with the key, every secret); everyone else
   has the same management powers except that. Administrators cannot remove themselves or the owner.
 - Passwords are hashed with Argon2id (minimum 12 characters). Sign-in attempts are limited per client
-  address (5 per 15 minutes, counted before the password is checked). There is no per-account limit,
+  address (5 per 15 minutes, counted before the password is checked; IPv6 clients share one bucket per /64,
+  and a successful sign-in gives back only its own attempt, so earlier failures still count). There is no per-account limit,
   so nobody can lock the owner out by naming `admin`; at most two Argon2 checks run at once. Unknown
   usernames cost the same time as wrong passwords. Changing a password, or removing an account, ends its sessions immediately.
 - Every audit entry names the administrator who acted.

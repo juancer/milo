@@ -39,20 +39,22 @@ func (s *server) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := adminFrom(r)
-	if !s.limiter.Allowed(clientIP(r)) {
+	ip := clientIP(r)
+	if !s.limiter.Try(ip) {
 		writeError(w, http.StatusTooManyRequests, "too many failed attempts, try again later")
 		return
 	}
 	err := s.accounts.ChangePassword(r.Context(), user.ID, body.Current, body.New)
 	switch {
 	case errors.Is(err, auth.ErrBadCredentials):
-		s.limiter.Fail(clientIP(r))
 		writeError(w, http.StatusUnauthorized, "the current password is not correct")
 		return
 	case err != nil:
+		s.limiter.Refund(ip) // not a wrong-password guess (for example a too-short new password)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.limiter.Refund(ip)
 	s.audit(r, "admin.password_changed", user.Username, nil)
 	fresh, err := s.app.Store.GetAdmin(r.Context(), user.ID)
 	if err != nil || s.startSession(w, fresh) != nil {

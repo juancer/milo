@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -1675,5 +1676,66 @@ func TestSlowFeatureStartIsBounded(t *testing.T) {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("feature switch was not bounded")
+	}
+}
+
+// A successful login of another account must not erase the failures aimed at the owner.
+func TestSuccessfulLoginsDoNotResetTheFailureBudget(t *testing.T) {
+	e := newEnv(t, true)
+	owner := e.login(t)
+	if r := e.post(t, "/api/admins", map[string]string{"username": "dad", "password": "dads-first-password-1"}, owner); r.StatusCode != 201 {
+		t.Fatalf("create dad = %d", r.StatusCode)
+	}
+	blocked := -1
+	for i := 0; i < 40; i++ {
+		if i%2 == 1 {
+			e.loginFrom("192.0.2.9", "dad", "dads-first-password-1")
+		}
+		if e.loginFrom("192.0.2.9", "admin", "wrong-password-here") == 429 {
+			blocked = i
+			break
+		}
+	}
+	if blocked < 0 || blocked > 6 {
+		t.Fatalf("first 429 at guess %d, want within 6", blocked)
+	}
+}
+
+func TestIPv6AddressesInOneSlash64ShareABucket(t *testing.T) {
+	e := newEnv(t, true)
+	throttled := 0
+	for i := 0; i < 100; i++ {
+		if e.loginFrom(fmt.Sprintf("[2001:db8:1:2::%x]", i+1), "admin", "wrong-password-here") == 429 {
+			throttled++
+		}
+	}
+	if throttled != 95 {
+		t.Fatalf("throttled %d of 100, want 95 (5 allowed per /64)", throttled)
+	}
+	if code := e.loginFrom("[2001:db8:1:3::1]", "admin", "wrong-password-here"); code != 401 {
+		t.Fatalf("a different /64 = %d, want 401", code)
+	}
+}
+
+func TestParallelWrongPasswordChangesAreLimited(t *testing.T) {
+	e := newEnv(t, true)
+	owner := e.login(t)
+	body := map[string]string{"current_password": "wrong-password-here", "new_password": "a-brand-new-password"}
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	got := map[int]int{}
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r := e.post(t, "/api/account/password", body, owner)
+			mu.Lock()
+			got[r.StatusCode]++
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+	if got[401] > 5 || got[401]+got[429] != 20 {
+		t.Fatalf("statuses = %v, want at most 5 x 401 and the rest 429", got)
 	}
 }

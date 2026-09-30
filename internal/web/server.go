@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"path"
 	"runtime"
@@ -246,7 +247,7 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	s.limiter.Reset(ip)
+	s.limiter.Refund(ip) // give back only this attempt; earlier failures stay counted
 	if err := s.startSession(w, user); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -344,10 +345,21 @@ func (s *server) listAudit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// clientIP is the limiter key for a request: the IPv4 address, or the /64 prefix for IPv6
+// (one host can use billions of addresses inside its /64).
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
+	}
+	if addr, err := netip.ParseAddr(host); err == nil {
+		addr = addr.Unmap()
+		if addr.Is6() {
+			if p, err := addr.Prefix(64); err == nil {
+				return p.String()
+			}
+		}
+		return addr.String()
 	}
 	return host
 }

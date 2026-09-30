@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"syscall"
 
 	"github.com/juancer/nexo/internal/auth"
 	"github.com/juancer/nexo/internal/secrets"
@@ -80,7 +81,11 @@ func Install(ctx context.Context, out io.Writer) error {
 	}
 
 	// Initialise the database and run migrations, then hand it to the service user.
-	st, err := store.Open(ctx, filepath.Join(DefaultDataDir, "nexo.db"))
+	dbPath := filepath.Join(DefaultDataDir, "nexo.db")
+	if err := CheckDBFile(DefaultDataDir, dbPath); err != nil {
+		return err
+	}
+	st, err := store.Open(ctx, dbPath)
 	if err != nil {
 		return err
 	}
@@ -265,4 +270,30 @@ func PrintFirstAdmin(out io.Writer, address, username, password string) {
   Lost it?   sudo -u nexo nexo admin-reset
 ============================================================
 `, address, username, password)
+}
+
+// CheckDBFile refuses a database path that root should not open: the data
+// directory belongs to the service user, who could have planted a symlink at
+// dbPath. The path must be absent, or a regular file owned by the directory's owner.
+func CheckDBFile(dataDir, dbPath string) error {
+	fi, err := os.Lstat(dbPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !fi.Mode().IsRegular() {
+		return fmt.Errorf("refusing to open %s: not a regular file (symlink or directory)", dbPath)
+	}
+	di, err := os.Stat(dataDir)
+	if err != nil {
+		return err
+	}
+	if fs, ok := fi.Sys().(*syscall.Stat_t); ok {
+		if ds, ok := di.Sys().(*syscall.Stat_t); ok && fs.Uid != ds.Uid {
+			return fmt.Errorf("refusing to open %s: not owned by the owner of %s", dbPath, dataDir)
+		}
+	}
+	return nil
 }

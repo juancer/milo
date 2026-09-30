@@ -43,18 +43,27 @@ func (t *Timers) Start(ctx context.Context) error {
 func (t *Timers) Stop(ctx context.Context) error { t.stop(ctx); return nil }
 
 // fireDue announces due timers. After a reboot, timers that ran out long ago
-// are dropped silently instead of ringing at a random moment.
+// are dropped silently instead of ringing at a random moment. Outside the
+// parents' usage window for timers nothing rings: a due timer waits for the
+// window to open, and is dropped once it is older than the grace period.
 func (t *Timers) fireDue(ctx context.Context, startup bool) {
 	due, err := t.Store.DueTimers(ctx, t.now())
 	if err != nil {
 		t.Log.Warn("timers: cannot read due timers", "error", err)
 		return
 	}
+	if len(due) == 0 {
+		return
+	}
+	open := t.allowedNow(ctx, "timer")
 	for _, tm := range due {
+		if !open && t.now().Sub(tm.FiresAt) <= missedTimerGrace {
+			continue // leave it pending until the window opens
+		}
 		if ok, err := t.Store.MarkTimerFired(ctx, tm.ID); err != nil || !ok {
 			continue
 		}
-		if startup && t.now().Sub(tm.FiresAt) > missedTimerGrace {
+		if !open || startup && t.now().Sub(tm.FiresAt) > missedTimerGrace {
 			continue
 		}
 		msg := "Your timer is done!"

@@ -20,6 +20,9 @@ import (
 // openCLIStore opens the database and, when run as root, hands the files it may have just
 // created to the folder's owner: the nexo service could not open root-owned ones.
 func openCLIStore(ctx context.Context, cfg system.Config) (*store.Store, error) {
+	if err := system.CheckDBFile(cfg.DataDir, cfg.DBPath()); err != nil {
+		return nil, err
+	}
 	st, err := store.Open(ctx, cfg.DBPath())
 	if err != nil {
 		return nil, err

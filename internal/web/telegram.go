@@ -356,6 +356,12 @@ func (s *server) updateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	if !body.Active {
+		if err := s.app.Store.ExpirePendingFrom(ctx, id); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+	}
 	for p, v := range body.Permissions {
 		if v == nil {
 			err = s.app.Store.ClearPermission(ctx, id, p)

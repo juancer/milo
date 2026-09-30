@@ -147,12 +147,12 @@ func openTrack(path string) (*pcmSource, error) {
 	}
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".mp3":
-		dec, err := mp3.NewDecoder(f)
+		dec, err := decodeMP3Safe(f)
 		if err != nil {
 			f.Close()
 			return nil, fmt.Errorf("cannot decode %s: %w", filepath.Base(path), err)
 		}
-		return &pcmSource{r: dec, closer: f, sampleRate: dec.SampleRate(), channels: 2}, nil
+		return &pcmSource{r: &safeReader{r: dec}, closer: f, sampleRate: dec.SampleRate(), channels: 2}, nil
 	case ".wav":
 		rate, ch, err := readWavHeader(f)
 		if err != nil {
@@ -163,6 +163,30 @@ func openTrack(path string) (*pcmSource, error) {
 	}
 	f.Close()
 	return nil, errors.New("unsupported file type")
+}
+
+// decodeMP3Safe is mp3.NewDecoder, but a decoder panic on a malformed file
+// becomes an error instead of ending the process.
+func decodeMP3Safe(r io.Reader) (dec *mp3.Decoder, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			dec, err = nil, fmt.Errorf("mp3 decoder panic: %v", p)
+		}
+	}()
+	return mp3.NewDecoder(r)
+}
+
+// safeReader turns a decoder panic during Read into an error. Read may run in
+// the audio player's stdin copy goroutine, where no other recover can see it.
+type safeReader struct{ r io.Reader }
+
+func (s *safeReader) Read(p []byte) (n int, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			n, err = 0, fmt.Errorf("mp3 decoder panic: %v", r)
+		}
+	}()
+	return s.r.Read(p)
 }
 
 // readWavHeader positions r at the start of the sample data of a 16-bit PCM
@@ -211,6 +235,7 @@ type countingReader struct {
 	r   io.Reader
 	n   atomic.Int64
 	eof atomic.Bool
+	bad atomic.Bool // a read failed for a reason other than the end of the file
 }
 
 func (c *countingReader) Read(p []byte) (int, error) {
@@ -218,6 +243,8 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	c.n.Add(int64(n))
 	if errors.Is(err, io.EOF) {
 		c.eof.Store(true)
+	} else if err != nil {
+		c.bad.Store(true)
 	}
 	return n, err
 }
@@ -392,6 +419,14 @@ func (m *Music) startRun(first Track, offset int64, queue []Track) {
 	m.mu.Unlock()
 	go func() {
 		defer close(done)
+		defer func() {
+			if r := recover(); r != nil {
+				m.Log.Error("music: player panic", "panic", r)
+				m.mu.Lock()
+				m.state = StateStopped
+				m.mu.Unlock()
+			}
+		}()
 		m.run(ctx)
 	}()
 }
@@ -432,7 +467,16 @@ func (m *Music) waitQuiet(ctx context.Context) bool {
 
 func (m *Music) run(ctx context.Context) {
 	resumes := 0
-	for ctx.Err() == nil {
+	for first := true; ctx.Err() == nil; first = false {
+		// The schedule was checked when the play action was called; check it
+		// again at every track boundary and resume, so a closed window ends the music.
+		if !first && !m.allowedNow(ctx, "music") {
+			m.Log.Info("music: usage window closed, stopping")
+			m.mu.Lock()
+			m.state = StateStopped
+			m.mu.Unlock()
+			return
+		}
 		m.mu.Lock()
 		track, offset := m.current, m.offset
 		m.mu.Unlock()
@@ -568,7 +612,7 @@ func (m *Music) RegisterActions(e *actions.Engine) {
 	})
 	e.MustRegister(actions.Action{
 		Name: "pause_music", Description: "Pause the music. Playing again with no song name resumes it.",
-		Feature: "music", Exposure: both,
+		Feature: "music", Exposure: both, BypassSchedule: true, // the child can always stop it
 		Handler: func(ctx context.Context, c actions.Call) (actions.Result, error) {
 			if !m.Pause() {
 				return actions.Result{Message: "Nothing is playing."}, nil
@@ -578,7 +622,7 @@ func (m *Music) RegisterActions(e *actions.Engine) {
 	})
 	e.MustRegister(actions.Action{
 		Name: "stop_music", Description: "Stop the music.",
-		Feature: "music", Exposure: both,
+		Feature: "music", Exposure: both, BypassSchedule: true, // the child can always stop it
 		Handler: func(ctx context.Context, c actions.Call) (actions.Result, error) {
 			m.Halt()
 			return actions.Result{Message: "Music stopped."}, nil
@@ -586,7 +630,7 @@ func (m *Music) RegisterActions(e *actions.Engine) {
 	})
 	e.MustRegister(actions.Action{
 		Name: "next_song", Description: "Skip to the next song.",
-		Feature: "music", Exposure: both,
+		Feature: "music", Exposure: both, BypassSchedule: true, // the child can always stop it
 		Handler: func(ctx context.Context, c actions.Call) (actions.Result, error) {
 			title, err := m.Next()
 			if err != nil {

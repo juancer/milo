@@ -25,6 +25,9 @@ const (
 	// MaxPendingPerSender bounds the unheard messages one person can leave, so a single
 	// account cannot fill the device's storage. Emergency follow-ups are not counted.
 	MaxPendingPerSender = 50
+	// EmergencyPendingAllowance is the absolute extra room above the cap for an
+	// emergency alert and its urgent follow-ups.
+	EmergencyPendingAllowance = 8
 
 	// maxPlayAttempts is how often a voice message that cannot be decoded is retried. After
 	// that it is marked failed, so one bad recording cannot hold back the messages behind it.
@@ -120,10 +123,8 @@ func (s *Service) deliverMessage(ctx context.Context, c actions.Call) (actions.R
 	if s.urgentActive(ctx, c.Actor.UserID) { // follows an emergency alert from the same person
 		msg.Type, msg.Priority = "emergency", "critical"
 	}
-	if msg.Priority != "critical" {
-		if n, err := s.Store.PendingFrom(ctx, c.Actor.UserID); err == nil && n >= MaxPendingPerSender {
-			return actions.Result{Message: tooManyWaitingMsg}, nil
-		}
+	if s.senderAtCeiling(ctx, c.Actor.UserID, msg.Priority == "critical") {
+		return actions.Result{Message: tooManyWaitingMsg}, nil
 	}
 	id, err := s.Store.InsertMessage(ctx, msg)
 	if err != nil {
@@ -133,6 +134,33 @@ func (s *Service) deliverMessage(ctx context.Context, c actions.Call) (actions.R
 		return actions.Result{Message: deliveredMsg}, nil
 	}
 	return actions.Result{Message: deliveredLaterMsg}, nil
+}
+
+// senderAtCeiling reports whether the sender already has as many unheard messages
+// as they may leave. Urgent messages get a small absolute allowance on top of the
+// normal cap, so an emergency is never refused for a full queue yet stays bounded.
+func (s *Service) senderAtCeiling(ctx context.Context, userID int64, urgent bool) bool {
+	limit := MaxPendingPerSender
+	if urgent {
+		limit += EmergencyPendingAllowance
+	}
+	n, err := s.Store.PendingFrom(ctx, userID)
+	return err == nil && n >= limit
+}
+
+// senderMayBeHeard reports whether a pending message may still be played: its
+// sender must remain active and permitted (emergency alerts need emergency_alert,
+// everything else send_message).
+func (s *Service) senderMayBeHeard(ctx context.Context, m store.Message) bool {
+	if m.UserID == 0 {
+		return true
+	}
+	p := permissions.SendMessage
+	if m.Type == "emergency" {
+		p = permissions.EmergencyAlert
+	}
+	ok, err := s.Perms.Has(ctx, m.UserID, p)
+	return err != nil || ok // when the check fails the message stays pending
 }
 
 // announce plays the notification sound for a stored message when allowed and
@@ -196,6 +224,10 @@ func (s *Service) readMessages(ctx context.Context, _ actions.Call) (actions.Res
 func (s *Service) playNext(ctx context.Context) (bool, error) {
 	open := s.scheduleOpen(ctx)
 	m, err := s.Store.NextPending(ctx, !open)
+	for err == nil && !s.senderMayBeHeard(ctx, m) {
+		s.Store.ExpireMessage(ctx, m.ID) //nolint:errcheck
+		m, err = s.Store.NextPending(ctx, !open)
+	}
 	if errors.Is(err, store.ErrNotFound) {
 		if total, _, _ := s.Store.PendingCounts(ctx); total > 0 && !open {
 			s.Notify.Notify(ctx, audio.NotifyError) //nolint:errcheck // "not now"

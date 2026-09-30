@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"time"
 
 	"github.com/juancer/nexo/internal/store"
 	"github.com/juancer/nexo/internal/system"
@@ -19,12 +20,17 @@ type Logger struct {
 // New returns a Logger.
 func New(s *store.Store, log *slog.Logger) *Logger { return &Logger{store: s, log: log} }
 
-// maxEntries is how many audit rows are kept; older ones are pruned.
-const maxEntries = 5000
+const (
+	// retention is how long audit rows are kept.
+	retention = 90 * 24 * time.Hour
+	// maxEntries is a hard safety cap; beyond it the heaviest actor's oldest
+	// rows are dropped first.
+	maxEntries = 50000
+)
 
-// Prune deletes the oldest entries beyond maxEntries.
+// Prune deletes entries older than the retention period, then enforces the cap.
 func (l *Logger) Prune(ctx context.Context) error {
-	return l.store.PruneAudit(ctx, maxEntries)
+	return l.store.PruneAudit(ctx, retention, maxEntries)
 }
 
 // Record appends an entry. Detail values under credential-like keys are
