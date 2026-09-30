@@ -281,6 +281,12 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 // setup is the first-run onboarding: it creates the owner chosen in the browser, but only
 // while no administrator exists, then signs that person in.
 func (s *server) setup(w http.ResponseWriter, r *http.Request) {
+	// Whoever completes setup becomes the owner, so it is limited to the home network. The decision
+	// uses the TCP peer only: a forwarding header is client-supplied and proves nothing.
+	if !fromHomeNetwork(r) {
+		writeError(w, http.StatusForbidden, "web.err.setup_from_the_home_network_only")
+		return
+	}
 	ip := clientIP(r)
 	var body struct {
 		Username string `json:"username"`
@@ -411,6 +417,21 @@ func (s *server) listAudit(w http.ResponseWriter, r *http.Request) {
 		out = append(out, row{e.At, e.Actor, e.Action, e.Target, e.Details})
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// fromHomeNetwork reports whether the request's TCP peer is on the local network: loopback,
+// private (RFC 1918 or IPv6 ULA) or link-local. It reads RemoteAddr only, never X-Forwarded-For.
+func fromHomeNetwork(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	addr = addr.Unmap()
+	return addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast()
 }
 
 // clientIP is the limiter key for a request: the IPv4 address, or the /64 prefix for IPv6

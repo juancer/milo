@@ -31,9 +31,13 @@ At startup a canary secret detects a key that does not match the database and re
   (`mom`, `dad`...). The first account is the **owner**. It is created in the browser, on first
   run, with a username and password chosen by the person setting up: nothing is generated at
   install time, so no credential ever appears in a terminal or a log. **Until that account exists,
-  whoever reaches the address first becomes the owner**, so finish setup right after installing, on a
-  trusted network. `POST /api/setup` is refused (409) forever after the first admin exists, and is
-  rate-limited like sign-in. Accounts created by the owner, or reset from the command line, get a
+  whoever on the home network reaches the address first becomes the owner**, so finish setup right
+  after installing, on a trusted network. `POST /api/setup` is refused (403) unless the TCP peer is
+  loopback, private (RFC 1918 or IPv6 ULA) or link-local; `X-Forwarded-For` is never consulted, so a
+  public address cannot pass as local (behind a reverse proxy the peer is the proxy, so set up
+  before exposing Milo). It is refused (409) forever after the first admin exists, and is
+  rate-limited like sign-in. While setup is pending, Milo logs `waiting for first-run setup` with the
+  address to open. Accounts created by the owner, or reset from the command line, get a
   generated password shown once and must choose their own before anything else works.
 - The owner adds, resets and removes administrators, and is the only one who can download or
   restore a backup (a backup carries every account and, with the key, every secret); everyone else

@@ -14,7 +14,8 @@ See [hardware.md](hardware.md) for the sound card and button wiring.
    in the username, which you can edit) and a **password** (at least 12 characters, typed twice).
    It then shows your username once more: that is what you sign in with from now on. You land on
    the admin Home straight away. Do this right after installing, on a network you trust: until it
-   is done, the first person to reach the page becomes the owner.
+   is done, the first person on your home network to reach the page becomes the owner. Setup is
+   refused from any address outside the home network (public Internet addresses get a 403).
 6. The Home shows a **Finish setting up** checklist: connect your Telegram bot and invite the first
    person ([telegram.md](telegram.md)); add an AI key and Wi-Fi if you want them. Add the other
    people who will manage the device under the **Admins** tile.

@@ -256,6 +256,9 @@ func Systemctl(verb string) error {
 // virtualPrefixes are interfaces that are not the network family devices use.
 var virtualPrefixes = []string{"docker", "br-", "veth", "virbr", "cni", "flannel", "lo"}
 
+// LocalIP returns the host's LAN IPv4 address (see localIP), for messages that point people at the device.
+func LocalIP() string { return localIP() }
+
 // localIP returns the host's LAN IPv4 address, skipping loopback and container bridges.
 func localIP() string {
 	ifaces, err := net.Interfaces()

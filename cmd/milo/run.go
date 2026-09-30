@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/juancer/milo/internal/app"
@@ -102,6 +103,11 @@ func runServer(ctx context.Context, cfg system.Config) error {
 			}
 		}
 	}()
+
+	if admins, err := st.ListAdmins(ctx); err == nil && len(admins) == 0 {
+		port := cfg.Listen[strings.LastIndex(cfg.Listen, ":")+1:]
+		log.Info("waiting for first-run setup", "open", "http://"+system.LocalIP()+":"+port)
+	}
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
