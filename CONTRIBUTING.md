@@ -9,7 +9,9 @@ of the license, and you must keep the `LICENSE` and `NOTICE` files intact.
 
 ## Ground rules
 
-- Everything in the repository is English: code, comments, docs, UI, schema, logs.
+- English is the source language: code, comments, docs, schema and logs are English, and so are the
+  source translation catalogs. Other languages live only in the catalogs; see [docs/i18n.md](docs/i18n.md)
+  and [docs/development.md](docs/development.md) to add one. Never hardcode user-facing text: use a key.
 - Never commit secrets, real Telegram IDs, family names or private messages.
 - Keep it buildable and tested: `make test` must pass. Development runs in Docker
   (see [docs/development.md](docs/development.md)); no Go or Node is needed on your machine.

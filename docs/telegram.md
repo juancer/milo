@@ -11,8 +11,9 @@ There is no shared "Milo bot". Each family creates its own:
 
 1. In Telegram, talk to **@BotFather**, send `/newbot` and follow the steps.
 2. Copy the token it gives you (`123456:ABC...`). Treat it like a password.
-3. In the admin UI open **Telegram**, paste the token and save. It is stored encrypted.
-4. On the Dashboard turn on the **telegram** feature.
+3. In the admin UI open the **Telegram** tile, paste the token and save. It is stored encrypted.
+4. Switch the **Telegram** feature on at the top of that sheet. If you switch it on before adding
+   the token, Milo asks for the token right there and turns the feature on once it is saved.
 
 Milo asks the bot for its own username, so invitation links always point at *your* bot.
 
@@ -20,7 +21,7 @@ Milo asks the bot for its own username, so invitation links always point at *you
 
 Anyone can find a bot, so being able to message it grants nothing. To let a relative in:
 
-1. **Telegram → Invite someone**: choose a role (PARENT, FAMILY or CHILD), how long the link
+1. In the **Telegram** tile, **Invite someone**: choose a role (PARENT, FAMILY or CHILD), how long the link
    is valid and an optional note. An invitation can never grant OWNER.
 2. Send the link (`https://t.me/<your bot>?start=<token>`) to the person. It is shown once;
    only its SHA-256 is stored.
@@ -41,11 +42,11 @@ only *"You are not authorized to use this device."* (at most once every 30 secon
 | FAMILY | send/receive messages |
 | CHILD | none (child-facing actions go through the device) |
 
-Permissions are explicit on top of roles: **People** shows a checkbox per permission and marks
+Permissions are explicit on top of roles: the **People** tile shows a checkbox per permission and marks
 differences from the role as *custom*. For example, allow one grandparent to send emergency
 alerts while other family members cannot. Deactivating a person blocks them at once.
 
-The People page cannot promote anyone to OWNER (like invitations). Chat names must be unique
+The People tile cannot promote anyone to OWNER (like invitations). Chat names must be unique
 without regard to case, because the assistant matches them that way. After an emergency alert,
 at most three further messages within two minutes are marked urgent, and only while the sender
 still holds `emergency_alert`. The bot saves its update offset after each update, so a crash can
@@ -62,8 +63,8 @@ Parent to child:
 Relative → bot → authorized? → stored in SQLite as pending → short "piii" → child presses LISTEN
 ```
 
-- Messages are never read aloud automatically and the sender is not announced (unless you set
-  `telegram.announce_sender` to `1`).
+- Messages are never read aloud automatically and the sender is not announced (unless you turn on
+  **System → Say who a message is from before playing it**, `telegram.announce_sender`).
 - The notification is only a sound, so it reveals nothing.
 - Outside usage hours messages are stored silently and announced when hours begin
   ([schedules.md](schedules.md)).
@@ -83,15 +84,17 @@ with a reply saying so (a small extra allowance of 8 applies to an emergency ale
 their permission to send, also drops their unheard messages: they are no longer played. A voice note that cannot be decoded
 is tried three times and then marked failed, so it never blocks the messages behind it.
 
-The **Message activity** list shows who and when, never the content.
+The **Message activity** list (Telegram tile) shows who and when, never the content.
 
 ## Managing Milo from Telegram
 
 Away from home, a person who holds the right permissions sees an **Administration** button in
 the bot's `/menu`. Each section needs its own permission, and **every tap re-checks it on the
 device** (and that the person is still active), so a button left on screen, or one forged by
-hand, does nothing once the permission is gone. Give the permissions in **People** (an invited
-person is a PARENT; tick the boxes below for the ones you trust).
+hand, does nothing once the permission is gone. Give the permissions in the **People** tile: the
+person is the Telegram family member, not a web administrator account. An invited person is a
+PARENT, who does not hold these permissions by default, so tick the boxes below for the ones you
+trust.
 
 | Section | What you can do | Permission |
 |---|---|---|
@@ -113,15 +116,15 @@ person is a PARENT; tick the boxes below for the ones you trust).
 
 ### Alerts (opt-in)
 
-Switch **Alerts** on under *My alerts and copies* to be told when a feature fails to start or
-Milo starts. The message names the feature only, never an error text. It is off for everyone
+Switch **Alerts** on under *My alerts and copies* (needs `manage_configuration`) to be told when a
+feature fails to start or Milo starts. The message names the feature only, never an error text. It is off for everyone
 until they turn it on.
 
 ### Hearing what people send to the device (opt-in copies)
 
 Messages left for the child are never read aloud by Telegram and the content is not shown in the
 admin. If an administrator wants to hear or read them too, for example while travelling, they can
-turn on **Copy of messages left for the device** (in the bot, or *People* in the web admin):
+turn on **Copy of messages left for the device** (in the bot, or in the **People** tile):
 
 - It is **off by default** and only available to people with `manage_users`. If the permission is
   removed, copies stop at once.
@@ -136,8 +139,8 @@ turn on **Copy of messages left for the device** (in the bot, or *People* in the
 ## Language
 
 Every message the bot sends comes from the translation catalogs ([i18n.md](i18n.md)), never from
-code. It writes to each person in their own language (People → Language) and otherwise in the
-notification language (Settings → Language); strangers always get the notification language.
+code. It writes to each person in their own language (**People → Language**) and otherwise in the
+notification language (**System → Languages**); strangers always get the notification language.
 The bot's username is your own bot's: Milo never assumes a name.
 
 ## Group chats
@@ -154,4 +157,5 @@ message text.
 ## Development without Telegram
 
 `make dev` starts a simulator with fake family phones and a fake Bot API, see
-[development.md](development.md).
+[development.md](development.md). The same stack can talk to your real bot instead; that page
+explains how.
