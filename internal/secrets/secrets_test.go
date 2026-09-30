@@ -95,6 +95,25 @@ func TestCheckKeyDetectsMismatch(t *testing.T) {
 	}
 }
 
+func TestVerifyCanaryNeverWritesAndNeedsTheRightKey(t *testing.T) {
+	ctx := context.Background()
+	v, st, _ := newVault(t)
+	if err := v.VerifyCanary(ctx); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing canary = %v, want ErrNotFound", err)
+	}
+	if _, err := st.GetSecret(ctx, canaryName); err == nil {
+		t.Fatal("VerifyCanary wrote the canary")
+	}
+	v.CheckKey(ctx)
+	if err := v.VerifyCanary(ctx); err != nil {
+		t.Fatal(err)
+	}
+	other, _ := New(make([]byte, 32), st)
+	if err := other.VerifyCanary(ctx); err == nil {
+		t.Fatal("a different master key passed")
+	}
+}
+
 func TestKeyFileLifecycle(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sub", "master.key")
 	created, err := GenerateKeyFile(path)

@@ -8,7 +8,7 @@ are spoken when text-to-speech is set up; otherwise the child hears an alarm or 
 | Skill | Actions | Notes |
 |---|---|---|
 | Timer | `set_timer`, `cancel_timer`, `list_timers` | Up to 10 at once; survive a reboot. A timer that ran out more than 10 minutes ago while the device was off is dropped instead of ringing late. |
-| Reminders | `create_reminder`, `list_reminders`, `cancel_reminder` | "in 10 minutes" or "at 17:30" (next time the clock shows it). Parents can add reminders in the admin too. Text is checked against the blocked phrases. |
+| Reminders | `create_reminder`, `list_reminders`, `cancel_reminder` | "in 10 minutes" or "at 17:30" (next time the clock shows it). Up to 50 pending at once. Parents can add reminders in the admin too. Text is checked against the blocked phrases. |
 | Music | `play_music`, `pause_music`, `stop_music`, `next_song` | Plays `.mp3` and 16-bit `.wav` files from a folder. |
 | Weather | `get_weather` | Free Open-Meteo service; only your town's coordinates are sent. |
 | Calendar | `get_calendar` | Read-only, through the calendar's secret iCalendar (`.ics`) address. |

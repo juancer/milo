@@ -104,6 +104,12 @@ var (
 	binaryPathRe = regexp.MustCompile(`^[A-Za-z0-9_./-]{1,200}$`)
 )
 
+// validBinary accepts an absolute path or a bare command name, never a
+// relative path such as ./piper or bin/piper.
+func validBinary(b string) bool {
+	return binaryPathRe.MatchString(b) && !strings.Contains(b, "..") && (strings.HasPrefix(b, "/") || !strings.Contains(b, "/"))
+}
+
 // ValidModelPath reports whether p is an acceptable Piper voice path.
 func ValidModelPath(p string) bool { return modelPathRe.MatchString(p) && !strings.Contains(p, "..") }
 
@@ -119,7 +125,7 @@ func NewPiper(binary, model string) (*Piper, error) {
 	if binary == "" {
 		binary = "piper"
 	}
-	if !binaryPathRe.MatchString(binary) || strings.Contains(binary, "..") {
+	if !validBinary(binary) {
 		return nil, fmt.Errorf("speech: invalid piper binary %q", binary)
 	}
 	if !ValidModelPath(model) {
@@ -264,7 +270,7 @@ func NewWhisperCpp(binary, model string) (*WhisperCpp, error) {
 	if binary == "" {
 		binary = "whisper-cli"
 	}
-	if !binaryPathRe.MatchString(binary) || strings.Contains(binary, "..") {
+	if !validBinary(binary) {
 		return nil, fmt.Errorf("speech: invalid whisper binary %q", binary)
 	}
 	if !ValidWhisperModelPath(model) {

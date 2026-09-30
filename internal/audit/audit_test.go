@@ -39,3 +39,22 @@ func TestRecordRedactsSecretsAndPersists(t *testing.T) {
 		t.Fatalf("details = %s", e.Details)
 	}
 }
+
+func TestPruneKeepsNewestEntries(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "n.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	for i := 0; i < 5; i++ {
+		st.InsertAudit(ctx, store.AuditEntry{Actor: "a", Action: "x"})
+	}
+	if err := st.PruneAudit(ctx, 2); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := st.ListAudit(ctx, 10)
+	if len(entries) != 2 || entries[0].ID != 5 || entries[1].ID != 4 {
+		t.Fatalf("entries = %+v", entries)
+	}
+}

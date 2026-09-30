@@ -236,6 +236,9 @@ func (e *Engine) runModel(ctx context.Context, sess *Session, provider AIProvide
 		if len(resp.ToolCalls) == 0 {
 			return resp.Content, nil
 		}
+		if round == maxToolRounds { // no tools were offered: do not run what came back anyway
+			break
+		}
 		msgs = append(msgs, resp)
 		for _, tc := range resp.ToolCalls {
 			var result string
@@ -275,17 +278,26 @@ func (e *Engine) runTool(ctx context.Context, sess *Session, tc ToolCall) string
 		e.log.Info("assistant tool refused", "tool", tc.Name, "reason", toolReason(err))
 		out = toolError(toolReason(err))
 	} else {
-		b, _ := json.Marshal(map[string]any{"ok": true, "result": res.Message})
-		out = string(b)
+		out = toolOK(res.Message)
 		if tc.Name == "play_music" {
 			sess.finished = true
 		}
 	}
-	if len(out) > maxToolResultLen {
-		out = out[:maxToolResultLen]
-	}
 	e.record(ctx, sess, "tool", out, tc.Name)
 	return out
+}
+
+// toolOK builds the success result, shortening the message on rune boundaries
+// until the whole JSON fits, so it is never cut mid-character or mid-string.
+func toolOK(msg string) string {
+	r := []rune(msg)
+	for {
+		b, _ := json.Marshal(map[string]any{"ok": true, "result": string(r)})
+		if len(b) <= maxToolResultLen || len(r) == 0 {
+			return string(b)
+		}
+		r = r[:len(r)*3/4]
+	}
 }
 
 func toolError(msg string) string {
@@ -305,7 +317,7 @@ func toolReason(err error) string {
 	case errors.Is(err, actions.ErrForbidden):
 		return "not allowed"
 	case errors.Is(err, actions.ErrInvalidParams):
-		return err.Error() // names the bad parameter so the model can retry
+		return "invalid parameters" // not err.Error(): it can list chat names, which would reach the cloud provider
 	}
 	return "it did not work"
 }

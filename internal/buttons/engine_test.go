@@ -2,6 +2,7 @@ package buttons
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"sync"
@@ -15,11 +16,15 @@ import (
 type fakeSource struct {
 	mu      sync.Mutex
 	buttons []store.Button
+	err     error
 }
 
 func (f *fakeSource) ListButtons(context.Context) ([]store.Button, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.err != nil {
+		return nil, f.err
+	}
 	return append([]store.Button(nil), f.buttons...), nil
 }
 
@@ -185,5 +190,34 @@ func TestReloadAppliesNewMapping(t *testing.T) {
 	m.Tap(17)
 	if ev := rec.waitFor(t, 1); ev[0].Action != "new" {
 		t.Fatalf("event = %+v", ev[0])
+	}
+}
+
+func TestFailedReloadKeepsTheRunningButtons(t *testing.T) {
+	e, m, rec, src := setup(t, btn(1, "One", 17, map[string]store.ButtonAction{ShortPress: {Action: "a"}}))
+	src.mu.Lock()
+	src.err = errors.New("store unavailable")
+	src.mu.Unlock()
+	if err := e.Reload(context.Background()); err == nil {
+		t.Fatal("Reload should report the store error")
+	}
+	m.Tap(17)
+	rec.waitFor(t, 1)
+}
+
+func TestStaleButtonDoesNotDispatchAfterReload(t *testing.T) {
+	e, _, rec, src := setup(t, btn(1, "One", 17, map[string]store.ButtonAction{ShortPress: {Action: "a"}}))
+	e.mu.Lock()
+	old := e.buttons[1]
+	e.mu.Unlock()
+	src.mu.Lock()
+	src.buttons = nil
+	src.mu.Unlock()
+	if err := e.Reload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	e.emit(old, ShortPress)
+	if rec.count() != 0 {
+		t.Fatal("an emit from a replaced button still dispatched")
 	}
 }

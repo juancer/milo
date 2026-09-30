@@ -132,3 +132,25 @@ func TestLimiterTryAdmitsAtMostMaxAttemptsInAParallelBurst(t *testing.T) {
 		t.Fatal("still blocked after Reset")
 	}
 }
+
+func TestVerifyRejectsOutOfRangeStoredParameters(t *testing.T) {
+	for _, params := range []string{"m=4294967295,t=2,p=1", "m=19456,t=0,p=1", "m=19456,t=2,p=0", "m=0,t=2,p=1", "m=19456,t=1000,p=1", "m=19456,t=2,p=255"} {
+		h := "$argon2id$v=19$" + params + "$c2FsdHNhbHRzYWx0c2FsdA$aGFzaGhhc2hoYXNo"
+		if ok, err := VerifyPassword("x", h); ok || err == nil {
+			t.Errorf("VerifyPassword with %s = %v, %v; want error", params, ok, err)
+		}
+	}
+}
+
+func TestLimiterSweepsKeysThatAreNeverAskedAgain(t *testing.T) {
+	l := NewLimiter(3, time.Minute)
+	now := time.Unix(1000, 0)
+	l.now = func() time.Time { return now }
+	l.Fail("a")
+	l.Fail("b")
+	now = now.Add(2 * time.Minute)
+	l.Fail("c")
+	if len(l.fails) != 1 {
+		t.Fatalf("stale keys kept: %d", len(l.fails))
+	}
+}

@@ -9,6 +9,8 @@ import (
 	"github.com/juancer/nexo/internal/actions"
 )
 
+const maxReminders = 50 // pending reminders
+
 // Reminders is the "reminders" feature: things to say at a time, kept across reboots.
 type Reminders struct {
 	Common
@@ -85,6 +87,13 @@ func (r *Reminders) RegisterActions(e *actions.Engine) {
 			if c.Args.Has("in_seconds") == c.Args.Has("at_time") {
 				return actions.Result{}, fmt.Errorf("%w: give exactly one of in_seconds or at_time", actions.ErrInvalidParams)
 			}
+			pending, err := r.Store.PendingReminders(ctx)
+			if err != nil {
+				return actions.Result{}, err
+			}
+			if len(pending) >= maxReminders {
+				return actions.Result{}, fmt.Errorf("%w: there are already %d reminders", actions.ErrInvalidParams, maxReminders)
+			}
 			var due time.Time
 			var when string
 			if c.Args.Has("in_seconds") {
@@ -131,7 +140,11 @@ func (r *Reminders) RegisterActions(e *actions.Engine) {
 		Feature: "reminders", Exposure: both,
 		Params: []actions.Param{{Name: "text", Type: actions.String, Required: true, MaxLen: 200}},
 		Handler: func(ctx context.Context, c actions.Call) (actions.Result, error) {
-			n, err := r.Store.CancelReminders(ctx, strings.TrimSpace(c.Args.String("text")))
+			match := strings.TrimSpace(c.Args.String("text"))
+			if match == "" { // an empty match would cancel every reminder
+				return actions.Result{}, fmt.Errorf("%w: text is empty", actions.ErrInvalidParams)
+			}
+			n, err := r.Store.CancelReminders(ctx, match)
 			if err != nil {
 				return actions.Result{}, err
 			}

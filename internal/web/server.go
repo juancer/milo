@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path"
 	"runtime"
 	"strings"
 	"time"
@@ -26,6 +27,9 @@ const (
 	sessionTTL        = 12 * time.Hour
 	maxBody           = 4 << 10
 )
+
+// featureTimeout bounds a feature switch, as for restarts after a credential change.
+var featureTimeout = 20 * time.Second
 
 type server struct {
 	app      *app.App
@@ -82,8 +86,21 @@ func (s *server) handler(assets fs.FS) http.Handler {
 	s.skillRoutes(mux)
 	s.backupRoutes(mux)
 	s.simRoutes(mux)
-	mux.Handle("/", http.FileServerFS(assets))
+	mux.Handle("/", noListing(assets, http.FileServerFS(assets)))
 	return securityHeaders(csrfGuard(mux))
+}
+
+// noListing answers 404 for a directory that has no index.html, instead of listing it.
+func noListing(assets fs.FS, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if p := r.URL.Path; strings.HasSuffix(p, "/") {
+			if _, err := fs.Stat(assets, path.Join(strings.TrimPrefix(p, "/"), "index.html")); err != nil {
+				http.NotFound(w, r)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // securityHeaders sets a strict policy: the UI is self-contained, so nothing
@@ -214,7 +231,13 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	user, err := s.accounts.Authenticate(r.Context(), body.Username, body.Password)
 	if errors.Is(err, auth.ErrBadCredentials) {
-		s.app.Audit.Record(r.Context(), "anonymous", "admin.login_failed", name, map[string]string{"ip": ip})
+		// Only an existing account name is recorded: anything else may be a password typed
+		// into the username field.
+		target := ""
+		if _, err := s.app.Store.GetAdminByName(r.Context(), name); err == nil {
+			target = name
+		}
+		s.app.Audit.Record(r.Context(), "anonymous", "admin.login_failed", target, map[string]string{"ip": ip})
 		writeError(w, http.StatusUnauthorized, "incorrect username or password")
 		return
 	}
@@ -280,7 +303,10 @@ func (s *server) setFeature(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, `"enabled" is required`)
 		return
 	}
-	err := s.app.Features.SetEnabled(r.Context(), name, *body.Enabled)
+	// Start may call a network service while the manager holds its lock; bound it.
+	ctx, cancel := context.WithTimeout(r.Context(), featureTimeout)
+	defer cancel()
+	err := s.app.Features.SetEnabled(ctx, name, *body.Enabled)
 	if errors.Is(err, features.ErrUnknownFeature) {
 		writeError(w, http.StatusNotFound, "unknown feature")
 		return
@@ -294,7 +320,7 @@ func (s *server) setFeature(w http.ResponseWriter, r *http.Request) {
 	if *body.Enabled {
 		action = "feature.enabled"
 	}
-	s.app.Audit.Record(r.Context(), "admin", action, name, nil)
+	s.audit(r, action, name, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 

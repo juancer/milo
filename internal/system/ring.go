@@ -50,17 +50,27 @@ func (h *ringHandler) Enabled(ctx context.Context, l slog.Level) bool { return h
 func (h *ringHandler) Handle(ctx context.Context, rec slog.Record) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s %-5s %s", rec.Time.Format(time.TimeOnly), rec.Level, rec.Message)
-	write := func(a slog.Attr) {
+	var write func(prefix string, a slog.Attr)
+	write = func(prefix string, a slog.Attr) {
+		if v := a.Value.Resolve(); v.Kind() == slog.KindGroup { // redact inside groups too
+			if a.Key != "" {
+				prefix += a.Key + "."
+			}
+			for _, g := range v.Group() {
+				write(prefix, g)
+			}
+			return
+		}
 		v := a.Value.String()
 		if IsSensitiveKey(a.Key) {
 			v = "[redacted]"
 		}
-		fmt.Fprintf(&b, " %s=%s", a.Key, v)
+		fmt.Fprintf(&b, " %s%s=%s", prefix, a.Key, v)
 	}
 	for _, a := range h.attrs {
-		write(a)
+		write("", a)
 	}
-	rec.Attrs(func(a slog.Attr) bool { write(a); return true })
+	rec.Attrs(func(a slog.Attr) bool { write("", a); return true })
 	h.ring.add(b.String())
 	return h.next.Handle(ctx, rec)
 }

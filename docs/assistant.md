@@ -22,7 +22,7 @@ limited: Nexo retries with backoff and, if the service stays unavailable, the ch
 *"I can't think right now. Please try again in a little while."* instead of silence. A per-hour
 question limit (default 60) protects free-tier quotas.
 
-API keys are stored encrypted (see [security.md](security.md)) and are never shown again.
+API keys are stored encrypted (see [security.md](security.md)) and are never shown again. If you change a provider address to a different host, its stored key is removed and you must enter it again.
 
 ### Choosing engines
 

@@ -111,7 +111,11 @@ func NewClient(baseURL, token string) *Client {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
-	return &Client{base: strings.TrimRight(baseURL, "/"), token: token, http: &http.Client{Timeout: 60 * time.Second}}
+	return &Client{base: strings.TrimRight(baseURL, "/"), token: token, http: &http.Client{
+		Timeout: 60 * time.Second,
+		// The token is in every URL, so a redirect must never carry it elsewhere.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}}
 }
 
 func (c *Client) endpoint(method string) string { return c.base + "/bot" + c.token + "/" + method }
@@ -247,7 +251,14 @@ func (c *Client) DownloadFile(ctx context.Context, fileID string) ([]byte, error
 	if f.FileSize > MaxVoiceBytes {
 		return nil, fmt.Errorf("telegram: file too large (%d bytes)", f.FileSize)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/file/bot"+c.token+"/"+f.FilePath, nil)
+	segs := strings.Split(f.FilePath, "/")
+	for i, seg := range segs {
+		if seg == "" || seg == "." || seg == ".." {
+			return nil, errors.New("telegram: invalid file path")
+		}
+		segs[i] = url.PathEscape(seg)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/file/bot"+c.token+"/"+strings.Join(segs, "/"), nil)
 	if err != nil {
 		return nil, cleanErr("download", err)
 	}

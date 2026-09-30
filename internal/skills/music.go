@@ -180,8 +180,11 @@ func readWavHeader(r io.Reader) (rate, channels int, err error) {
 		size := int64(binary.LittleEndian.Uint32(ch[4:]))
 		switch string(ch[:4]) {
 		case "fmt ":
+			if size < 16 || size > 64 { // a real fmt chunk is 16 to 40 bytes
+				return 0, 0, errors.New("bad fmt chunk")
+			}
 			buf := make([]byte, size+size%2)
-			if _, err = io.ReadFull(r, buf); err != nil || size < 16 {
+			if _, err = io.ReadFull(r, buf); err != nil {
 				return 0, 0, errors.New("bad fmt chunk")
 			}
 			format, chans, bits := binary.LittleEndian.Uint16(buf), int(binary.LittleEndian.Uint16(buf[2:])), binary.LittleEndian.Uint16(buf[14:])

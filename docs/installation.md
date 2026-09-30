@@ -18,6 +18,12 @@ See [hardware.md](hardware.md) for the sound card and button wiring.
 It is idempotent. Re-running it upgrades the binary and unit and never deletes the database,
 the master key, contacts, messages or credentials.
 
+The unit is sandboxed with a conservative set of systemd options (no capabilities, restricted
+address families and namespaces, no kernel module/log/clock access). `PrivateDevices`,
+`SystemCallFilter` and `MemoryMax` were left out on purpose: the service needs `/dev/snd` and
+`/dev/gpiochip*`, and a syscall filter or memory cap that is too tight can break audio, GPIO or
+`nmcli` in ways that cannot be tested without the hardware.
+
 Wi-Fi is managed in the admin UI ([wifi.md](wifi.md)); it needs NetworkManager.
 
 Logs: `journalctl -u nexo -f` (the admin **System** tab shows the latest lines too). Service control: `nexo start|stop|restart|status`.

@@ -19,6 +19,14 @@ type Logger struct {
 // New returns a Logger.
 func New(s *store.Store, log *slog.Logger) *Logger { return &Logger{store: s, log: log} }
 
+// maxEntries is how many audit rows are kept; older ones are pruned.
+const maxEntries = 5000
+
+// Prune deletes the oldest entries beyond maxEntries.
+func (l *Logger) Prune(ctx context.Context) error {
+	return l.store.PruneAudit(ctx, maxEntries)
+}
+
 // Record appends an entry. Detail values under credential-like keys are
 // redacted, so callers cannot leak a secret into the audit trail by accident.
 // A failure to write is logged and returned; callers decide whether it matters.

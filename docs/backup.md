@@ -34,7 +34,9 @@ echo "my long passphrase" | sudo -u nexo nexo backup FILE --passphrase-stdin
 Nexo decrypts and checks it, and changes nothing until you press *Restart now*. On restart the
 backup replaces the database; the previous one is kept beside it as
 `nexo.db.before-restore-<time>`. This works when the backup was made with this device's master
-key. It replaces everything, including administrator accounts.
+key (a backup made without the key is checked against the device's key too, and refused if its
+secrets could not be decrypted). It replaces everything, including administrator accounts. Only
+one restore can be checked at a time, and the database inside must be at most 1 GiB.
 
 **New device or new card (terminal).** Install Nexo, stop it, restore, start it:
 
@@ -46,14 +48,20 @@ sudo systemctl start nexo
 
 `--replace-key` installs the backup's master key. Without it, a backup made with a different key is
 refused, because the restored secrets could not be decrypted. Everything is verified (integrity
-check, format, no unexpected files) before anything on the device is touched.
+check, database structure, no unexpected files) before anything on the device is touched.
+
+Each restore keeps the database it replaced as `nexo.db.before-restore-<time>`; Nexo keeps the newest
+three and deletes older ones after a successful restore. They hold the old administrator accounts and
+messages unencrypted, so delete them yourself once you no longer need them.
 
 ## Automatic copies on the device
 
 Nexo also keeps recent copies of its database (default: daily, the last 7) in
 `/var/lib/nexo/backups`, taking the first one right after the first start. They protect against a
 damaged database file, not against a dead card, because they live on the same card. They are **not
-encrypted** (they hold what the database holds) and never include the master key. Change the
+encrypted**: each one is a plain copy of the database (file mode 0600), so it holds the administrator
+password hashes, messages and the still-encrypted secrets, and it never includes the master key.
+Anyone who can read `/var/lib/nexo/backups` can read them. Change the
 schedule, count or folder on the Backup page. Note that Nexo can only write below `/var/lib/nexo`
 unless you widen the service's `ReadWritePaths` (for example to a USB stick).
 

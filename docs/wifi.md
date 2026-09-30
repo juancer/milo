@@ -18,3 +18,13 @@ connection still needs Internet on the Pi: set that up with Raspberry Pi Imager 
 Security note: `nmcli` receives the password as a command-line argument, so another local user
 on the Pi could see it in the process list for a moment. A Raspberry Pi running Nexo has no other
 users; keep it that way.
+
+Left as is on purpose: Nexo does not pass the password to `nmcli` on stdin or from a keyfile,
+because that behaviour cannot be verified without a real NetworkManager. To close the window,
+mount `/proc` with `hidepid=2` (or set `ProtectProc=invisible` on other services) so that other
+users cannot read the command lines of the `nexo` user's processes.
+
+If a saved password cannot be read from the vault, Nexo leaves that network's existing profile
+untouched instead of deleting it. When a secured network is edited to be open, its profile is
+deleted and recreated so the old key does not stay in NetworkManager (this has not been tested on
+a real device).

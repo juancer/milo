@@ -45,6 +45,12 @@ Permissions are explicit on top of roles: **People** shows a checkbox per permis
 differences from the role as *custom*. For example, allow one grandparent to send emergency
 alerts while other family members cannot. Deactivating a person blocks them at once.
 
+The People page cannot promote anyone to OWNER (like invitations). Chat names must be unique
+without regard to case, because the assistant matches them that way. After an emergency alert,
+at most three further messages within two minutes are marked urgent, and only while the sender
+still holds `emergency_alert`. The bot saves its update offset after each update, so a crash can
+repeat one message; a failed save is logged.
+
 `send_message` is required to deliver messages to the device; `receive_message` is required
 for the child's messages to be sent to that person.
 

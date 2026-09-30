@@ -347,6 +347,11 @@ func (s *server) updateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no such user")
 		return
 	}
+	// Like invitations, this cannot make anyone an OWNER.
+	if body.Role == string(permissions.RoleOwner) && before.Role != body.Role {
+		writeError(w, http.StatusBadRequest, "role must be PARENT, FAMILY or CHILD")
+		return
+	}
 	if err := s.app.Store.UpdateUser(ctx, id, name, body.Role, body.Active); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -457,6 +462,14 @@ func (s *server) saveChat(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusBadRequest, "kind must be user or group")
 		return
+	}
+	// send_message matches names without regard to case, so they must differ by more than case.
+	existing, _ := s.app.Store.ListChats(r.Context())
+	for _, o := range existing {
+		if o.ID != c.ID && strings.ToLower(o.Name) == strings.ToLower(c.Name) {
+			writeError(w, http.StatusConflict, "cannot save chat: the name must be unique")
+			return
+		}
 	}
 	var err error
 	action := "chat.updated"

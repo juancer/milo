@@ -21,6 +21,12 @@ const (
 	argonSaltLen    = 16
 	argonKeyLen     = 32
 
+	// Upper bounds accepted when verifying a stored hash.
+	maxArgonMemoryKiB  = 64 * 1024
+	maxArgonIterations = 10
+	maxArgonThreads    = 4
+	maxArgonKeyLen     = 64
+
 	MinPasswordLength = 12
 	maxPasswordBytes  = 128
 )
@@ -80,6 +86,12 @@ func VerifyPassword(pw, encoded string) (bool, error) {
 	want, err := base64.RawStdEncoding.DecodeString(parts[5])
 	if err != nil || len(want) == 0 {
 		return false, errors.New("auth: malformed hash")
+	}
+	// The parameters come from the database, which a restore can replace: keep them within
+	// what this device could have written, so a crafted hash cannot panic or exhaust memory.
+	if mem < 1 || mem > maxArgonMemoryKiB || iter < 1 || iter > maxArgonIterations ||
+		threads < 1 || threads > maxArgonThreads || len(want) > maxArgonKeyLen {
+		return false, errors.New("auth: argon2 parameters out of range")
 	}
 	got := deriveKey([]byte(pw), salt, iter, mem, threads, uint32(len(want)))
 	return subtle.ConstantTimeCompare(got, want) == 1, nil

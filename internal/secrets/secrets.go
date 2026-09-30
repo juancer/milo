@@ -131,3 +131,11 @@ func (v *Vault) CheckKey(ctx context.Context) error {
 	}
 	return err
 }
+
+// VerifyCanary checks the master key against the canary already in the database.
+// Unlike CheckKey it never writes: a missing canary is reported as ErrNotFound, so a
+// database whose canary was deleted cannot pass as matching this key.
+func (v *Vault) VerifyCanary(ctx context.Context) error {
+	_, err := v.Get(ctx, canaryName)
+	return err
+}

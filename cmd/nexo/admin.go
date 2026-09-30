@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"syscall"
 
 	"golang.org/x/term"
 
@@ -15,6 +16,27 @@ import (
 	"github.com/juancer/nexo/internal/store"
 	"github.com/juancer/nexo/internal/system"
 )
+
+// openCLIStore opens the database and, when run as root, hands the files it may have just
+// created to the folder's owner: the nexo service could not open root-owned ones.
+func openCLIStore(ctx context.Context, cfg system.Config) (*store.Store, error) {
+	st, err := store.Open(ctx, cfg.DBPath())
+	if err != nil {
+		return nil, err
+	}
+	if info, err := os.Stat(cfg.DataDir); err == nil {
+		if sys, ok := info.Sys().(*syscall.Stat_t); ok {
+			for _, ext := range []string{"", "-wal", "-shm"} {
+				// Through the open file, not the path, so a swapped-in symlink is not followed.
+				if f, err := os.OpenFile(cfg.DBPath()+ext, os.O_RDONLY|syscall.O_NOFOLLOW, 0); err == nil {
+					f.Chown(int(sys.Uid), int(sys.Gid)) //nolint:errcheck
+					f.Close()
+				}
+			}
+		}
+	}
+	return st, nil
+}
 
 func keygen(cfg system.Config) error {
 	created, err := secrets.GenerateKeyFile(cfg.KeyPath)
@@ -86,7 +108,7 @@ func adminPassword(ctx context.Context, cfg system.Config, args []string) error 
 	if err := auth.ValidatePassword(pw); err != nil {
 		return err
 	}
-	st, err := store.Open(ctx, cfg.DBPath())
+	st, err := openCLIStore(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -113,7 +135,7 @@ func adminReset(ctx context.Context, cfg system.Config, args []string) error {
 	if len(rest) > 0 {
 		return fmt.Errorf("%w: unknown option %q", errUsage, rest[0])
 	}
-	st, err := store.Open(ctx, cfg.DBPath())
+	st, err := openCLIStore(ctx, cfg)
 	if err != nil {
 		return err
 	}

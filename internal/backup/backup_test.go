@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -14,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	_ "modernc.org/sqlite"
 
 	"github.com/juancer/nexo/internal/secrets"
 	"github.com/juancer/nexo/internal/store"
@@ -523,5 +526,159 @@ func TestSwapDatabaseRefusesASymlinkedSource(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(live); string(got) != "current database" {
 		t.Fatalf("the live database was replaced by %q", got)
+	}
+}
+
+// ---------------------------------------------------------------- hardening
+
+// pack builds a backup file whose database entry declares size (data may be shorter).
+func pack(t *testing.T, size int64, data []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	enc, _ := newEncWriter(&buf, pass)
+	gz := gzip.NewWriter(enc)
+	tw := tar.NewWriter(gz)
+	tw.WriteHeader(&tar.Header{Name: "manifest.json", Mode: 0o600, Size: 13})
+	tw.Write([]byte(`{"version":1}`))
+	tw.WriteHeader(&tar.Header{Name: "nexo.db", Mode: 0o600, Size: size})
+	tw.Write(data)
+	gz.Close()
+	enc.Close()
+	return buf.Bytes()
+}
+
+func TestOpenRefusesADecompressedDatabaseOverTheCap(t *testing.T) {
+	dir := t.TempDir()
+	_, err := Open(context.Background(), bytes.NewReader(pack(t, maxDBBytes+1, nil)), pass, dir)
+	if err == nil || !strings.Contains(err.Error(), "unreasonably large") {
+		t.Fatalf("oversized database: %v", err)
+	}
+	if maxDBBytes > 1<<30 {
+		t.Fatalf("cap = %d bytes, want at most 1 GiB", int64(maxDBBytes))
+	}
+}
+
+func TestContainerRejectsExcessiveArgonMemory(t *testing.T) {
+	bad := append([]byte(nil), encrypt(t, []byte("x"))...)
+	binary.BigEndian.PutUint32(bad[28:], 128*1024) // 128 MiB
+	if _, err := decrypt(bad, pass); !errors.Is(err, ErrNotABackup) {
+		t.Fatalf("128 MiB of Argon2 memory accepted: %v", err)
+	}
+}
+
+func TestOpenRejectsADatabaseWithAnotherSchema(t *testing.T) {
+	ctx := context.Background()
+	d := newDevice(t)
+	tampered := filepath.Join(t.TempDir(), "tampered.db")
+	if err := d.st.Snapshot(ctx, tampered); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sql.Open("sqlite", tampered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Still claims the current version, but the account table lost its constraints.
+	if _, err := raw.Exec(`DROP TABLE admin_users; CREATE TABLE admin_users (id INTEGER PRIMARY KEY, username TEXT, password_hash TEXT, is_owner INTEGER, must_change INTEGER, created_at TEXT, last_login TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	raw.Close()
+	data, _ := os.ReadFile(tampered)
+	if _, err := Open(ctx, bytes.NewReader(pack(t, int64(len(data)), data)), pass, t.TempDir()); err == nil || !strings.Contains(err.Error(), "schema") {
+		t.Fatalf("a database with another schema was accepted: %v", err)
+	}
+	// The untouched database still passes.
+	good, _ := os.ReadFile(filepath.Join(d.dataDir, "nexo.db"))
+	c, err := Open(ctx, bytes.NewReader(createBackup(t, d, false)), pass, t.TempDir())
+	if err != nil {
+		t.Fatalf("a genuine database was refused (%d bytes): %v", len(good), err)
+	}
+	c.Close()
+}
+
+func TestKeylessBackupIsCheckedAgainstTheDeviceKey(t *testing.T) {
+	ctx := context.Background()
+	open := func(d *device) *Contents {
+		c, err := Open(ctx, bytes.NewReader(createBackup(t, d, false)), pass, t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(c.Close)
+		return c
+	}
+	source := newDevice(t)
+	source.fill(t)
+	source.vault.CheckKey(ctx)
+	c := open(source)
+
+	other := newDevice(t) // a different master key
+	if err := Stage(c, other.dataDir, other.keyPath); !errors.Is(err, ErrKeyMismatch) {
+		t.Fatalf("stage of a keyless backup from another device: %v", err)
+	}
+	if _, err := Install(c, other.dataDir, other.keyPath, false); !errors.Is(err, ErrKeyMismatch) {
+		t.Fatalf("install of a keyless backup from another device: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(other.dataDir, pendingDir)); err == nil {
+		t.Fatal("a refused backup was staged")
+	}
+	// The same device's own key is fine.
+	if err := Stage(c, source.dataDir, source.keyPath); err != nil {
+		t.Fatalf("stage on the same device: %v", err)
+	}
+	// A deleted canary must not pass as "matches".
+	source.st.DeleteSecret(ctx, "system.key_canary")
+	if err := Stage(open(source), other.dataDir, source.keyPath); !errors.Is(err, ErrKeyMismatch) {
+		t.Fatalf("stage without a canary: %v", err)
+	}
+}
+
+func TestApplyPendingNeverReappliesALeftoverCopy(t *testing.T) {
+	d := newDevice(t)
+	d.st.Close()
+	// What a crash between the swap and the cleanup used to leave behind.
+	left := filepath.Join(d.dataDir, pendingDir+".applying")
+	os.MkdirAll(left, 0o700)
+	os.WriteFile(filepath.Join(left, "nexo.db"), []byte("stale"), 0o600)
+	if applied, _, err := ApplyPending(d.dataDir); applied || err != nil {
+		t.Fatalf("apply = %v %v", applied, err)
+	}
+	if _, err := os.Stat(left); !os.IsNotExist(err) {
+		t.Fatal("leftover copy kept")
+	}
+}
+
+func TestApplyPendingKeepsTheStagedCopyWhenTheSwapFails(t *testing.T) {
+	d := newDevice(t)
+	d.st.Close()
+	staged := filepath.Join(d.dataDir, pendingDir)
+	os.MkdirAll(filepath.Join(staged, "nexo.db"), 0o700) // a directory: it cannot be copied
+	if applied, _, err := ApplyPending(d.dataDir); applied || err == nil {
+		t.Fatalf("apply = %v %v", applied, err)
+	}
+	if _, err := os.Stat(filepath.Join(staged, "nexo.db")); err != nil {
+		t.Fatalf("a failed apply lost the staged restore: %v", err)
+	}
+}
+
+func TestSwapDatabaseKeepsOnlyTheNewestThreePreviousDatabases(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"20240101-000000", "20240102-000000", "20240103-000000", "20240104-000000", "20240105-000000"} {
+		os.WriteFile(filepath.Join(dir, "nexo.db.before-restore-"+n), []byte("old"), 0o600)
+	}
+	src := filepath.Join(dir, "new.db")
+	os.WriteFile(src, []byte("new"), 0o600)
+	os.WriteFile(filepath.Join(dir, "nexo.db"), []byte("current"), 0o600)
+	previous, err := swapDatabase(src, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	left, _ := filepath.Glob(filepath.Join(dir, "nexo.db.before-restore-*"))
+	if len(left) != 3 {
+		t.Fatalf("kept %v", left)
+	}
+	if _, err := os.Stat(previous); err != nil {
+		t.Fatal("the database just replaced was pruned")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "nexo.db.before-restore-20240101-000000")); err == nil {
+		t.Fatal("the oldest copy was kept")
 	}
 }

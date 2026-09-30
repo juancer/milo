@@ -21,7 +21,10 @@ At startup a canary secret detects a key that does not match the database and re
 ## Admin accounts
 
 - Local network only; do not expose it to the Internet. It is plain HTTP, so the session
-  cookie is `HttpOnly` + `SameSite=Strict` but not `Secure`.
+  cookie is `HttpOnly` + `SameSite=Strict` but not `Secure`, and the login password and cookie
+  cross the network unencrypted. Run it only on an isolated home network you trust (no
+  untrusted devices on the same LAN or Wi-Fi).
+- The audit log keeps the newest 5000 entries; older ones are pruned daily.
 - **Several people can manage the device**, each with their own username and password
   (`mom`, `dad`...). The first account, `admin`, is the **owner**: created by `nexo install` with a
   **generated password shown once** on the terminal (it is never logged or stored in clear text).

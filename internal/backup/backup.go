@@ -17,11 +17,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/juancer/nexo/internal/secrets"
 	"github.com/juancer/nexo/internal/store"
 )
 
@@ -39,7 +43,7 @@ const (
 	manifestName = "manifest.json"
 	dbName       = "nexo.db"
 	keyName      = "master.key"
-	maxDBBytes   = 4 << 30
+	maxDBBytes   = 1 << 30 // decompressed: the upload cap only covers the ciphertext
 	// MinPassphrase is the shortest accepted backup passphrase.
 	MinPassphrase = 12
 )
@@ -241,7 +245,59 @@ func verifyDB(ctx context.Context, path string) error {
 		return fmt.Errorf("backup: the database inside cannot be used: %w", err)
 	}
 	defer st.Close()
-	return st.IntegrityCheck(ctx)
+	if err := st.IntegrityCheck(ctx); err != nil {
+		return err
+	}
+	if err := st.ForeignKeyCheck(ctx); err != nil {
+		return err
+	}
+	// schema_migrations only says what the database claims: compare the real schema with a
+	// freshly migrated one, so a crafted copy cannot lack tables or constraints.
+	ref, err := store.Open(ctx, filepath.Join(filepath.Dir(path), "reference.db"))
+	if err != nil {
+		return err
+	}
+	defer ref.Close()
+	want, err := ref.SchemaSignature(ctx)
+	if err != nil {
+		return err
+	}
+	got, err := st.SchemaSignature(ctx)
+	if err != nil {
+		return err
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		return errors.New("backup: the database inside does not have the schema Nexo expects")
+	}
+	return nil
+}
+
+// checkCanary makes sure a backup without its own key can be read with the device's key:
+// the canary secret in the restored database must decrypt. Without this the service would
+// crash-loop at the next start. A device with no key file yet cannot be checked.
+func checkCanary(ctx context.Context, c *Contents, keyPath string) error {
+	if c.Key != nil {
+		return nil
+	}
+	key, err := secrets.LoadKey(keyPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	st, err := store.Open(ctx, c.DBPath)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	v, err := secrets.New(key, st)
+	if err != nil {
+		return err
+	}
+	if err := v.VerifyCanary(ctx); err != nil {
+		return ErrKeyMismatch
+	}
+	return nil
 }
 
 // checkKey compares the backup's key with the device's.
@@ -269,6 +325,9 @@ func checkKey(c *Contents, keyPath string, replaceKey bool) (writeKey bool, err 
 func Install(c *Contents, dataDir, keyPath string, replaceKey bool) (previous string, err error) {
 	writeKey, err := checkKey(c, keyPath, replaceKey)
 	if err != nil {
+		return "", err
+	}
+	if err := checkCanary(context.Background(), c, keyPath); err != nil {
 		return "", err
 	}
 	previous, err = swapDatabase(c.DBPath, dataDir)
@@ -304,6 +363,7 @@ func swapDatabase(src, dataDir string) (previous string, err error) {
 		}
 		return "", err
 	}
+	pruneBeforeRestore(live, 3)
 	// Keep the files usable by the service user when a root shell restored them.
 	if info, err := os.Stat(dataDir); err == nil {
 		if st, ok := info.Sys().(*syscall.Stat_t); ok {
@@ -316,6 +376,16 @@ func swapDatabase(src, dataDir string) (previous string, err error) {
 		}
 	}
 	return previous, nil
+}
+
+// pruneBeforeRestore keeps the newest `keep` saved pre-restore databases (they hold admin
+// hashes and messages) and deletes the older ones.
+func pruneBeforeRestore(live string, keep int) {
+	old, _ := filepath.Glob(live + ".before-restore-*")
+	sort.Sort(sort.Reverse(sort.StringSlice(old))) // the timestamps sort chronologically
+	for i := keep; i < len(old); i++ {
+		os.Remove(old[i])
+	}
 }
 
 func copyFile(src, dst string) error {
@@ -358,26 +428,42 @@ func Stage(c *Contents, dataDir, keyPath string) error {
 		// The device has no key file at all: the backup's key cannot be installed from here.
 		return ErrKeyMismatch
 	}
+	if err := checkCanary(context.Background(), c, keyPath); err != nil {
+		return err
+	}
 	dir := filepath.Join(dataDir, pendingDir)
 	os.RemoveAll(dir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	return copyFile(c.DBPath, filepath.Join(dir, dbName))
+	// Move, not copy: the extracted database can be large and c is spent afterwards.
+	staged := filepath.Join(dir, dbName)
+	if os.Rename(c.DBPath, staged) == nil {
+		return nil
+	}
+	return copyFile(c.DBPath, staged)
 }
 
 // ApplyPending installs a staged restore, if there is one. Call it before the
 // database is opened.
 func ApplyPending(dataDir string) (applied bool, previous string, err error) {
-	staged := filepath.Join(dataDir, pendingDir, dbName)
-	if _, statErr := os.Stat(staged); statErr != nil {
+	pending := filepath.Join(dataDir, pendingDir)
+	applying := pending + ".applying"
+	// A copy left by a crash after the swap must never be applied again over newer data.
+	os.RemoveAll(applying)
+	if _, statErr := os.Stat(filepath.Join(pending, dbName)); statErr != nil {
 		return false, "", nil
 	}
-	previous, err = swapDatabase(staged, dataDir)
-	if err != nil {
+	// Take it out of the pending name first: whatever happens next, it is applied at most once.
+	if err := os.Rename(pending, applying); err != nil {
 		return false, "", err
 	}
-	os.RemoveAll(filepath.Join(dataDir, pendingDir))
+	previous, err = swapDatabase(filepath.Join(applying, dbName), dataDir)
+	if err != nil {
+		os.Rename(applying, pending) //nolint:errcheck // nothing was installed: try again at the next start
+		return false, "", err
+	}
+	os.RemoveAll(applying)
 	return true, previous, nil
 }
 

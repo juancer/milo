@@ -27,6 +27,16 @@ func (s *Store) InsertAudit(ctx context.Context, e AuditEntry) error {
 	return nil
 }
 
+// PruneAudit deletes all but the newest keep entries.
+func (s *Store) PruneAudit(ctx context.Context, keep int) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM audit_log WHERE id <= (SELECT COALESCE(MAX(id), 0) FROM audit_log) - ?`, keep)
+	if err != nil {
+		return fmt.Errorf("store: prune audit: %w", err)
+	}
+	return nil
+}
+
 // ListAudit returns the most recent entries, newest first.
 func (s *Store) ListAudit(ctx context.Context, limit int) ([]AuditEntry, error) {
 	rows, err := s.db.QueryContext(ctx,

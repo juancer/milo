@@ -63,8 +63,13 @@ func (s *server) saveWifi(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var err error
-		if existing, err = s.app.Store.GetWifiNetwork(ctx, id); errors.Is(err, store.ErrNotFound) {
+		existing, err = s.app.Store.GetWifiNetwork(ctx, id)
+		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "no such network")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error")
 			return
 		}
 	}
@@ -97,20 +102,32 @@ func (s *server) saveWifi(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "cannot save: that network name is already in the list")
 		return
 	}
+	// A new row without its secret would be applied as an open network, so a
+	// failure below removes it again.
+	rollback := func() {
+		if create {
+			s.app.Store.DeleteWifiNetwork(ctx, n.ID) //nolint:errcheck
+		}
+	}
 	switch {
 	case d.Open && d.Password == "":
 		if n.SecretName != "" {
-			s.app.Store.DeleteSecret(ctx, n.SecretName) //nolint:errcheck
+			if err := s.app.Store.DeleteSecret(ctx, n.SecretName); err != nil {
+				writeError(w, http.StatusInternalServerError, "could not remove the old password")
+				return
+			}
 			n.SecretName = ""
 		}
 	case d.Password != "":
 		n.SecretName = "wifi." + strconv.FormatInt(n.ID, 10)
 		if err := s.app.Vault.Put(ctx, n.SecretName, []byte(d.Password)); err != nil {
+			rollback()
 			writeError(w, http.StatusInternalServerError, "could not store the password")
 			return
 		}
 	}
 	if err := s.app.Store.UpdateWifiNetwork(ctx, n); err != nil {
+		rollback()
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}

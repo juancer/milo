@@ -102,3 +102,16 @@ func TestClamp(t *testing.T) {
 		t.Error("clamp too long")
 	}
 }
+
+func TestZeroWidthDoesNotBypassAndCustomRuleKeepsConcern(t *testing.T) {
+	c := New([]Rule{{Pattern: "die", AppliesTo: "both", Enabled: true}})
+	if v := New(nil).Check("how to make a bo​mb", Input); !v.Blocked {
+		t.Errorf("zero-width split bypassed the blocklist: %+v", v)
+	}
+	if v := c.Check("I want to die", Input); !v.Concern || v.Reply != ReplyConcern {
+		t.Errorf("custom rule hid the concern: %+v", v)
+	}
+	if v := c.Check("die hard", Input); v.Concern || !v.Blocked {
+		t.Errorf("plain custom match wrong: %+v", v)
+	}
+}

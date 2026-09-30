@@ -744,3 +744,52 @@ func TestCalendarQuietDayCacheAndSecrecy(t *testing.T) {
 		t.Fatal("started without an address")
 	}
 }
+
+func TestReminderCapAndEmptyCancel(t *testing.T) {
+	r := newRig(t)
+	(&Reminders{Common: r.common}).RegisterActions(r.eng)
+	for i := 0; i < maxReminders; i++ {
+		if _, err := r.run("create_reminder", map[string]any{"text": "x", "in_seconds": float64(60)}); err != nil {
+			t.Fatalf("reminder %d: %v", i, err)
+		}
+	}
+	if _, err := r.run("create_reminder", map[string]any{"text": "x", "in_seconds": float64(60)}); !errors.Is(err, actions.ErrInvalidParams) {
+		t.Fatalf("over the cap: err = %v", err)
+	}
+	if _, err := r.run("cancel_reminder", map[string]any{"text": "   "}); !errors.Is(err, actions.ErrInvalidParams) {
+		t.Fatalf("blank cancel: err = %v", err)
+	}
+	if p, _ := r.store.PendingReminders(context.Background()); len(p) != maxReminders {
+		t.Fatalf("%d pending after a blank cancel", len(p))
+	}
+}
+
+func TestReadWavHeaderCapsFmtChunk(t *testing.T) {
+	b := append([]byte("RIFF\x00\x00\x00\x00WAVEfmt "), 0xff, 0xff, 0xff, 0x7f)
+	if _, _, err := readWavHeader(strings.NewReader(string(b))); err == nil || err.Error() != "bad fmt chunk" {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRedirectsToLocalAddressesAreRefused(t *testing.T) {
+	r := newRig(t) // AllowHTTP is on
+	strict := r.common
+	strict.AllowHTTP = false
+	for _, tc := range []struct {
+		c    Common
+		url  string
+		fail bool
+	}{
+		{r.common, "http://127.0.0.1/x", true},
+		{r.common, "http://[::1]/x", true},
+		{r.common, "http://169.254.169.254/x", true},
+		{r.common, "http://localhost/x", true},
+		{strict, "http://example.com/x", true},
+		{strict, "https://example.com/x", false},
+	} {
+		req, _ := http.NewRequest(http.MethodGet, tc.url, nil)
+		if err := tc.c.checkRedirect(req, nil); (err != nil) != tc.fail {
+			t.Errorf("%s: err = %v", tc.url, err)
+		}
+	}
+}

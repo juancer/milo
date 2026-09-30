@@ -23,6 +23,7 @@ const (
 	emergencyConfirmTTL  = 2 * time.Minute
 	emergencyCooldown    = time.Minute
 	urgentFollowupWindow = 2 * time.Minute
+	urgentFollowupMax    = 3 // messages marked urgent after an alert, within the window
 )
 
 // ErrEmergencyCooldown is returned when an alert was sent moments ago.
@@ -62,24 +63,34 @@ func (s *Service) sendEmergency(ctx context.Context, c actions.Call) (actions.Re
 	s.mu.Lock()
 	s.emergencyAt[c.Actor.UserID] = now
 	s.urgentUntil[c.Actor.UserID] = now.Add(urgentFollowupWindow)
+	s.urgentLeft[c.Actor.UserID] = urgentFollowupMax
 	s.mu.Unlock()
 
 	s.announce(ctx, id, true)
 	s.Audit.Record(ctx, "telegram", "emergency.sent", strconv.FormatInt(c.Actor.UserID, 10), map[string]string{"from": name})
-	return actions.Result{Message: "🚨 Emergency alert sent. Anything you send in the next 2 minutes is also marked urgent."}, nil
+	return actions.Result{Message: "🚨 Emergency alert sent. Your next few messages in the next 2 minutes are also marked urgent."}, nil
 }
 
-// urgentActive reports whether the user's messages are currently urgent
-// because they just raised an alert.
-func (s *Service) urgentActive(userID int64) bool {
+// urgentActive reports whether the user's next message is urgent because they
+// just raised an alert. It uses up one of a few follow-ups and re-checks that
+// the user may still raise alerts.
+func (s *Service) urgentActive(ctx context.Context, userID int64) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	until, ok := s.urgentUntil[userID]
-	if ok && s.now().After(until) {
+	if ok && (s.now().After(until) || s.urgentLeft[userID] <= 0) {
 		delete(s.urgentUntil, userID)
+		delete(s.urgentLeft, userID)
+		ok = false
+	}
+	if ok {
+		s.urgentLeft[userID]--
+	}
+	s.mu.Unlock()
+	if !ok {
 		return false
 	}
-	return ok
+	allowed, _ := s.Perms.Has(ctx, userID, permissions.EmergencyAlert)
+	return allowed
 }
 
 func (s *Service) confirmEmergency(ctx context.Context, c *Client, user store.User, chatID int64) {

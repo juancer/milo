@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,6 +41,8 @@ type harness struct {
 	fake *telegramtest.Server
 	logs *syncBuf
 	ctx  context.Context
+
+	downloads atomic.Int32 // getFile requests seen by the fake API
 }
 
 func newHarness(t *testing.T, withToken bool) *harness {
@@ -46,7 +50,13 @@ func newHarness(t *testing.T, withToken bool) *harness {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	fake := telegramtest.New(token, "family_test_bot")
-	srv := httptest.NewServer(fake)
+	h := &harness{t: t, fake: fake}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/getFile") {
+			h.downloads.Add(1)
+		}
+		fake.ServeHTTP(w, r)
+	}))
 	t.Cleanup(srv.Close)
 
 	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "n.db"))
@@ -67,7 +77,8 @@ func newHarness(t *testing.T, withToken bool) *harness {
 	t.Cleanup(a.Close)
 	a.Telegram.SetRetryBase(20 * time.Millisecond)
 	a.Telegram.SetStrangerCooldown(time.Millisecond)
-	return &harness{t: t, app: a, fake: fake, logs: logs, ctx: ctx}
+	h.app, h.logs, h.ctx = a, logs, ctx
+	return h
 }
 
 func (h *harness) enable() {
