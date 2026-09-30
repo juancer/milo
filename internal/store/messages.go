@@ -109,6 +109,18 @@ func (s *Store) PendingFrom(ctx context.Context, userID int64) (int, error) {
 	return n, err
 }
 
+// ExpireMessage marks a pending incoming message as expired so it is never played.
+func (s *Store) ExpireMessage(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE messages SET status = 'expired' WHERE id = ? AND direction = 'in' AND status = 'pending'`, id)
+	return err
+}
+
+// ExpirePendingFrom marks every pending incoming message from one sender as expired.
+func (s *Store) ExpirePendingFrom(ctx context.Context, userID int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE messages SET status = 'expired' WHERE direction = 'in' AND status = 'pending' AND user_id = ?`, userID)
+	return err
+}
+
 // MarkPlayed records that a pending message was played.
 func (s *Store) MarkPlayed(ctx context.Context, id int64, now time.Time) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE messages SET status = 'played', played_at = ? WHERE id = ? AND status = 'pending'`, ts(now), id)

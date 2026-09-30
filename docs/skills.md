@@ -41,8 +41,14 @@ calendar → Secret address in iCal format*; Nextcloud and iCloud have equivalen
 password, so it is stored encrypted and never shown again. Nexo reads it (cached for 10 minutes),
 expands repeating events and honours cancellations and exceptions. Unusual repeat rules may be
 missed. Event titles are spoken and, when the assistant reads them, sent to the AI service. Titles are
-written by other people, so in the turn where the assistant reads the calendar it cannot also send
-a Telegram message or create a reminder.
+written by other people, so in the turn where the assistant reads the calendar it can only use a short
+list of harmless tools (volume, stop, listing and cancelling, time and weather); it cannot send a Telegram
+message, create a reminder or timer, or start music. Recurring events are expanded with limits (500
+occurrences per event, 2000 per read, a 2 second deadline; repeat rules more frequent than hourly are
+ignored).
+
+Usage schedules apply when a reminder or timer is due, when the next track of a music queue starts and to
+the wake word, not only when the action is requested; the child can always stop music.
 
 ## Ideas that are deliberately not here
 

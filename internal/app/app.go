@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/juancer/nexo/internal/actions"
@@ -32,6 +33,9 @@ import (
 
 // App is the assembled application.
 type App struct {
+	// bg tracks the housekeeping goroutines, so Close can wait for a backup in flight.
+	bg sync.WaitGroup
+
 	Cfg      system.Config
 	Log      *slog.Logger
 	Store    *store.Store
@@ -106,8 +110,13 @@ func New(ctx context.Context, cfg system.Config, log *slog.Logger, st *store.Sto
 		cancel()
 		return nil, err
 	}
-	go a.maintenance(runCtx)
+	a.bg.Add(2)
 	go func() {
+		defer a.bg.Done()
+		a.maintenance(runCtx)
+	}()
+	go func() {
+		defer a.bg.Done()
 		if err := a.SyncWifi(runCtx); err != nil && runCtx.Err() == nil {
 			a.Log.Warn("wifi sync failed", "error", err)
 		}
@@ -125,6 +134,15 @@ func (a *App) Close() {
 	}
 	if a.Music != nil {
 		a.Music.Halt()
+	}
+	// Give a backup or sync that is running a moment to finish instead of leaving a
+	// half-written file behind.
+	bgDone := make(chan struct{})
+	go func() { a.bg.Wait(); close(bgDone) }()
+	select {
+	case <-bgDone:
+	case <-time.After(10 * time.Second):
+		a.Log.Warn("background work did not stop in time")
 	}
 	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -237,7 +255,7 @@ func (a *App) initTelegram(ctx context.Context) error {
 		return err
 	}
 	a.Wake = wakeword.New(wakeword.Deps{
-		Store: a.Store, Audio: a.Audio, Actions: a.Actions, Assistant: a.Assistant, Log: a.Log,
+		Store: a.Store, Audio: a.Audio, Actions: a.Actions, Assistant: a.Assistant, Schedules: a.Schedules, Log: a.Log,
 		Simulated: a.Cfg.Hardware == "mock",
 	})
 	if err := a.Features.Register(ctx, a.Wake); err != nil {

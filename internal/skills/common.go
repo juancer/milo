@@ -39,6 +39,10 @@ type Common struct {
 	AllowHTTP bool
 	// Check rejects text a child should not hear (parent-defined blocked phrases).
 	Check func(ctx context.Context, text string) error
+	// Allowed reports whether a feature may be used at a moment (the parents'
+	// usage schedules). Nil means always. Actions are checked when called; the
+	// skills that speak or play later (timers, reminders, music) ask it again.
+	Allowed func(ctx context.Context, feature string, at time.Time) (bool, error)
 }
 
 func (c Common) now() time.Time {
@@ -60,6 +64,16 @@ func (c Common) check(ctx context.Context, text string) error {
 		return nil
 	}
 	return c.Check(ctx, text)
+}
+
+// allowedNow reports whether feature may make sound now. An unreadable
+// schedule counts as closed.
+func (c Common) allowedNow(ctx context.Context, feature string) bool {
+	if c.Allowed == nil {
+		return true
+	}
+	ok, err := c.Allowed(ctx, feature, c.now())
+	return err == nil && ok
 }
 
 // runner runs a background loop for a skill and stops it cleanly.

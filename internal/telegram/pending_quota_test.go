@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/juancer/nexo/internal/store"
 	"github.com/juancer/nexo/internal/telegram"
 )
 
@@ -28,5 +29,60 @@ func TestASenderCannotLeaveUnlimitedPendingMessages(t *testing.T) {
 	}
 	if n, _ := h.app.Store.PendingFrom(h.ctx, dad); n != 1 {
 		t.Fatalf("dad has %d pending, want 1", n)
+	}
+}
+
+// An alert and its urgent follow-ups may exceed the cap only by a small absolute allowance.
+func TestEmergencyFollowUpsRespectTheCeiling(t *testing.T) {
+	h := newHarness(t, true)
+	h.enable()
+	dad := h.addUser(11, "Dad", "PARENT")
+	mum := h.addUser(12, "Mum", "PARENT")
+	ceiling := telegram.MaxPendingPerSender + telegram.EmergencyPendingAllowance
+	for i := 0; i < ceiling-3; i++ {
+		if _, err := h.app.Store.InsertMessage(h.ctx, store.Message{Direction: "in", Kind: "text", Body: "x", UserID: dad}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.fireEmergency(11)
+	eventually(t, "alert", func() bool { _, urgent, _ := h.app.Store.PendingCounts(h.ctx); return urgent == 1 })
+	for i := 0; i < 6; i++ {
+		h.fake.Send(11, "more")
+	}
+	h.fake.Send(12, "marker") // handled after Dad's messages
+	eventually(t, "marker stored", func() bool { n, _ := h.app.Store.PendingFrom(h.ctx, mum); return n == 1 })
+	if n, _ := h.app.Store.PendingFrom(h.ctx, dad); n != ceiling {
+		t.Fatalf("dad has %d pending, want exactly the ceiling %d", n, ceiling)
+	}
+}
+
+// A deactivated sender must not be heard, even for messages queued earlier.
+func TestDeactivatedSenderIsNotPlayed(t *testing.T) {
+	h := newHarness(t, true)
+	h.enable()
+	dad := h.addUser(11, "Dad", "PARENT")
+	if _, err := h.app.Store.InsertMessage(h.ctx, store.Message{Direction: "in", Kind: "text", Body: "hi", UserID: dad}); err != nil {
+		t.Fatal(err)
+	}
+	h.app.Store.UpdateUser(h.ctx, dad, "Dad", "PARENT", false)
+	res, err := h.app.Actions.Execute(h.ctx, device(), "listen", nil)
+	if err != nil || res.Message != "No messages" {
+		t.Fatalf("listen = %q, %v; want No messages", res.Message, err)
+	}
+	if n, _ := h.app.Store.PendingFrom(h.ctx, dad); n != 0 {
+		t.Fatalf("deactivated sender still has %d pending", n)
+	}
+}
+
+// Losing send_message also silences a sender's queued messages.
+func TestSenderWithoutSendMessageIsNotPlayed(t *testing.T) {
+	h := newHarness(t, true)
+	h.enable()
+	dad := h.addUser(11, "Dad", "PARENT")
+	h.app.Store.InsertMessage(h.ctx, store.Message{Direction: "in", Kind: "text", Body: "hi", UserID: dad})
+	h.app.Perms.Set(h.ctx, dad, "send_message", false)
+	res, _ := h.app.Actions.Execute(h.ctx, device(), "listen", nil)
+	if res.Message != "No messages" {
+		t.Fatalf("listen = %q, want No messages", res.Message)
 	}
 }

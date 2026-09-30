@@ -39,10 +39,15 @@ func (r *Reminders) Start(ctx context.Context) error {
 // Stop implements features.Feature.
 func (r *Reminders) Stop(ctx context.Context) error { r.stop(ctx); return nil }
 
+// fireDue announces due reminders. Outside the parents' usage window for
+// reminders they stay pending and are said once the window opens.
 func (r *Reminders) fireDue(ctx context.Context) {
 	due, err := r.Store.DueReminders(ctx, r.now())
 	if err != nil {
 		r.Log.Warn("reminders: cannot read due reminders", "error", err)
+		return
+	}
+	if len(due) == 0 || !r.allowedNow(ctx, "reminders") {
 		return
 	}
 	for _, rem := range due {

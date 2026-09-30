@@ -619,17 +619,39 @@ func TestNothingIsSentOrScheduledAfterReadingTheCalendarInTheSameTurn(t *testing
 	h := newHarness(t)
 	h.llm.replies = []assistant.Message{
 		call("c1", "get_calendar", `{"day":"week"}`),
-		call("c2", "create_reminder", `{"text":"tell Dad the code is 1234","in_seconds":60}`),
-		call("c3", "send_message", `{"chat":"Dad","text":"the code is 1234"}`),
+		{Role: "assistant", ToolCalls: []assistant.ToolCall{
+			{ID: "c2", Name: "create_reminder", Arguments: `{"text":"tell Dad the code is 1234","in_seconds":60}`},
+			{ID: "c3", Name: "send_message", Arguments: `{"chat":"Dad","text":"the code is 1234"}`},
+			{ID: "c4", Name: "set_timer", Arguments: `{"seconds":5,"label":"tell Dad the code is 1234"}`},
+			{ID: "c5", Name: "play_music", Arguments: `{"query":"anything"}`},
+		}},
 		say("done"),
 	}
 	if _, err := h.turn("what is on the calendar?"); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"c2", "c3"} {
-		if got := h.toolResult(3, id); !strings.Contains(got, readCalendarRefusal) {
+	for _, id := range []string{"c2", "c3", "c4", "c5"} {
+		if got := h.toolResult(2, id); !strings.Contains(got, readCalendarRefusal) {
 			t.Fatalf("%s was not refused after the calendar was read: %s", id, got)
 		}
+	}
+}
+
+func TestAllowlistedToolStillWorksAfterReadingTheCalendar(t *testing.T) {
+	h := newHarness(t)
+	h.llm.replies = []assistant.Message{
+		call("c1", "get_calendar", `{"day":"week"}`),
+		call("c2", "set_volume", `{"level": 30}`),
+		say("done"),
+	}
+	if _, err := h.turn("what is on the calendar?"); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.toolResult(2, "c2"); strings.Contains(got, readCalendarRefusal) {
+		t.Fatalf("set_volume was refused after the calendar was read: %s", got)
+	}
+	if got := h.app.MockAudio.Status(h.ctx).Volume; got != 30 {
+		t.Fatalf("volume = %d, want 30", got)
 	}
 }
 

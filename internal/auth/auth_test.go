@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -152,5 +153,30 @@ func TestLimiterSweepsKeysThatAreNeverAskedAgain(t *testing.T) {
 	l.Fail("c")
 	if len(l.fails) != 1 {
 		t.Fatalf("stale keys kept: %d", len(l.fails))
+	}
+}
+
+func TestLimiterRefundKeepsEarlierFailures(t *testing.T) {
+	l := NewLimiter(3, time.Minute)
+	l.Fail("ip")
+	l.Fail("ip")
+	if !l.Try("ip") { // third slot, then the attempt succeeds
+		t.Fatal("blocked too early")
+	}
+	l.Refund("ip")
+	if !l.Try("ip") || l.Try("ip") {
+		t.Fatal("Refund must give back exactly one attempt and keep the two earlier failures")
+	}
+	l.Refund("gone")
+}
+
+func TestLimiterMapIsCapped(t *testing.T) {
+	l := NewLimiter(5, time.Minute)
+	for i := 0; i < maxKeys+500; i++ {
+		l.Try(strconv.Itoa(i))
+		l.Fail("f" + strconv.Itoa(i))
+	}
+	if len(l.fails) > maxKeys {
+		t.Fatalf("fails map grew to %d, cap %d", len(l.fails), maxKeys)
 	}
 }

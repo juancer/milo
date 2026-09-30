@@ -29,11 +29,18 @@ const (
 )
 
 // Some tool results carry text written by other people, such as calendar event titles. Nothing
-// the model does after reading them may send text to someone else or schedule speech in the same
-// turn: a line in the prompt asking the model to ignore such text is not a control.
+// the model does after reading them may send text to someone else, schedule speech or start
+// chosen playback in the same turn: a line in the prompt asking the model to ignore such text is
+// not a control. After such a read only the tools listed here run; a new tool is refused until
+// it is added on purpose.
 var (
 	outsiderTextTools = map[string]bool{"get_calendar": true}
-	textOutTools      = map[string]bool{"send_message": true, "create_reminder": true}
+	afterOutsiderText = map[string]bool{
+		"get_calendar": true, "get_time": true, "get_weather": true, "get_device_status": true,
+		"get_pending_messages": true, "list_timers": true, "list_reminders": true,
+		"cancel_timer": true, "cancel_reminder": true,
+		"set_volume": true, "stop_audio": true, "stop_music": true, "pause_music": true,
+	}
 )
 
 // Backends builds the providers from the current settings and secrets, so a
@@ -246,7 +253,7 @@ func (e *Engine) runModel(ctx context.Context, sess *Session, provider AIProvide
 				result = toolError("too many tool calls in one turn")
 			} else {
 				calls++
-				if readOutsiderText && textOutTools[tc.Name] {
+				if readOutsiderText && !afterOutsiderText[tc.Name] {
 					e.log.Info("assistant tool refused", "tool", tc.Name, "reason", "outsider text was read this turn")
 					result = toolError("not allowed in the same request that read the calendar")
 				} else {

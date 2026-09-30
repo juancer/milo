@@ -15,6 +15,9 @@ type Limiter struct {
 	swept  time.Time
 }
 
+// maxKeys bounds the fails map so a flood of distinct keys cannot grow it without limit.
+const maxKeys = 10000
+
 // NewLimiter allows max failures per key within window.
 func NewLimiter(max int, window time.Duration) *Limiter {
 	return &Limiter{max: max, window: window, fails: map[string][]time.Time{}, now: time.Now}
@@ -57,18 +60,43 @@ func (l *Limiter) Allowed(key string) bool {
 
 // Try records an attempt for key and reports whether it may go ahead. The check and the
 // count are one step, so a burst of parallel requests cannot all pass before the first
-// failure is recorded (Allowed followed by Fail cannot promise that). Call Reset when the
+// failure is recorded (Allowed followed by Fail cannot promise that). Call Refund when the
 // attempt succeeds.
 func (l *Limiter) Try(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.sweep()
 	recent := l.recent(key)
-	if len(recent) >= l.max {
+	if len(recent) >= l.max || !l.room(key) {
 		return false
 	}
 	l.fails[key] = append(recent, l.now())
 	return true
+}
+
+// room reports whether key may be stored: it already is, or the map is under maxKeys after
+// dropping expired keys. Call it with l.mu held.
+func (l *Limiter) room(key string) bool {
+	if _, ok := l.fails[key]; ok || len(l.fails) < maxKeys {
+		return true
+	}
+	for k := range l.fails {
+		l.recent(k)
+	}
+	return len(l.fails) < maxKeys
+}
+
+// Refund removes the newest attempt recorded for key, undoing the reservation made by Try
+// for an attempt that succeeded. Earlier failures stay on record.
+func (l *Limiter) Refund(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	recent := l.recent(key)
+	if len(recent) <= 1 {
+		delete(l.fails, key)
+		return
+	}
+	l.fails[key] = recent[:len(recent)-1]
 }
 
 // Fail records a failed attempt.
@@ -76,7 +104,11 @@ func (l *Limiter) Fail(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.sweep()
-	l.fails[key] = append(l.recent(key), l.now())
+	recent := l.recent(key)
+	if !l.room(key) {
+		return
+	}
+	l.fails[key] = append(recent, l.now())
 }
 
 // Reset clears the failures for key after a successful login.

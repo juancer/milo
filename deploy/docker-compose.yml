@@ -69,7 +69,7 @@ services:
       COREPACK_HOME: /tmp/corepack
       NEXO_API_URL: http://dev:8080
     ports:
-      - "4321:4321"
+      - "127.0.0.1:4321:4321"
     volumes:
       - ..:/src
 

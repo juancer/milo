@@ -27,6 +27,12 @@ const (
 	maxICSBytes   = 2 << 20
 	calendarCache = 10 * time.Minute
 	maxSpoken     = 8
+
+	// Recurrence expansion works on untrusted feed data, so it is bounded.
+	maxPerEvent    = 500             // occurrences kept per recurring event
+	maxTotalEvents = 2000            // occurrences kept per parse
+	maxRuleSteps   = 20000           // occurrences a rule may be walked through, from its start, per event
+	parseDeadline  = 2 * time.Second // time budget for one parse
 )
 
 // Event is one calendar entry occurring in a time window.
@@ -124,17 +130,30 @@ func (c *Calendar) Events(ctx context.Context, from, to time.Time) ([]Event, err
 	if err != nil {
 		return nil, err
 	}
-	return ParseEvents(data, from, to, c.loc(ctx))
+	return ParseEventsContext(ctx, data, from, to, c.loc(ctx))
 }
 
 // ParseEvents extracts events overlapping [from, to) from iCalendar data.
 func ParseEvents(data []byte, from, to time.Time, loc *time.Location) ([]Event, error) {
+	return ParseEventsContext(context.Background(), data, from, to, loc)
+}
+
+// ParseEventsContext is ParseEvents with bounded cost: recurrence expansion
+// stops at maxPerEvent occurrences per event, maxTotalEvents in all, after
+// parseDeadline or when ctx ends (keeping what was found), and sub-hourly rules
+// are not expanded.
+func ParseEventsContext(ctx context.Context, data []byte, from, to time.Time, loc *time.Location) ([]Event, error) {
+	ctx, cancel := context.WithTimeout(ctx, parseDeadline)
+	defer cancel()
 	cal, err := ics.ParseCalendar(bytes.NewReader(data))
 	if err != nil {
 		return nil, errors.New("the calendar could not be read")
 	}
 	var out []Event
 	for _, ev := range cal.Events() {
+		if ctx.Err() != nil || len(out) >= maxTotalEvents {
+			break
+		}
 		if p := ev.GetProperty(ics.ComponentPropertyStatus); p != nil && strings.EqualFold(p.Value, "CANCELLED") {
 			continue
 		}
@@ -150,10 +169,10 @@ func ParseEvents(data []byte, from, to time.Time, loc *time.Location) ([]Event, 
 		starts := []time.Time{start}
 		if rp := ev.GetProperty(ics.ComponentPropertyRrule); rp != nil {
 			opt, err := rrule.StrToROptionInLocation(rp.Value, start.Location())
-			if err == nil {
+			if err == nil && opt.Freq <= rrule.HOURLY { // sub-hourly rules are not expanded
 				opt.Dtstart = start
 				if r, err := rrule.NewRRule(*opt); err == nil {
-					starts = r.Between(from.Add(-dur), to, true)
+					starts = expandRule(ctx, r, from.Add(-dur), to)
 				}
 			}
 		}
@@ -178,6 +197,26 @@ func ParseEvents(data []byte, from, to time.Time, loc *time.Location) ([]Event, 
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Start.Before(out[j].Start) })
 	return out, nil
+}
+
+// expandRule lists the occurrences of r in [lo, hi], at most maxPerEvent, after
+// walking at most maxRuleSteps occurrences from the rule's start.
+func expandRule(ctx context.Context, r *rrule.RRule, lo, hi time.Time) []time.Time {
+	var out []time.Time
+	next := r.Iterator()
+	for steps := 0; steps < maxRuleSteps && len(out) < maxPerEvent; steps++ {
+		if steps%256 == 0 && ctx.Err() != nil {
+			break
+		}
+		t, ok := next()
+		if !ok || t.After(hi) {
+			break
+		}
+		if !t.Before(lo) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func eventTimes(ev *ics.VEvent, loc *time.Location) (start, end time.Time, allDay, ok bool) {

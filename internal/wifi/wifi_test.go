@@ -177,3 +177,22 @@ func TestApplyRecreatesASecuredProfileThatBecomesOpen(t *testing.T) {
 		t.Fatalf("connection calls = %v, want delete then add", seq)
 	}
 }
+
+func TestApplyDeletesStaleProfilesForBothTypeSpellings(t *testing.T) {
+	stale := profileName("Gone")
+	for _, typ := range []string{"wifi", "802-11-wireless"} {
+		bin, log := fakeNM(t, stale+":"+typ+"\n")
+		if err := (NMCLI{Binary: bin}).Apply(context.Background(), nil); err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, c := range calls(t, log) {
+			if len(c) == 3 && c[0] == "connection" && c[1] == "delete" && c[2] == stale {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("type %q: stale profile was not deleted: %v", typ, calls(t, log))
+		}
+	}
+}

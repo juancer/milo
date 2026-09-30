@@ -131,7 +131,8 @@ func (n NMCLI) Apply(ctx context.Context, networks []Network) error {
 	existing := map[string]bool{}
 	for _, line := range strings.Split(out, "\n") {
 		name, typ, ok := strings.Cut(strings.TrimSpace(line), ":")
-		if ok && strings.HasPrefix(name, profilePrefix) && strings.Contains(typ, "wireless") {
+		// Newer nmcli prints "wifi" in the TYPE column, older ones "802-11-wireless".
+		if ok && strings.HasPrefix(name, profilePrefix) && (typ == "wifi" || strings.Contains(typ, "wireless")) {
 			existing[name] = true
 		}
 	}

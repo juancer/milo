@@ -35,6 +35,9 @@ type Deps struct {
 	Audio     audio.Audio
 	Actions   *actions.Engine
 	Assistant Busy
+	// Schedules is the usage-schedule checker for the wakeword feature itself
+	// (may be nil: no schedules configured).
+	Schedules actions.ScheduleChecker
 	Log       *slog.Logger
 	// Simulated selects the hand-triggered detector (development, no microphone).
 	Simulated bool
@@ -192,6 +195,9 @@ func (s *Service) loop(ctx context.Context) {
 			}
 		}
 		err := s.Audio.Listen(ctx, func(pcm []byte) {
+			if !s.scheduleOpen(ctx) {
+				return // outside the wakeword usage schedule: the detector idles
+			}
 			if det.Process(pcm) {
 				s.fire(ctx)
 			}
@@ -211,10 +217,23 @@ func (s *Service) loop(ctx context.Context) {
 	}
 }
 
+// scheduleOpen tells whether the wakeword feature's own usage schedule allows
+// listening now. Like the Action Engine it fails closed on a checker error.
+func (s *Service) scheduleOpen(ctx context.Context) bool {
+	if s.Schedules == nil {
+		return true
+	}
+	ok, err := s.Schedules.Allowed(ctx, FeatureName, s.now())
+	return err == nil && ok
+}
+
 // fire starts a conversation through the Action Engine, so the assistant's
 // feature switch and usage schedule apply to the wake word exactly as they do
 // to the GPT button.
 func (s *Service) fire(ctx context.Context) {
+	if !s.scheduleOpen(ctx) {
+		return
+	}
 	if s.Assistant != nil && s.Assistant.Busy() {
 		return
 	}

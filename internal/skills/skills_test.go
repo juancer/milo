@@ -793,3 +793,176 @@ func TestRedirectsToLocalAddressesAreRefused(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------- audit fixes
+
+func rruleICS(rules ...string) []byte {
+	var b strings.Builder
+	b.WriteString("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:x\r\n")
+	for i, rule := range rules {
+		b.WriteString("BEGIN:VEVENT\r\nUID:" + string(rune('a'+i)) + "\r\nDTSTAMP:20260301T000000Z\r\nDTSTART:20100101T000000Z\r\nDTEND:20100101T000100Z\r\nSUMMARY:Spam\r\nRRULE:" + rule + "\r\nEND:VEVENT\r\n")
+	}
+	b.WriteString("END:VCALENDAR\r\n")
+	return []byte(b.String())
+}
+
+func TestRecurrenceExpansionIsBounded(t *testing.T) {
+	from := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
+	to := from.AddDate(0, 0, 7)
+	start := time.Now()
+	events, err := ParseEvents(rruleICS("FREQ=SECONDLY", "FREQ=MINUTELY", "FREQ=HOURLY", "FREQ=HOURLY;INTERVAL=1;BYMINUTE=0,1,2"), from, to, time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Fatalf("parsing took %v", took)
+	}
+	if len(events) > maxTotalEvents {
+		t.Fatalf("%d occurrences kept, cap is %d", len(events), maxTotalEvents)
+	}
+	// Sub-hourly rules are not expanded at all.
+	events, _ = ParseEvents(rruleICS("FREQ=SECONDLY"), from, to, time.UTC)
+	if len(events) != 0 {
+		t.Fatalf("FREQ=SECONDLY gave %d events", len(events))
+	}
+	// A rule the walk budget cannot reach the window of is cut off, not run to the end.
+	events, _ = ParseEvents(rruleICS("FREQ=HOURLY"), from, to, time.UTC)
+	if len(events) > maxPerEvent {
+		t.Fatalf("%d occurrences for one event, cap is %d", len(events), maxPerEvent)
+	}
+}
+
+func TestRecurrenceExpansionHonoursContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	from := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
+	events, err := ParseEventsContext(ctx, rruleICS("FREQ=HOURLY", "FREQ=DAILY"), from, from.AddDate(0, 0, 7), time.UTC)
+	if err != nil || len(events) != 0 {
+		t.Fatalf("cancelled parse = %d events, %v", len(events), err)
+	}
+}
+
+func TestLongRunningDailyEventStillShows(t *testing.T) {
+	from := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
+	events, _ := ParseEvents(rruleICS("FREQ=DAILY"), from, from.AddDate(0, 0, 3), time.UTC)
+	if len(events) != 3 {
+		t.Fatalf("a daily event since 2010 gave %d occurrences in 3 days", len(events))
+	}
+}
+
+type closedSchedule struct{ closed atomic.Bool }
+
+func (c *closedSchedule) allowed(context.Context, string, time.Time) (bool, error) {
+	return !c.closed.Load(), nil
+}
+
+func (c *closedSchedule) Allowed(ctx context.Context, f string, at time.Time) (bool, error) {
+	return c.allowed(ctx, f, at)
+}
+
+func TestTimerAndReminderWaitForTheirWindow(t *testing.T) {
+	r := newRig(t)
+	sched := &closedSchedule{}
+	sched.closed.Store(true)
+	r.common.Allowed = sched.allowed
+	ctx := context.Background()
+	tm, rm := &Timers{Common: r.common}, &Reminders{Common: r.common}
+	r.store.CreateTimer(ctx, "night", r.now.Add(-time.Minute))
+	r.store.CreateTimer(ctx, "stale", r.now.Add(-time.Hour))
+	r.store.CreateReminder(ctx, "wake up", r.now.Add(-time.Minute), "assistant")
+
+	tm.fireDue(ctx, false)
+	rm.fireDue(ctx)
+	if got := r.ann.all(); len(got) != 0 {
+		t.Fatalf("announced outside the window: %+v", got)
+	}
+	// The recent timer and the reminder wait; the stale timer is dropped.
+	if p, _ := r.store.PendingTimers(ctx); len(p) != 1 || p[0].Label != "night" {
+		t.Fatalf("pending timers = %+v", p)
+	}
+	if p, _ := r.store.PendingReminders(ctx); len(p) != 1 {
+		t.Fatalf("pending reminders = %+v", p)
+	}
+	// Once the window opens they are announced.
+	sched.closed.Store(false)
+	tm.fireDue(ctx, false)
+	rm.fireDue(ctx)
+	if got := r.ann.all(); len(got) != 2 {
+		t.Fatalf("after the window opened: %+v", got)
+	}
+}
+
+func TestMusicStopsWhenItsWindowCloses(t *testing.T) {
+	m, mock, r := newMusic(t)
+	mock.StreamSpeed = 5 // slow enough to close the window while the first track plays
+	var open atomic.Bool
+	open.Store(true)
+	m.Common.Allowed = func(context.Context, string, time.Time) (bool, error) { return open.Load(), nil }
+	if _, err := r.run("play_music", map[string]any{"query": "twinkle"}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the first track to start", func() bool { return len(playedMusic(mock)) >= 1 })
+	started := len(playedMusic(mock))
+	open.Store(false)
+	waitFor(t, "the player to stop", func() bool { return m.Info(context.Background()).State == StateStopped })
+	time.Sleep(100 * time.Millisecond)
+	// The track in progress may finish, and one more may have begun just before the window
+	// closed; the rest of the shuffled library must not play.
+	if got := playedMusic(mock); len(got) > started+1 {
+		t.Fatalf("%d tracks were playing when the window closed but %v played: the queue went on", started, got)
+	}
+}
+
+func TestChildCanAlwaysStopMusicOutsideItsWindow(t *testing.T) {
+	m, _, r := newMusic(t)
+	sched := &closedSchedule{}
+	r.eng.SetSchedules(sched)
+	if _, err := r.run("play_music", map[string]any{"query": "twinkle"}); err != nil {
+		t.Fatal(err)
+	}
+	sched.closed.Store(true)
+	if _, err := r.run("play_music", nil); !errors.Is(err, actions.ErrScheduleBlocked) {
+		t.Fatalf("play outside the window: %v", err)
+	}
+	for _, name := range []string{"next_song", "pause_music", "stop_music"} {
+		if _, err := r.run(name, nil); errors.Is(err, actions.ErrScheduleBlocked) {
+			t.Fatalf("%s refused by the schedule", name)
+		}
+	}
+	if st := m.Info(context.Background()).State; st == StatePlaying {
+		t.Fatalf("still %s", st)
+	}
+}
+
+func TestMalformedMP3DoesNotCrash(t *testing.T) {
+	src, err := openTrack(filepath.Join("testdata", "panic0.mp3"))
+	if err == nil {
+		defer src.closer.Close()
+		io.Copy(io.Discard, src.r) // a panic while streaming becomes a read error
+	}
+	if err != nil && !strings.Contains(err.Error(), "cannot decode") {
+		t.Fatalf("err = %v", err)
+	}
+
+	m, mock, r := newMusic(t)
+	data, _ := os.ReadFile(filepath.Join("testdata", "panic0.mp3"))
+	os.WriteFile(filepath.Join(m.Dir, "Zzz panic.mp3"), data, 0o644)
+	m.Rescan(context.Background())
+	if _, err := r.run("play_music", map[string]any{"query": "zzz panic"}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the queue to finish", func() bool { return len(playedMusic(mock)) >= 3 && m.Info(context.Background()).State == StateStopped })
+}
+
+type panicAudio struct{ *audio.Mock }
+
+func (panicAudio) PlayStream(context.Context, audio.Stream) error { panic("boom") }
+
+func TestPlayerPanicIsContained(t *testing.T) {
+	m, _, r := newMusic(t)
+	m.Audio = panicAudio{audio.NewMock()}
+	if _, err := r.run("play_music", map[string]any{"query": "twinkle"}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the player to stop", func() bool { return m.Info(context.Background()).State == StateStopped })
+}

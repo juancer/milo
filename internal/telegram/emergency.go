@@ -49,6 +49,10 @@ func (s *Service) sendEmergency(ctx context.Context, c actions.Call) (actions.Re
 	}
 	s.mu.Unlock()
 
+	if s.senderAtCeiling(ctx, c.Actor.UserID, true) {
+		return actions.Result{Message: tooManyWaitingMsg}, nil
+	}
+
 	name := "a family member"
 	if u, err := s.Store.GetUser(ctx, c.Actor.UserID); err == nil {
 		name = u.DisplayName

@@ -79,7 +79,8 @@ Child to parent:
   Wi-Fi outage delays them but never loses them.
 
 Each person can have at most 50 unheard messages waiting on the device; further ones are refused
-with a reply saying so (emergency follow-ups are not counted). A voice note that cannot be decoded
+with a reply saying so (a small extra allowance of 8 applies to an emergency alert and its follow-ups). Deactivating a person, or removing
+their permission to send, also drops their unheard messages: they are no longer played. A voice note that cannot be decoded
 is tried three times and then marked failed, so it never blocks the messages behind it.
 
 The **Message activity** list shows who and when, never the content.

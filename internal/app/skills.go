@@ -17,6 +17,7 @@ func (a *App) initSkills(ctx context.Context) error {
 		Location:  a.Schedules.Location,
 		AllowHTTP: a.Cfg.Hardware == "mock",
 		Check:     a.checkText,
+		Allowed:   a.Schedules.Allowed,
 	}
 	a.Timers = &skills.Timers{Common: common}
 	a.Reminders = &skills.Reminders{Common: common}

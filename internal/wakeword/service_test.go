@@ -246,3 +246,43 @@ func TestEnrollIsSerialised(t *testing.T) {
 		t.Fatal("want the sample limit error")
 	}
 }
+
+type schedStub struct {
+	mu     sync.Mutex
+	closed map[string]bool
+}
+
+func (s *schedStub) Allowed(_ context.Context, feature string, _ time.Time) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.closed[feature], nil
+}
+
+func (s *schedStub) set(feature string, closed bool) {
+	s.mu.Lock()
+	s.closed[feature] = closed
+	s.mu.Unlock()
+}
+
+func TestWakewordScheduleIsHonoured(t *testing.T) {
+	r := newRig(t, true)
+	sc := &schedStub{closed: map[string]bool{}}
+	r.svc.Schedules = sc
+	r.start(t)
+	sc.set(FeatureName, true) // only the wakeword window is closed
+	if err := r.svc.Trigger(); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if n := r.calls.Load(); n != 0 {
+		t.Fatalf("gpt called %d times outside the wakeword schedule", n)
+	}
+	sc.set(FeatureName, false)
+	r.svc.mu.Lock()
+	r.svc.lastFire = time.Time{}
+	r.svc.mu.Unlock()
+	if err := r.svc.Trigger(); err != nil {
+		t.Fatal(err)
+	}
+	waitCalls(t, r, 1)
+}
