@@ -83,6 +83,14 @@ resulting place (`weather.place`, latitude, longitude), and is audited as
 `weather.location_detected`. The location is approximate; typing a town overrides it. The
 skills' HTTP client refuses plain http and loopback/link-local targets like the other skills.
 
+## Spotify
+
+The optional Spotify feature runs a program you installed yourself (`spotify.binary`, default
+`/usr/local/bin/go-librespot`) as a child of Milo with a clean environment. Only the **owner** can
+change that path, because Milo executes it. The receiver's saved sign-in lives in
+`<data dir>/spotify` (0700) and is not in backups; its control interface listens on loopback only,
+without a password. Voice control of Spotify is off by default. Details: [spotify.md](spotify.md).
+
 ## Logging and audit
 
 Log and audit fields whose names look like credentials (`token`, `password`, `key`, ...) are

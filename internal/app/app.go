@@ -57,6 +57,7 @@ type App struct {
 	Timers    *skills.Timers
 	Reminders *skills.Reminders
 	Music     *skills.Music
+	Spotify   *skills.Spotify
 	Weather   *skills.Weather
 	Calendar  *skills.Calendar
 

@@ -95,6 +95,7 @@ func (s *server) handler(assets fs.FS) http.Handler {
 	s.systemRoutes(mux)
 	s.wakeRoutes(mux)
 	s.skillRoutes(mux)
+	s.spotifyRoutes(mux)
 	s.backupRoutes(mux)
 	s.simRoutes(mux)
 	mux.Handle("/", noListing(assets, http.FileServerFS(assets)))

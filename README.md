@@ -29,7 +29,7 @@ Telegram account or bot is hardcoded: each installation is configured on its own
 
 More: [installation](docs/installation.md) · [hardware](docs/hardware.md) · [configuration](docs/configuration.md) · [languages](docs/i18n.md) ·
 [telegram](docs/telegram.md) · [schedules](docs/schedules.md) · [emergency](docs/emergency.md) · [assistant](docs/assistant.md) ·
-[wake word](docs/wakeword.md) · [skills](docs/skills.md) · [Wi-Fi](docs/wifi.md) · [backup](docs/backup.md) ·
+[wake word](docs/wakeword.md) · [skills](docs/skills.md) · [Spotify](docs/spotify.md) · [Wi-Fi](docs/wifi.md) · [backup](docs/backup.md) ·
 [security](docs/security.md) · [architecture](docs/architecture.md) · [development](docs/development.md) · [roadmap](docs/roadmap.md)
 
 ## Develop (Docker only)

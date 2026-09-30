@@ -40,7 +40,7 @@ var (
 		"get_calendar": true, "get_time": true, "get_weather": true, "get_device_status": true,
 		"get_pending_messages": true, "list_timers": true, "list_reminders": true,
 		"cancel_timer": true, "cancel_reminder": true,
-		"set_volume": true, "stop_audio": true, "stop_music": true, "pause_music": true,
+		"set_volume": true, "stop_audio": true, "stop_music": true, "pause_music": true, "spotify_pause": true,
 	}
 )
 

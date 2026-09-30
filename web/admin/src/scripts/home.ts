@@ -25,17 +25,18 @@ interface Data {
   backup: { settings: { last_at?: string; last_error?: string } } | null;
   audit: AuditRow[] | null;
   system: { device_name: string } | null;
+  spotify: { binary_found: boolean; signed_in: boolean; playing: boolean; track?: string; device_name: string } | null;
 }
 
 const soft = <T>(path: string): Promise<T | null> => api<T>("GET", path).catch(() => null);
 
 async function load(): Promise<Data> {
-  const [status, features, telegram, users, chats, buttons, admins, assistant, wifi, backup, audit, system] = await Promise.all([
+  const [status, features, telegram, users, chats, buttons, admins, assistant, wifi, backup, audit, system, spotify] = await Promise.all([
     soft<DeviceStatus>("/api/status"), soft<Feature[]>("/api/features"), soft<Data["telegram"]>("/api/telegram"), soft<unknown[]>("/api/users"),
     soft<unknown[]>("/api/chats"), soft<unknown[]>("/api/buttons"), soft<unknown[]>("/api/admins"), soft<Data["assistant"]>("/api/assistant"),
-    soft<Data["wifi"]>("/api/wifi"), soft<Data["backup"]>("/api/backup"), soft<AuditRow[]>("/api/audit"), soft<Data["system"]>("/api/system"),
+    soft<Data["wifi"]>("/api/wifi"), soft<Data["backup"]>("/api/backup"), soft<AuditRow[]>("/api/audit"), soft<Data["system"]>("/api/system"), soft<Data["spotify"]>("/api/spotify"),
   ]);
-  return { status, features: features ?? [], telegram, users, chats, buttons, admins, assistant, wifi, backup, audit, system };
+  return { status, features: features ?? [], telegram, users, chats, buttons, admins, assistant, wifi, backup, audit, system, spotify };
 }
 
 interface Info {
@@ -79,6 +80,16 @@ function infoFor(s: Section, d: Data): Info {
       const bad = on.find((f) => f.last_error && !featureStatus(f).needsKey);
       const summary = t("tile.skills.count", { on: on.length, total: list.length });
       return bad ? { summary, status: "attention", hint: bad.last_error } : { summary, status: on.length ? "ready" : "off" };
+    }
+    case "spotify": {
+      const f = feature("spotify");
+      const st = fs("spotify");
+      if (st.status === "setup") return { summary: t(st.needsKey ?? "needs.spotifyBinary"), status: "setup", hint: f?.last_error };
+      if (st.status === "attention") return { summary: t("tile.attention"), status: "attention", hint: f?.last_error };
+      if (st.status !== "ready") return { summary: t("tile.off"), status: "off" };
+      const sp = d.spotify;
+      if (!sp?.signed_in) return { summary: t("tile.spotify.pair"), status: "setup" };
+      return { summary: sp.playing && sp.track ? sp.track : t("tile.spotify.ready", { name: sp.device_name }), status: "ready" };
     }
     case "people": return { summary: counted("people", d.users?.length ?? 0) };
     case "chats": return { summary: counted("chats", d.chats?.length ?? 0) };

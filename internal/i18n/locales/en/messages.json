@@ -105,6 +105,7 @@
   "web.err.no_such_rule": "no such rule",
   "web.err.no_such_sample": "no such sample",
   "web.err.no_such_timer": "no such timer",
+  "web.err.spotify_binary_path": "the path must be an absolute path such as /usr/local/bin/go-librespot",
   "web.err.no_such_user": "no such user",
   "web.err.not_an_api_key": "{label} does not look like an API key",
   "web.err.only_the_owner_can_manage_administrators": "only the owner can manage administrators",

@@ -331,6 +331,14 @@ const (
 	StatePaused  PlayerState = "paused"
 )
 
+// AudioSource is another source of sound the music actions can hand over to: when no local
+// song is playing, "pause", "stop" and "next" act on it.
+type AudioSource interface {
+	Active() bool
+	Pause(ctx context.Context) error
+	Skip(ctx context.Context, actor actions.Actor) (string, error)
+}
+
 // Music is the "music" feature: it plays the parents' audio files and keeps
 // going through the folder in shuffled order until told to stop.
 type Music struct {
@@ -343,6 +351,11 @@ type Music struct {
 	// QuietFor. Defaults to "the audio device is not busy".
 	Idle     func() bool
 	QuietFor time.Duration
+	// BeforePlay runs just before a song starts (Spotify gives way to it).
+	BeforePlay func()
+	// Other is another audio source (Spotify) that pause, stop and skip also reach
+	// when no local song is playing.
+	Other AudioSource
 
 	mu       sync.Mutex
 	tracks   []Track
@@ -446,6 +459,9 @@ func (m *Music) Play(ctx context.Context, query string) (string, error) {
 	if strings.TrimSpace(query) == "" && m.state == StatePaused {
 		title := m.current.Title
 		m.mu.Unlock()
+		if m.BeforePlay != nil {
+			m.BeforePlay()
+		}
 		m.startRun(m.current, m.offset, nil)
 		return title, nil
 	}
@@ -472,6 +488,9 @@ func (m *Music) Play(ctx context.Context, query string) (string, error) {
 	}
 	m.rng.Shuffle(len(rest), func(i, j int) { rest[i], rest[j] = rest[j], rest[i] })
 	m.mu.Unlock()
+	if m.BeforePlay != nil {
+		m.BeforePlay()
+	}
 	m.startRun(first, 0, rest)
 	return first.Title, nil
 }
@@ -507,13 +526,18 @@ const maxResumes = 50
 // waitQuiet blocks until the device has been quiet for QuietFor, or returns
 // false if the music was stopped or nothing quiet happens for three minutes.
 func (m *Music) waitQuiet(ctx context.Context) bool {
-	quiet := m.QuietFor
-	if quiet == 0 {
-		quiet = 1500 * time.Millisecond
-	}
 	idle := m.Idle
 	if idle == nil {
 		idle = func() bool { return m.Audio == nil || !m.Audio.Busy() }
+	}
+	return waitUntilQuiet(ctx, idle, m.QuietFor)
+}
+
+// waitUntilQuiet blocks until idle() has held for quiet (default 1.5 s), or returns false if ctx
+// ends or three minutes pass without a quiet moment. Music and Spotify share it.
+func waitUntilQuiet(ctx context.Context, idle func() bool, quiet time.Duration) bool {
+	if quiet == 0 {
+		quiet = 1500 * time.Millisecond
 	}
 	step := min(100*time.Millisecond, quiet/3+time.Millisecond)
 	var since time.Time
@@ -692,6 +716,12 @@ func (m *Music) RegisterActions(e *actions.Engine) {
 		Feature: "music", Exposure: both, BypassSchedule: true, // the child can always stop it
 		Handler: func(ctx context.Context, c actions.Call) (actions.Result, error) {
 			if !m.Pause() {
+				if m.Other != nil && m.Other.Active() {
+					if err := m.Other.Pause(ctx); err != nil {
+						return actions.Result{}, err
+					}
+					return actions.Result{Message: "Paused."}, nil
+				}
 				return actions.Result{Message: "Nothing is playing."}, nil
 			}
 			return actions.Result{Message: "Paused."}, nil
@@ -702,6 +732,9 @@ func (m *Music) RegisterActions(e *actions.Engine) {
 		Feature: "music", Exposure: both, BypassSchedule: true, // the child can always stop it
 		Handler: func(ctx context.Context, c actions.Call) (actions.Result, error) {
 			m.Halt()
+			if m.Other != nil && m.Other.Active() {
+				m.Other.Pause(ctx) //nolint:errcheck // best effort: the local music is stopped either way
+			}
 			return actions.Result{Message: "Music stopped."}, nil
 		},
 	})
@@ -711,6 +744,10 @@ func (m *Music) RegisterActions(e *actions.Engine) {
 		Handler: func(ctx context.Context, c actions.Call) (actions.Result, error) {
 			title, err := m.Next()
 			if err != nil {
+				if m.Other != nil && m.Other.Active() {
+					msg, serr := m.Other.Skip(ctx, c.Actor)
+					return actions.Result{Message: msg}, serr
+				}
 				return actions.Result{Message: err.Error()}, nil
 			}
 			return actions.Result{Message: "Next: " + title + "."}, nil
