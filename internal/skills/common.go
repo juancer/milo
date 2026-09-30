@@ -1,4 +1,4 @@
-// Package skills holds Nexo's optional abilities: timers, reminders, music,
+// Package skills holds Milo's optional abilities: timers, reminders, music,
 // weather and calendar. Each skill is a feature (off until a parent turns it
 // on) that registers actions; the assistant, buttons and the admin all reach
 // them through the Action Engine, so feature switches, schedules and parameter
@@ -19,7 +19,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/store"
 )
 
 // Announcer makes the device say (or sound) something at a moment the skill

@@ -3,7 +3,7 @@ package web
 import (
 	"net/http"
 
-	"github.com/juancer/nexo/internal/notifications"
+	"github.com/juancer/milo/internal/notifications"
 )
 
 func (s *server) settingsRoutes(mux *http.ServeMux) {

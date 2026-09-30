@@ -11,7 +11,7 @@ import (
 	"time"
 	_ "time/tzdata" // embedded, so timezones work without system tzdata
 
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/store"
 )
 
 // SettingTimezone is the system_settings key holding an IANA timezone name.

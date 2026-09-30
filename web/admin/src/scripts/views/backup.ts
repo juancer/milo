@@ -46,7 +46,7 @@ export async function render(root: HTMLElement): Promise<void> {
       h("button", { type: "submit" }, "Download backup"))));
 
   // ---- restore
-  const file = h("input", { type: "file", accept: ".nexo", required: true, ariaLabel: "Backup file" });
+  const file = h("input", { type: "file", accept: ".milo", required: true, ariaLabel: "Backup file" });
   const restorePass = h("input", { type: "password", autocomplete: "off", required: true, ariaLabel: "Backup passphrase for restore" });
   root.append(h("form", {
     class: "card",
@@ -62,7 +62,7 @@ export async function render(root: HTMLElement): Promise<void> {
         restorePass.value = "";
         clear(root);
         root.append(h("section", { class: "card" }, h("h2", {}, "Backup checked and ready"),
-          h("p", {}, `“${res.device_name}”, made ${when(res.created_at)}. It replaces everything on this device (settings, family, messages and administrator accounts) when Nexo restarts. The current data is kept aside on the device.`),
+          h("p", {}, `“${res.device_name}”, made ${when(res.created_at)}. It replaces everything on this device (settings, family, messages and administrator accounts) when Milo restarts. The current data is kept aside on the device.`),
           h("div", { class: "actions" }, h("button", { type: "button", onclick: async () => {
             try { await api("POST", "/api/system/restart"); toast("Restarting… sign in again in a few seconds."); } catch (e2) { toast(errorMessage(e2), true); }
           } }, "Restart now to restore"))));
@@ -72,7 +72,7 @@ export async function render(root: HTMLElement): Promise<void> {
     },
   },
     h("h2", {}, "Restore from a backup"),
-    note("Choose a backup file and enter its passphrase. Nexo checks it first and changes nothing until you restart. This works for backups made by this device. To move a backup to a new device or a new memory card, use the command line: sudo systemctl stop nexo; sudo nexo restore FILE --replace-key"),
+    note("Choose a backup file and enter its passphrase. Milo checks it first and changes nothing until you restart. This works for backups made by this device. To move a backup to a new device or a new memory card, use the command line: sudo systemctl stop milo; sudo milo restore FILE --replace-key"),
     h("div", { class: "fields" }, field("Backup file", file), field("Passphrase", restorePass), h("button", { type: "submit", class: "danger" }, "Check and prepare restore"))));
 
   // ---- automatic copies
@@ -95,7 +95,7 @@ export async function render(root: HTMLElement): Promise<void> {
     },
   },
     h("h2", {}, "Automatic copies on the device"),
-    note("Nexo keeps a few recent copies of its database so a damaged file can be recovered. They live on the same memory card, so they do not replace a downloaded backup. They are not encrypted (they contain what the database contains) and never contain the master key."),
+    note("Milo keeps a few recent copies of its database so a damaged file can be recovered. They live on the same memory card, so they do not replace a downloaded backup. They are not encrypted (they contain what the database contains) and never contain the master key."),
     s.last_error ? h("p", { class: "error" }, `Last attempt failed: ${s.last_error}`) : null,
     h("p", {}, s.last_at ? badge(`last copy ${when(s.last_at)}`) : badge("no copy yet", true)),
     h("div", { class: "fields" }, h("label", { class: "check" }, auto, " Make copies automatically"), field("Every (hours)", every), field("Copies to keep", keep), field("Folder", dir)),

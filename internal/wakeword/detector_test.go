@@ -22,7 +22,7 @@ type syllable struct {
 }
 
 var (
-	heyNexo = []syllable{{500, 1800, 150}, {400, 2200, 110}, {550, 1700, 140}, {650, 1100, 110}, {450, 900, 230}}
+	heyMilo = []syllable{{500, 1800, 150}, {400, 2200, 110}, {550, 1700, 140}, {650, 1100, 110}, {450, 900, 230}}
 	others  = map[string][]syllable{
 		"good morning":    {{700, 1200, 200}, {450, 900, 120}, {300, 2200, 150}, {550, 1600, 130}, {350, 2000, 220}},
 		"hello there":     {{600, 1500, 130}, {550, 1700, 100}, {600, 900, 200}, {350, 2100, 140}, {500, 1500, 180}},
@@ -85,7 +85,7 @@ func enrolled(t *testing.T, sensitivity int) (*TemplateDetector, *[]float64) {
 	rng := rand.New(rand.NewSource(1))
 	var templates [][][]float64
 	for _, v := range []struct{ f0, stretch float64 }{{125, 1.0}, {135, 0.92}, {118, 1.08}} {
-		tpl, err := Enroll(stream(speak(heyNexo, v.f0, v.stretch, 1, 25, rng), rng))
+		tpl, err := Enroll(stream(speak(heyMilo, v.f0, v.stretch, 1, 25, rng), rng))
 		if err != nil {
 			t.Fatalf("enroll: %v", err)
 		}
@@ -118,7 +118,7 @@ func TestDetectsTheEnrolledPhraseDespiteVariation(t *testing.T) {
 	}
 	for i, v := range variants {
 		d.cooldown = 0
-		if !feedAll(d, stream(speak(heyNexo, v.f0, v.stretch, v.gain, v.noise, rng), rng), 1600) {
+		if !feedAll(d, stream(speak(heyMilo, v.f0, v.stretch, v.gain, v.noise, rng), rng), 1600) {
 			t.Errorf("variant %d not detected (scores %.2f)", i, *scores)
 		}
 	}
@@ -155,7 +155,7 @@ func TestRejectsOtherPhrasesAndNoise(t *testing.T) {
 func TestSeparationBetweenPhraseAndOthers(t *testing.T) {
 	// The detector only works if the same phrase scores well below everything else.
 	rng := rand.New(rand.NewSource(4))
-	tpl, _ := Enroll(stream(speak(heyNexo, 125, 1, 1, 25, rng), rng))
+	tpl, _ := Enroll(stream(speak(heyMilo, 125, 1, 1, 25, rng), rng))
 	score := func(w []syllable, f0, stretch float64) float64 {
 		var phrases [][]int16
 		s := newSegmenter()
@@ -165,7 +165,7 @@ func TestSeparationBetweenPhraseAndOthers(t *testing.T) {
 		}
 		return Distance(Features(phrases[0]), tpl)
 	}
-	same := math.Max(score(heyNexo, 132, 0.93), score(heyNexo, 122, 1.1))
+	same := math.Max(score(heyMilo, 132, 0.93), score(heyMilo, 122, 1.1))
 	minOther := math.Inf(1)
 	for _, w := range others {
 		minOther = math.Min(minOther, score(w, 125, 1))
@@ -181,7 +181,7 @@ func TestSeparationBetweenPhraseAndOthers(t *testing.T) {
 
 func TestChunkSizeDoesNotMatter(t *testing.T) {
 	rng := rand.New(rand.NewSource(5))
-	pcm := stream(speak(heyNexo, 127, 1.02, 1, 30, rng), rng)
+	pcm := stream(speak(heyMilo, 127, 1.02, 1, 30, rng), rng)
 	for _, chunk := range []int{320, 641, 1600, 3200, 9999} { // including odd byte counts
 		d, _ := enrolled(t, 5)
 		if !feedAll(d, pcm, chunk) {
@@ -193,8 +193,8 @@ func TestChunkSizeDoesNotMatter(t *testing.T) {
 func TestCooldownAvoidsDoubleTriggers(t *testing.T) {
 	d, _ := enrolled(t, 5)
 	rng := rand.New(rand.NewSource(6))
-	first := d.Process(stream(speak(heyNexo, 126, 1, 1, 30, rng), rng))
-	second := d.Process(stream(speak(heyNexo, 126, 1, 1, 30, rng), rng)) // immediately after
+	first := d.Process(stream(speak(heyMilo, 126, 1, 1, 30, rng), rng))
+	second := d.Process(stream(speak(heyMilo, 126, 1, 1, 30, rng), rng)) // immediately after
 	if !first || second {
 		t.Fatalf("first=%v second=%v; the second must be suppressed by the cooldown", first, second)
 	}
@@ -226,7 +226,7 @@ func TestEnrollRejectsBadRecordings(t *testing.T) {
 
 func TestFeatureSerialisationRoundTrip(t *testing.T) {
 	rng := rand.New(rand.NewSource(8))
-	f, err := Enroll(stream(speak(heyNexo, 125, 1, 1, 25, rng), rng))
+	f, err := Enroll(stream(speak(heyMilo, 125, 1, 1, 25, rng), rng))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestFeatureSerialisationRoundTrip(t *testing.T) {
 
 func TestDistanceProperties(t *testing.T) {
 	rng := rand.New(rand.NewSource(9))
-	a := Features(speak(heyNexo, 125, 1, 1, 20, rng))
+	a := Features(speak(heyMilo, 125, 1, 1, 20, rng))
 	if d := Distance(a, a); d > 1e-9 {
 		t.Errorf("distance to itself = %v", d)
 	}

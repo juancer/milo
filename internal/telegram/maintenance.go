@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/juancer/nexo/internal/audio"
-	"github.com/juancer/nexo/internal/notifications"
+	"github.com/juancer/milo/internal/audio"
+	"github.com/juancer/milo/internal/notifications"
 )
 
 const settingRetentionDays = "messages.retention_days"

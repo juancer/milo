@@ -12,7 +12,7 @@ import (
 
 func openTemp(t *testing.T) (*Store, string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "nexo.db")
+	path := filepath.Join(t.TempDir(), "milo.db")
 	s, err := Open(context.Background(), path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -39,7 +39,7 @@ func TestOpenConfiguresWALAndForeignKeys(t *testing.T) {
 
 func TestMigrationsAreIdempotentAndKeepData(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "nexo.db")
+	path := filepath.Join(t.TempDir(), "milo.db")
 
 	s, err := Open(ctx, path)
 	if err != nil {

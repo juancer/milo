@@ -20,15 +20,15 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/juancer/nexo/internal/actions"
-	"github.com/juancer/nexo/internal/app"
-	"github.com/juancer/nexo/internal/auth"
-	"github.com/juancer/nexo/internal/backup"
-	"github.com/juancer/nexo/internal/features"
-	"github.com/juancer/nexo/internal/secrets"
-	"github.com/juancer/nexo/internal/store"
-	"github.com/juancer/nexo/internal/system"
-	"github.com/juancer/nexo/internal/wifi"
+	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/app"
+	"github.com/juancer/milo/internal/auth"
+	"github.com/juancer/milo/internal/backup"
+	"github.com/juancer/milo/internal/features"
+	"github.com/juancer/milo/internal/secrets"
+	"github.com/juancer/milo/internal/store"
+	"github.com/juancer/milo/internal/system"
+	"github.com/juancer/milo/internal/wifi"
 )
 
 const testPassword = "a-long-test-password"
@@ -81,7 +81,7 @@ func newEnv(t *testing.T, setPassword bool) *env {
 			t.Fatal(err)
 		}
 	}
-	assets := fstest.MapFS{"index.html": {Data: []byte("<h1>Nexo</h1>")}}
+	assets := fstest.MapFS{"index.html": {Data: []byte("<h1>Milo</h1>")}}
 	impl := newServer(a, "test")
 	srv := httptest.NewServer(impl.handler(assets))
 	t.Cleanup(srv.Close)
@@ -147,7 +147,7 @@ func TestServesEmbeddedUIWithSecurityHeaders(t *testing.T) {
 	e := newEnv(t, false)
 	resp := e.do(t, "GET", "/", "", nil, nil)
 	b, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(b), "Nexo") {
+	if !strings.Contains(string(b), "Milo") {
 		t.Fatalf("index not served: %s", b)
 	}
 	if resp.Header.Get("Content-Security-Policy") == "" || resp.Header.Get("X-Frame-Options") != "DENY" {
@@ -940,13 +940,13 @@ func TestSystemSettingsAndLogs(t *testing.T) {
 	e.app.Log.Info("hello from the test")
 
 	sys := decode[systemDTO](t, e.do(t, "GET", "/api/system", "", cookie, nil))
-	if sys.DeviceName != "Nexo" || sys.RetentionDays != 30 || sys.LongPressMS != 800 || sys.Audio.MixerControl != "Speaker" {
+	if sys.DeviceName != "Milo" || sys.RetentionDays != 30 || sys.LongPressMS != 800 || sys.Audio.MixerControl != "Speaker" {
 		t.Fatalf("defaults = %+v", sys)
 	}
-	sys.DeviceName, sys.RetentionDays, sys.AnnounceSender, sys.Audio.MixerControl = "Lia's Nexo", 7, true, "Playback"
+	sys.DeviceName, sys.RetentionDays, sys.AnnounceSender, sys.Audio.MixerControl = "Lia's Milo", 7, true, "Playback"
 	body, _ := json.Marshal(sys)
 	saved := decode[systemDTO](t, e.do(t, "PUT", "/api/system", string(body), cookie, nil))
-	if saved.DeviceName != "Lia's Nexo" || saved.RetentionDays != 7 || !saved.AnnounceSender || saved.Audio.MixerControl != "Playback" {
+	if saved.DeviceName != "Lia's Milo" || saved.RetentionDays != 7 || !saved.AnnounceSender || saved.Audio.MixerControl != "Playback" {
 		t.Fatalf("saved = %+v", saved)
 	}
 
@@ -994,10 +994,10 @@ func TestWakeWordSettingsAndSimulatedTrigger(t *testing.T) {
 
 	got := decode[map[string]any](t, e.do(t, "GET", "/api/wakeword", "", cookie, nil))
 	settings := got["settings"].(map[string]any)
-	if settings["engine"] != "template" || settings["phrase"] != "Hey Nexo" || settings["sensitivity"] != float64(5) || got["simulated"] != true {
+	if settings["engine"] != "template" || settings["phrase"] != "Hey Milo" || settings["sensitivity"] != float64(5) || got["simulated"] != true {
 		t.Fatalf("defaults = %v", got)
 	}
-	if resp := e.do(t, "PUT", "/api/wakeword", `{"engine":"template","phrase":"Hola Nexo","sensitivity":7,"external_path":""}`, cookie, nil); resp.StatusCode != 200 {
+	if resp := e.do(t, "PUT", "/api/wakeword", `{"engine":"template","phrase":"Hola Milo","sensitivity":7,"external_path":""}`, cookie, nil); resp.StatusCode != 200 {
 		t.Fatalf("save = %d", resp.StatusCode)
 	}
 	for name, bad := range map[string]string{
@@ -1400,7 +1400,7 @@ func downloadBackup(t *testing.T, e *env, cookie *http.Cookie, includeKey bool) 
 	body, _ := json.Marshal(map[string]any{"passphrase": backupPass, "include_key": includeKey})
 	resp := e.do(t, "POST", "/api/backup/download", string(body), cookie, nil)
 	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != 200 || !strings.Contains(resp.Header.Get("Content-Disposition"), "nexo-backup-") {
+	if resp.StatusCode != 200 || !strings.Contains(resp.Header.Get("Content-Disposition"), "milo-backup-") {
 		t.Fatalf("download = %d %s", resp.StatusCode, data[:min(len(data), 200)])
 	}
 	return data
@@ -1459,15 +1459,15 @@ func TestRestoreUploadIsStagedThenAppliedAtRestart(t *testing.T) {
 	e.store.SetSetting(ctx, "family.motto", "after the backup")
 
 	// Wrong passphrase, wrong order and garbage are refused without touching anything.
-	body, ct := multipartBody([][2]string{{"passphrase", "not the right one!!"}}, "b.nexo", file)
+	body, ct := multipartBody([][2]string{{"passphrase", "not the right one!!"}}, "b.milo", file)
 	if resp := e.upload(t, "/api/backup/restore", body, ct, cookie); resp.StatusCode != 422 {
 		t.Fatalf("wrong passphrase = %d", resp.StatusCode)
 	}
-	body, ct = multipartBody(nil, "b.nexo", file) // no passphrase at all
+	body, ct = multipartBody(nil, "b.milo", file) // no passphrase at all
 	if resp := e.upload(t, "/api/backup/restore", body, ct, cookie); resp.StatusCode != 400 {
 		t.Fatalf("missing passphrase = %d", resp.StatusCode)
 	}
-	body, ct = multipartBody([][2]string{{"passphrase", backupPass}}, "b.nexo", []byte("garbage that is not a backup file at all"))
+	body, ct = multipartBody([][2]string{{"passphrase", backupPass}}, "b.milo", []byte("garbage that is not a backup file at all"))
 	if resp := e.upload(t, "/api/backup/restore", body, ct, cookie); resp.StatusCode != 422 {
 		t.Fatalf("garbage = %d", resp.StatusCode)
 	}
@@ -1475,7 +1475,7 @@ func TestRestoreUploadIsStagedThenAppliedAtRestart(t *testing.T) {
 		t.Fatal("something was staged by a refused upload")
 	}
 
-	body, ct = multipartBody([][2]string{{"passphrase", backupPass}}, "b.nexo", file)
+	body, ct = multipartBody([][2]string{{"passphrase", backupPass}}, "b.milo", file)
 	resp := e.upload(t, "/api/backup/restore", body, ct, cookie)
 	staged := decode[map[string]any](t, resp)
 	if resp.StatusCode != 202 || staged["restart_required"] != true {
@@ -1489,7 +1489,7 @@ func TestRestoreUploadIsStagedThenAppliedAtRestart(t *testing.T) {
 	if err != nil || !applied {
 		t.Fatalf("apply = %v %q %v", applied, prev, err)
 	}
-	restored, err := store.Open(ctx, filepath.Join(e.app.Cfg.DataDir, "nexo.db"))
+	restored, err := store.Open(ctx, filepath.Join(e.app.Cfg.DataDir, "milo.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1506,7 +1506,7 @@ func TestRestoreRefusesABackupFromAnotherDevice(t *testing.T) {
 
 	e := newEnv(t, true)
 	cookie := e.login(t)
-	body, ct := multipartBody([][2]string{{"passphrase", backupPass}}, "b.nexo", file)
+	body, ct := multipartBody([][2]string{{"passphrase", backupPass}}, "b.milo", file)
 	resp := e.upload(t, "/api/backup/restore", body, ct, cookie)
 	msg := decode[map[string]string](t, resp)["error"]
 	if resp.StatusCode != 422 || !strings.Contains(msg, "different master key") || !strings.Contains(msg, "command line") {
@@ -1518,14 +1518,14 @@ func TestOnlyOneRestoreIsCheckedAtATime(t *testing.T) {
 	e := newEnv(t, true)
 	cookie := e.login(t)
 	file := downloadBackup(t, e, cookie, true)
-	body, ct := multipartBody([][2]string{{"passphrase", backupPass}}, "b.nexo", file)
+	body, ct := multipartBody([][2]string{{"passphrase", backupPass}}, "b.milo", file)
 	restoreBusy.Lock() // another upload is being checked
 	resp := e.upload(t, "/api/backup/restore", body, ct, cookie)
 	restoreBusy.Unlock()
 	if resp.StatusCode != 409 {
 		t.Fatalf("parallel restore = %d, want 409", resp.StatusCode)
 	}
-	body, ct = multipartBody([][2]string{{"passphrase", backupPass}}, "b.nexo", file)
+	body, ct = multipartBody([][2]string{{"passphrase", backupPass}}, "b.milo", file)
 	if resp := e.upload(t, "/api/backup/restore", body, ct, cookie); resp.StatusCode != 202 {
 		t.Fatalf("restore after the other finished = %d", resp.StatusCode)
 	}
@@ -1536,10 +1536,10 @@ func TestRestorePassphraseGuessingIsThrottled(t *testing.T) {
 	cookie := e.login(t)
 	file := downloadBackup(t, e, cookie, false)
 	for i := 0; i < 5; i++ {
-		body, ct := multipartBody([][2]string{{"passphrase", "wrong passphrase " + fmt.Sprint(i)}}, "b.nexo", file)
+		body, ct := multipartBody([][2]string{{"passphrase", "wrong passphrase " + fmt.Sprint(i)}}, "b.milo", file)
 		e.upload(t, "/api/backup/restore", body, ct, cookie)
 	}
-	body, ct := multipartBody([][2]string{{"passphrase", backupPass}}, "b.nexo", file)
+	body, ct := multipartBody([][2]string{{"passphrase", backupPass}}, "b.milo", file)
 	if resp := e.upload(t, "/api/backup/restore", body, ct, cookie); resp.StatusCode != 429 {
 		t.Fatalf("after 5 wrong guesses = %d, want 429", resp.StatusCode)
 	}
@@ -1561,7 +1561,7 @@ func TestLocalBackupSettingsRunAndListing(t *testing.T) {
 	for name, bad := range map[string]string{
 		"relative": `{"auto":true,"dir":"backups","keep":3,"every_hours":24}`, "dotdot": `{"auto":true,"dir":"/tmp/../etc","keep":3,"every_hours":24}`,
 		"keep 0": `{"auto":true,"dir":"` + dir + `","keep":0,"every_hours":24}`, "every 999": `{"auto":true,"dir":"` + dir + `","keep":3,"every_hours":999}`,
-		"unwritable":           `{"auto":true,"dir":"/proc/nexo-backups","keep":3,"every_hours":24}`,
+		"unwritable":           `{"auto":true,"dir":"/proc/milo-backups","keep":3,"every_hours":24}`,
 		"outside the data dir": `{"auto":true,"dir":"` + filepath.Join(t.TempDir(), "elsewhere") + `","keep":3,"every_hours":24}`,
 		"the data dir itself":  `{"auto":true,"dir":"` + e.app.Cfg.DataDir + `","keep":3,"every_hours":24}`,
 	} {
@@ -1604,7 +1604,7 @@ func TestBackupDownloadAndRestoreAreOwnerOnly(t *testing.T) {
 		t.Fatalf("download by a non-owner = %d, want 403", r.StatusCode)
 	}
 	archive := downloadBackup(t, e, owner, false) // the owner still can
-	form, ctype := multipartBody([][2]string{{"passphrase", backupPass}}, "b.nexo", archive)
+	form, ctype := multipartBody([][2]string{{"passphrase", backupPass}}, "b.milo", archive)
 	if r := e.upload(t, "/api/backup/restore", form, ctype, mom); r.StatusCode != 403 {
 		t.Fatalf("restore by a non-owner = %d, want 403", r.StatusCode)
 	}

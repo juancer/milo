@@ -12,7 +12,7 @@ Waveshare **WM8960 Hi-Fi Sound Card HAT** and momentary push buttons.
 sudo apt install alsa-utils opus-tools
 ```
 
-`alsa-utils` provides `arecord`, `aplay` and `amixer`, which Nexo calls with fixed arguments so
+`alsa-utils` provides `arecord`, `aplay` and `amixer`, which Milo calls with fixed arguments so
 the binary stays CGO-free. `opus-tools` is used from Phase 3 for Telegram voice messages.
 
 ## WM8960 sound card
@@ -28,9 +28,9 @@ the binary stays CGO-free. `opus-tools` is used from Phase 3 for Telegram voice 
 
    (On older kernels use the vendor driver from Waveshare instead.) Reboot.
 3. Check the card exists: `aplay -l` should list `wm8960soundcard`.
-4. Test with Nexo: `nexo test-audio` plays three sounds, records 3 seconds and plays them back.
+4. Test with Milo: `milo test-audio` plays three sounds, records 3 seconds and plays them back.
 
-Nexo's defaults match this card. Override them in the `system_settings` table if needed:
+Milo's defaults match this card. Override them in the `system_settings` table if needed:
 
 | Key | Default |
 |---|---|
@@ -46,7 +46,7 @@ The HAT uses I2S (GPIO 18, 19, 20, 21) and I2C (GPIO 2, 3). **Do not wire button
 
 ## Buttons
 
-Each button connects one GPIO pin to **ground**. Nexo enables the pin's internal pull-up, so no
+Each button connects one GPIO pin to **ground**. Milo enables the pin's internal pull-up, so no
 resistor is needed: released reads high, pressed reads low ("active low").
 
 ```
@@ -63,9 +63,9 @@ nothing depends on them. Change pins, names and what each press does in the admi
 Pins free on this HAT: 4, 5, 6, 12, 13, 16, 17, 22, 23, 24, 25, 26, 27. Check your HAT's pinout
 before using others.
 
-Run `nexo test-buttons` on the Pi to see presses as Nexo recognises them.
+Run `milo test-buttons` on the Pi to see presses as Milo recognises them.
 
 ## GPIO access
 
-Nexo uses the Linux GPIO character device (`/dev/gpiochip0`), not `/dev/mem`. The `nexo`
-service user must be able to open it: `sudo usermod -aG gpio,audio nexo` (the installer does this).
+Milo uses the Linux GPIO character device (`/dev/gpiochip0`), not `/dev/mem`. The `milo`
+service user must be able to open it: `sudo usermod -aG gpio,audio milo` (the installer does this).

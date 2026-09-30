@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancer/nexo/internal/audio"
-	"github.com/juancer/nexo/internal/telegram"
-	"github.com/juancer/nexo/internal/telegram/telegramtest"
+	"github.com/juancer/milo/internal/audio"
+	"github.com/juancer/milo/internal/telegram"
+	"github.com/juancer/milo/internal/telegram/telegramtest"
 )
 
 func (h *harness) fireEmergency(id int64) {

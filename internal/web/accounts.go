@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/juancer/nexo/internal/auth"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/auth"
+	"github.com/juancer/milo/internal/store"
 )
 
 func (s *server) accountRoutes(mux *http.ServeMux) {

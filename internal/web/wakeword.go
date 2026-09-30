@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juancer/nexo/internal/wakeword"
+	"github.com/juancer/milo/internal/wakeword"
 )
 
 func (s *server) wakeRoutes(mux *http.ServeMux) {
@@ -50,7 +50,7 @@ func (s *server) getWake(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"settings": wakeSettingsDTO{get(wakeword.SettingEngine, "template"), get(wakeword.SettingPhrase, "Hey Nexo"), sens, get(wakeword.SettingExternalPath, "")},
+		"settings": wakeSettingsDTO{get(wakeword.SettingEngine, "template"), get(wakeword.SettingPhrase, "Hey Milo"), sens, get(wakeword.SettingExternalPath, "")},
 		"feature":  feature, "status": s.app.Wake.Status(ctx), "samples": samples, "max_samples": wakeword.MaxTemplates,
 		"simulated": s.app.MockGPIO != nil,
 	})

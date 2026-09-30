@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juancer/nexo/internal/actions"
+	"github.com/juancer/milo/internal/actions"
 )
 
 const maxReminders = 50 // pending reminders

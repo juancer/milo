@@ -21,7 +21,7 @@ import (
 
 	"golang.org/x/crypto/chacha20poly1305"
 
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/store"
 )
 
 // ErrNotFound is returned when a secret does not exist.
@@ -59,7 +59,7 @@ func GenerateKeyFile(path string) (created bool, err error) {
 func LoadKey(path string) ([]byte, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return nil, fmt.Errorf("secrets: master key %s: %w (run `nexo keygen`)", path, err)
+		return nil, fmt.Errorf("secrets: master key %s: %w (run `milo keygen`)", path, err)
 	}
 	if info.Mode().Perm()&0o077 != 0 {
 		return nil, fmt.Errorf("secrets: master key %s must not be accessible by group or others (mode %o)", path, info.Mode().Perm())

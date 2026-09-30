@@ -1,4 +1,4 @@
-// Package telegram connects Nexo to the Telegram Bot API.
+// Package telegram connects Milo to the Telegram Bot API.
 //
 // Telegram is only a transport: it identifies people by Telegram user id, never
 // authorizes anyone by itself, and every request that changes the device goes

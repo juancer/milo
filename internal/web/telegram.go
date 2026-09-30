@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juancer/nexo/internal/permissions"
-	"github.com/juancer/nexo/internal/store"
-	"github.com/juancer/nexo/internal/telegram"
+	"github.com/juancer/milo/internal/permissions"
+	"github.com/juancer/milo/internal/store"
+	"github.com/juancer/milo/internal/telegram"
 )
 
 var tokenRe = regexp.MustCompile(`^[0-9]{3,12}:[A-Za-z0-9_-]{20,64}$`)

@@ -1,4 +1,4 @@
-// Command nexo is the Nexo device runtime and its management CLI.
+// Command milo is the Milo device runtime and its management CLI.
 package main
 
 import (
@@ -9,15 +9,15 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/juancer/nexo/internal/system"
+	"github.com/juancer/milo/internal/system"
 )
 
 // version is set at build time: -ldflags "-X main.version=..."
 var version = "dev"
 
-const usage = `Nexo %s - screenless family communication and AI assistant
+const usage = `Milo %s - screenless family communication and AI assistant
 
-Usage: nexo <command>
+Usage: milo <command>
 
 Commands:
   run             run the device (used by the systemd service)
@@ -26,7 +26,7 @@ Commands:
   admin-password  set an admin's password ([--user name] [--password-stdin])
   admin-reset     give an admin a new generated password ([--user name])
   backup FILE     write an encrypted backup ([--passphrase-stdin] [--no-key])
-  restore FILE    restore a backup with Nexo stopped ([--passphrase-stdin] [--replace-key])
+  restore FILE    restore a backup with Milo stopped ([--passphrase-stdin] [--replace-key])
   test-audio      play the built-in sounds, then record and play back 3 seconds
   test-buttons    print button presses (real GPIO only)
   dev-seed        (development only) create a demo family and admin password
@@ -34,14 +34,14 @@ Commands:
                   control the systemd service
   version         print the version
 
-Configuration comes from NEXO_* environment variables; see docs/configuration.md.
+Configuration comes from MILO_* environment variables; see docs/configuration.md.
 `
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := execute(ctx, os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "nexo:", err)
+		fmt.Fprintln(os.Stderr, "milo:", err)
 		os.Exit(1)
 	}
 }
@@ -88,7 +88,7 @@ func execute(ctx context.Context, args []string) error {
 			return adminPassword(ctx, cfg, rest)
 		}
 	default:
-		return fmt.Errorf("unknown command %q (try `nexo help`)", cmd)
+		return fmt.Errorf("unknown command %q (try `milo help`)", cmd)
 	}
 }
 

@@ -55,7 +55,7 @@ export async function render(root: HTMLElement): Promise<void> {
   root.append(h("section", { class: "card" }, h("h2", {}, "Telegram bot"),
     h("p", {}, state, " ", st.bot_username ? h("strong", {}, `@${st.bot_username}`) : null,
       st.enabled ? null : h("span", { class: "muted" }, " Turn the “telegram” feature on in the Dashboard.")),
-    st.poll_error ? h("p", { class: "error" }, `Connection problem: ${st.poll_error}. Nexo keeps retrying.`) : null,
+    st.poll_error ? h("p", { class: "error" }, `Connection problem: ${st.poll_error}. Milo keeps retrying.`) : null,
     h("p", { class: "muted" },
       "Every installation has its own bot. Create one with @BotFather in Telegram and paste its token here. It is stored encrypted and never shown again."),
     h("form", {

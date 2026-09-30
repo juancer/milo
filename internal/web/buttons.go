@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/juancer/nexo/internal/actions"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/store"
 )
 
 var (

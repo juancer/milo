@@ -1,8 +1,8 @@
 # All targets run inside Docker. No Go, Node or Python is needed on the host.
 
-NEXO_UID := $(shell id -u)
-NEXO_GID := $(shell id -g)
-export NEXO_UID NEXO_GID
+MILO_UID := $(shell id -u)
+MILO_GID := $(shell id -g)
+export MILO_UID MILO_GID
 
 COMPOSE := docker compose -f deploy/docker-compose.yml
 GO      := $(COMPOSE) run --rm go
@@ -15,8 +15,8 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 
 help:
 	@echo "make test         run go vet + go test in Docker"
-	@echo "make build-arm64  build the Astro UI, then dist/nexo-linux-arm64 (CGO off)"
-	@echo "make dev          run Nexo with mocked hardware on http://localhost:8080"
+	@echo "make build-arm64  build the Astro UI, then dist/milo-linux-arm64 (CGO off)"
+	@echo "make dev          run Milo with mocked hardware on http://localhost:8080"
 	@echo "make web-dev      run the Astro dev server on http://localhost:4321"
 	@echo "make shell        open a shell in the Go container"
 
@@ -35,7 +35,7 @@ web-build: web-deps
 build-arm64: web-build
 	mkdir -p dist
 	$(GO) env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
-		go build -trimpath -ldflags "$(LDFLAGS)" -o dist/nexo-linux-arm64 ./cmd/nexo
+		go build -trimpath -ldflags "$(LDFLAGS)" -o dist/milo-linux-arm64 ./cmd/milo
 
 dev: web-build
 	$(COMPOSE) up --build dev

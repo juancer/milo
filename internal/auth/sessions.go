@@ -16,7 +16,7 @@ type session struct {
 	fingerprint string
 }
 
-// Sessions is an in-memory session store. Restarting Nexo signs everyone out,
+// Sessions is an in-memory session store. Restarting Milo signs everyone out,
 // which is acceptable for a single-admin local device.
 type Sessions struct {
 	mu  sync.Mutex

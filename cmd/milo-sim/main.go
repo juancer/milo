@@ -1,4 +1,4 @@
-// Command nexo-sim is the development simulator: fake family phones talking to a
+// Command milo-sim is the development simulator: fake family phones talking to a
 // fake Telegram Bot API (and, from Phase 5, a fake LLM and speech-to-text).
 // It lets the whole product be seen working with no Telegram account, no API
 // keys and no Raspberry Pi. It is never installed on a device.
@@ -16,14 +16,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juancer/nexo/internal/audio"
-	"github.com/juancer/nexo/internal/telegram/telegramtest"
+	"github.com/juancer/milo/internal/audio"
+	"github.com/juancer/milo/internal/telegram/telegramtest"
 )
 
 //go:embed ui
 var uiFiles embed.FS
 
-// DemoToken is the fake bot token shared with `nexo dev-seed`. It is not a
+// DemoToken is the fake bot token shared with `milo dev-seed`. It is not a
 // real credential.
 const DemoToken = "123456:DEMO-TOKEN-NOT-A-REAL-BOT-abcdefghijk"
 
@@ -33,9 +33,9 @@ type sim struct {
 }
 
 func main() {
-	addr := env("NEXO_SIM_ADDR", ":8081")
-	token := env("NEXO_SIM_BOT_TOKEN", DemoToken)
-	bot := env("NEXO_SIM_BOT_USERNAME", "nexo_demo_bot")
+	addr := env("MILO_SIM_ADDR", ":8081")
+	token := env("MILO_SIM_BOT_TOKEN", DemoToken)
+	bot := env("MILO_SIM_BOT_USERNAME", "milo_demo_bot")
 
 	s := &sim{tg: telegramtest.New(token, bot), bot: bot}
 	for _, p := range []telegramtest.Person{
@@ -66,7 +66,7 @@ func main() {
 	mux.Handle("/file/", s.tg)
 	mux.Handle("/", http.FileServerFS(ui))
 
-	log.Printf("nexo-sim listening on %s (bot @%s)", addr, bot)
+	log.Printf("milo-sim listening on %s (bot @%s)", addr, bot)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 

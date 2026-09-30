@@ -11,7 +11,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/store"
 )
 
 // ErrUnknownFeature is returned for a feature that was never registered.

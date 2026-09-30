@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancer/nexo/internal/telegram/telegramtest"
+	"github.com/juancer/milo/internal/telegram/telegramtest"
 )
 
 const testToken = "123456:TEST-TOKEN-NOT-A-REAL-ONE-abcdefghij"

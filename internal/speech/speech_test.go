@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancer/nexo/internal/audio"
+	"github.com/juancer/milo/internal/audio"
 )
 
 func TestOpenAICompatSTT(t *testing.T) {

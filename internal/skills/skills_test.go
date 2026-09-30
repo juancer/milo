@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancer/nexo/internal/actions"
-	"github.com/juancer/nexo/internal/audio"
-	"github.com/juancer/nexo/internal/secrets"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/audio"
+	"github.com/juancer/milo/internal/secrets"
+	"github.com/juancer/milo/internal/store"
 )
 
 type allOn struct{}

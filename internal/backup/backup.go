@@ -1,6 +1,6 @@
-// Package backup creates and restores encrypted backups of a Nexo device.
+// Package backup creates and restores encrypted backups of a Milo device.
 //
-// A backup file is a single .nexo file: a consistent snapshot of the database
+// A backup file is a single .milo file: a consistent snapshot of the database
 // plus, if requested, the master key, packed into a tar.gz and encrypted with a
 // passphrase the parents choose (Argon2id + XChaCha20-Poly1305). With the key
 // included, one file and one passphrase are enough to rebuild the device on a
@@ -28,15 +28,15 @@ import (
 
 	"golang.org/x/crypto/chacha20poly1305"
 
-	"github.com/juancer/nexo/internal/secrets"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/secrets"
+	"github.com/juancer/milo/internal/store"
 )
 
 // Manifest describes a backup.
 type Manifest struct {
 	Version       int       `json:"version"`
 	CreatedAt     time.Time `json:"created_at"`
-	NexoVersion   string    `json:"nexo_version"`
+	MiloVersion   string    `json:"milo_version"`
 	SchemaVersion int       `json:"schema_version"`
 	DeviceName    string    `json:"device_name"`
 	IncludesKey   bool      `json:"includes_key"`
@@ -44,7 +44,7 @@ type Manifest struct {
 
 const (
 	manifestName = "manifest.json"
-	dbName       = "nexo.db"
+	dbName       = "milo.db"
 	keyName      = "master.key"
 	maxDBBytes   = 1 << 30 // decompressed: the upload cap only covers the ciphertext
 	maxKeyBytes  = 1024
@@ -68,7 +68,7 @@ type Source interface {
 type Options struct {
 	Passphrase  string
 	KeyPath     string // master key to include; empty to leave it out
-	NexoVersion string
+	MiloVersion string
 	DeviceName  string
 	WorkDir     string // where the temporary snapshot is written (default: system temp)
 }
@@ -78,7 +78,7 @@ func Create(ctx context.Context, src Source, opts Options, w io.Writer) error {
 	if len(opts.Passphrase) < MinPassphrase {
 		return ErrWeakPassphrase
 	}
-	dir, err := os.MkdirTemp(opts.WorkDir, "nexo-backup-")
+	dir, err := os.MkdirTemp(opts.WorkDir, "milo-backup-")
 	if err != nil {
 		return err
 	}
@@ -98,7 +98,7 @@ func Create(ctx context.Context, src Source, opts Options, w io.Writer) error {
 			return fmt.Errorf("cannot read the master key to include it: %w", err)
 		}
 	}
-	man := Manifest{Version: 1, CreatedAt: time.Now().UTC(), NexoVersion: opts.NexoVersion,
+	man := Manifest{Version: 1, CreatedAt: time.Now().UTC(), MiloVersion: opts.MiloVersion,
 		SchemaVersion: version, DeviceName: opts.DeviceName, IncludesKey: key != nil}
 
 	enc, err := newEncWriter(w, opts.Passphrase)
@@ -171,7 +171,7 @@ func Open(ctx context.Context, r io.Reader, passphrase, workDir string) (c *Cont
 	if err != nil {
 		return nil, unwrap(err)
 	}
-	dir, err := os.MkdirTemp(workDir, "nexo-restore-")
+	dir, err := os.MkdirTemp(workDir, "milo-restore-")
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +256,7 @@ func unwrap(err error) error {
 }
 
 // verifyDB opens the extracted database (running any newer migrations, and
-// refusing one from a newer Nexo) and checks it for corruption.
+// refusing one from a newer Milo) and checks it for corruption.
 func verifyDB(ctx context.Context, path string) error {
 	st, err := store.Open(ctx, path)
 	if err != nil {
@@ -285,7 +285,7 @@ func verifyDB(ctx context.Context, path string) error {
 		return err
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		return errors.New("backup: the database inside does not have the schema Nexo expects")
+		return errors.New("backup: the database inside does not have the schema Milo expects")
 	}
 	return nil
 }
@@ -353,7 +353,7 @@ func checkKey(c *Contents, keyPath string, replaceKey bool) (writeKey bool, err 
 }
 
 // Install replaces the device's database with the backup's. The previous
-// database is kept next to it as nexo.db.before-restore-<time>. Stop Nexo
+// database is kept next to it as milo.db.before-restore-<time>. Stop Milo
 // first. With replaceKey the master key file is replaced by the backup's;
 // otherwise a different key is refused, because secrets in the restored
 // database could then not be decrypted.
@@ -584,10 +584,10 @@ func Quarantine(dataDir string) (string, error) {
 	return dest, nil
 }
 
-// SweepTemp deletes the temporary files a crash or kill left in dataDir (nexo-restore-*,
-// nexo-backup-* and download-*.nexo) once they are older than minAge.
+// SweepTemp deletes the temporary files a crash or kill left in dataDir (milo-restore-*,
+// milo-backup-* and download-*.milo) once they are older than minAge.
 func SweepTemp(dataDir string, minAge time.Duration) {
-	for _, pat := range []string{"nexo-restore-*", "nexo-backup-*", "download-*.nexo"} {
+	for _, pat := range []string{"milo-restore-*", "milo-backup-*", "download-*.milo"} {
 		matches, _ := filepath.Glob(filepath.Join(dataDir, pat))
 		for _, p := range matches {
 			if info, err := os.Lstat(p); err == nil && time.Since(info.ModTime()) >= minAge {
@@ -609,7 +609,7 @@ func Snapshot(ctx context.Context, src Source, dir string, keep int, now time.Ti
 	if keep < 1 {
 		keep = 1 // a bad setting must neither delete every copy nor panic below
 	}
-	path := filepath.Join(dir, "nexo-"+now.UTC().Format("20060102-150405")+".db")
+	path := filepath.Join(dir, "milo-"+now.UTC().Format("20060102-150405")+".db")
 	// SQLite's VACUUM INTO accepts an empty file: create it 0600 so the snapshot is never
 	// readable by others, not even briefly.
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
@@ -648,7 +648,7 @@ func List(dir string) ([]File, error) {
 	var out []File
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || len(name) < 8 || name[:5] != "nexo-" || filepath.Ext(name) != ".db" {
+		if e.IsDir() || len(name) < 8 || name[:5] != "milo-" || filepath.Ext(name) != ".db" {
 			continue
 		}
 		if info, err := e.Info(); err == nil {

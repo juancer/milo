@@ -8,9 +8,9 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/juancer/nexo/internal/secrets"
-	"github.com/juancer/nexo/internal/store"
-	"github.com/juancer/nexo/internal/system"
+	"github.com/juancer/milo/internal/secrets"
+	"github.com/juancer/milo/internal/store"
+	"github.com/juancer/milo/internal/system"
 )
 
 func withStdin(t *testing.T, text string) {
@@ -38,7 +38,7 @@ func TestBackupAndRestoreCommands(t *testing.T) {
 	st.SetSetting(ctx, "family.motto", "be kind")
 	st.Close()
 
-	file := filepath.Join(home, "family.nexo")
+	file := filepath.Join(home, "family.milo")
 	withStdin(t, "a long backup passphrase\n")
 	if err := backupCmd(ctx, cfg, []string{file, "--passphrase-stdin"}); err != nil {
 		t.Fatal(err)
@@ -51,10 +51,10 @@ func TestBackupAndRestoreCommands(t *testing.T) {
 		t.Fatal("an existing backup file was overwritten")
 	}
 	withStdin(t, "short\n")
-	if err := backupCmd(ctx, cfg, []string{filepath.Join(home, "weak.nexo"), "--passphrase-stdin"}); err == nil {
+	if err := backupCmd(ctx, cfg, []string{filepath.Join(home, "weak.milo"), "--passphrase-stdin"}); err == nil {
 		t.Fatal("weak passphrase accepted")
 	}
-	if _, err := os.Stat(filepath.Join(home, "weak.nexo")); err == nil {
+	if _, err := os.Stat(filepath.Join(home, "weak.milo")); err == nil {
 		t.Fatal("a failed backup left a file behind")
 	}
 
@@ -106,13 +106,13 @@ func TestBackupArgumentParsing(t *testing.T) {
 	if _, err := parseBackupArgs([]string{"--frobnicate", "a"}); err == nil {
 		t.Error("unknown option accepted")
 	}
-	a, err := parseBackupArgs([]string{"f.nexo", "--no-key", "--passphrase-stdin"})
-	if err != nil || a.file != "f.nexo" || !a.noKey || !a.stdin {
+	a, err := parseBackupArgs([]string{"f.milo", "--no-key", "--passphrase-stdin"})
+	if err != nil || a.file != "f.milo" || !a.noKey || !a.stdin {
 		t.Fatalf("args = %+v %v", a, err)
 	}
 }
 
-// Run as root before nexo.db exists, the CLI must leave the files to the folder's owner.
+// Run as root before milo.db exists, the CLI must leave the files to the folder's owner.
 func TestOpenCLIStoreLeavesFilesToTheFolderOwner(t *testing.T) {
 	ctx := context.Background()
 	cfg := system.Config{DataDir: t.TempDir()}
@@ -128,7 +128,7 @@ func TestOpenCLIStoreLeavesFilesToTheFolderOwner(t *testing.T) {
 			t.Fatal(err)
 		}
 		if info.Sys().(*syscall.Stat_t).Uid != dir.Sys().(*syscall.Stat_t).Uid {
-			t.Fatalf("nexo.db%s is owned by another user than the data folder", ext)
+			t.Fatalf("milo.db%s is owned by another user than the data folder", ext)
 		}
 	}
 }

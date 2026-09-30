@@ -109,7 +109,7 @@ function showLogin(): void {
         }
       },
     }, h("label", { for: "username" }, "Username"), user, h("label", { for: "password" }, "Password"), password, error, h("button", { type: "submit" }, "Sign in")),
-    h("p", { class: "muted" }, "First time? The username and password were shown once when Nexo was installed.")));
+    h("p", { class: "muted" }, "First time? The username and password were shown once when Milo was installed.")));
 }
 
 /** Shown right after signing in with a generated password: nothing else works until it is changed. */

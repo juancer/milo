@@ -37,8 +37,8 @@ type Status struct {
 
 // Manager applies networks and reports status.
 type Manager interface {
-	// Apply makes the set of Nexo-managed networks equal to the given list:
-	// adding, updating and removing profiles. Networks not created by Nexo are
+	// Apply makes the set of Milo-managed networks equal to the given list:
+	// adding, updating and removing profiles. Networks not created by Milo are
 	// never touched.
 	Apply(ctx context.Context, networks []Network) error
 	Status(ctx context.Context) Status
@@ -74,8 +74,8 @@ func ValidatePassphrase(p string) error {
 	return nil
 }
 
-// profilePrefix marks connection profiles owned by Nexo.
-const profilePrefix = "nexo-"
+// profilePrefix marks connection profiles owned by Milo.
+const profilePrefix = "milo-"
 
 func profileName(ssid string) string {
 	sum := sha256.Sum256([]byte(ssid))

@@ -11,11 +11,11 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/juancer/nexo/internal/app"
-	"github.com/juancer/nexo/internal/auth"
-	"github.com/juancer/nexo/internal/secrets"
-	"github.com/juancer/nexo/internal/store"
-	"github.com/juancer/nexo/internal/system"
+	"github.com/juancer/milo/internal/app"
+	"github.com/juancer/milo/internal/auth"
+	"github.com/juancer/milo/internal/secrets"
+	"github.com/juancer/milo/internal/store"
+	"github.com/juancer/milo/internal/system"
 )
 
 // newEnvAt is newEnv with the database file at a known path, so a test can add a trigger to it.
@@ -48,7 +48,7 @@ func newEnvAt(t *testing.T, dbPath string) *env {
 		t.Fatal(err)
 	}
 	impl := newServer(a, "test")
-	srv := httptest.NewServer(impl.handler(fstest.MapFS{"index.html": {Data: []byte("<h1>Nexo</h1>")}}))
+	srv := httptest.NewServer(impl.handler(fstest.MapFS{"index.html": {Data: []byte("<h1>Milo</h1>")}}))
 	t.Cleanup(srv.Close)
 	return &env{srv: srv, app: a, store: st, impl: impl}
 }

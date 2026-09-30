@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/juancer/nexo/internal/actions"
-	"github.com/juancer/nexo/internal/audio"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/audio"
+	"github.com/juancer/milo/internal/store"
 )
 
 // FeatureName is the feature under which the wake word is registered.

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/juancer/nexo/internal/store"
-	"github.com/juancer/nexo/internal/telegram"
+	"github.com/juancer/milo/internal/store"
+	"github.com/juancer/milo/internal/telegram"
 )
 
 // One account must not be able to fill the device with unheard messages.

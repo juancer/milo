@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/juancer/nexo/internal/app"
-	"github.com/juancer/nexo/internal/backup"
+	"github.com/juancer/milo/internal/app"
+	"github.com/juancer/milo/internal/backup"
 )
 
 // A mistyped restore passphrase must not lock the owner out of signing in, and restores that
@@ -18,7 +18,7 @@ func TestRestoreAttemptsHaveTheirOwnBucket(t *testing.T) {
 	cookie := e.login(t)
 	file := downloadBackup(t, e, cookie, false)
 	for i := 0; i < 5; i++ {
-		body, ct := multipartBody([][2]string{{"passphrase", "wrong passphrase " + fmt.Sprint(i)}}, "b.nexo", file)
+		body, ct := multipartBody([][2]string{{"passphrase", "wrong passphrase " + fmt.Sprint(i)}}, "b.milo", file)
 		if resp := e.upload(t, "/api/backup/restore", body, ct, cookie); resp.StatusCode != 422 {
 			t.Fatalf("wrong passphrase = %d", resp.StatusCode)
 		}
@@ -31,7 +31,7 @@ func TestRestoreAttemptsHaveTheirOwnBucket(t *testing.T) {
 	cookie2 := e2.login(t)
 	file2 := downloadBackup(t, e2, cookie2, true)
 	for i := 0; i < 7; i++ {
-		body, ct := multipartBody([][2]string{{"passphrase", backupPass}}, "b.nexo", file2)
+		body, ct := multipartBody([][2]string{{"passphrase", backupPass}}, "b.milo", file2)
 		if resp := e2.upload(t, "/api/backup/restore", body, ct, cookie2); resp.StatusCode != 202 {
 			t.Fatalf("successful restore %d = %d", i, resp.StatusCode)
 		}
@@ -67,7 +67,7 @@ func TestBackupListingIgnoresAFolderOutsideTheDataFolder(t *testing.T) {
 	e := newEnv(t, true)
 	cookie := e.login(t)
 	outside := t.TempDir()
-	os.WriteFile(filepath.Join(outside, "nexo-20260101-000000.db"), []byte("x"), 0o600)
+	os.WriteFile(filepath.Join(outside, "milo-20260101-000000.db"), []byte("x"), 0o600)
 	if err := e.store.SetSetting(context.Background(), "backup.dir", outside); err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestBackupListingIgnoresAFolderOutsideTheDataFolder(t *testing.T) {
 		Files    []backup.File      `json:"files"`
 	}](t, e.do(t, "GET", "/api/backup", "", cookie, nil))
 	for _, f := range got.Files { // the automatic snapshot in the default folder may be there
-		if f.Name == "nexo-20260101-000000.db" {
+		if f.Name == "milo-20260101-000000.db" {
 			t.Fatalf("the folder outside the data folder was listed: %+v", got.Files)
 		}
 	}

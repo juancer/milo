@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancer/nexo/internal/store"
-	"github.com/juancer/nexo/internal/telegram"
+	"github.com/juancer/milo/internal/store"
+	"github.com/juancer/milo/internal/telegram"
 )
 
 // Many approved senders together must not exceed the global pending ceiling.

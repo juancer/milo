@@ -30,7 +30,7 @@ export async function render(root: HTMLElement): Promise<void> {
   const sens = h("input", { type: "range", min: "1", max: "10", value: String(s.sensitivity), ariaLabel: "Sensitivity" });
   const sensLabel = h("span", {}, String(s.sensitivity));
   sens.addEventListener("input", () => (sensLabel.textContent = sens.value));
-  const path = h("input", { type: "text", value: s.external_path, placeholder: "/opt/nexo/wake-helper", ariaLabel: "Helper path" });
+  const path = h("input", { type: "text", value: s.external_path, placeholder: "/opt/milo/wake-helper", ariaLabel: "Helper path" });
 
   root.append(h("section", { class: "card" }, h("h2", {}, "Wake word"),
     h("p", {}, !st.feature.enabled ? badge("feature off", true) : st.feature.running ? badge("listening") : badge("not running", true), " ",

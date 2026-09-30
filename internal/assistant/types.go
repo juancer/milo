@@ -1,4 +1,4 @@
-// Package assistant is Nexo's AI assistant: it turns what the child says into
+// Package assistant is Milo's AI assistant: it turns what the child says into
 // a short spoken answer, letting the model call only registered, validated
 // actions. It knows nothing about GPIO, Telegram or SQL: those are reached
 // through interfaces and the Action Engine.

@@ -8,7 +8,7 @@ import (
 
 func TestCheckDBFile(t *testing.T) {
 	dir := t.TempDir()
-	db := filepath.Join(dir, "nexo.db")
+	db := filepath.Join(dir, "milo.db")
 	if err := CheckDBFile(dir, db); err != nil {
 		t.Fatalf("absent path: %v", err)
 	}

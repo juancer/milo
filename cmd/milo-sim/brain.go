@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/juancer/nexo/internal/audio"
+	"github.com/juancer/milo/internal/audio"
 )
 
 // The "brain" is a small rule-based stand-in for the LLM and the speech-to-text
@@ -184,7 +184,7 @@ func decide(msgs []wireMsg, tools map[string]bool) wireMsg {
 	case strings.Contains(low, "joke"):
 		return text("Why did the teddy bear say no to dessert? Because she was already stuffed!")
 	case strings.Contains(low, "who are you") || strings.Contains(low, "your name"):
-		return text("I'm Nexo, your friendly helper!")
+		return text("I'm Milo, your friendly helper!")
 	case strings.HasPrefix(low, "hello") || strings.HasPrefix(low, "hi") || strings.HasPrefix(low, "hey"):
 		return text("Hello! How can I help you today?")
 	}

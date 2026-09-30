@@ -133,7 +133,7 @@ export async function render(root: HTMLElement): Promise<void> {
     h("div", { class: "fields" }, field("Child's first name (optional)", f.child), field("Age", f.age), field("Personality", f.personality), field("Language", f.language), field("Max words per answer", f.words)),
     field("Extra instructions for the assistant", f.extra),
     h("h2", {}, "Safety"),
-    h("p", { class: "muted" }, "Nexo checks what the child says and what the AI answers with its own rules, on top of the AI's own safeguards. This is a safety net, not a guarantee: keep an eye on the conversations below."),
+    h("p", { class: "muted" }, "Milo checks what the child says and what the AI answers with its own rules, on top of the AI's own safeguards. This is a safety net, not a guarantee: keep an eye on the conversations below."),
     h("label", { class: "check" }, f.input, " Check what the child says before the AI sees it"),
     h("label", { class: "check" }, f.output, " Check the AI's answers before the child hears them"),
     h("label", { class: "check" }, f.alert, " Message the parents on Telegram if the child says something worrying"),
@@ -174,7 +174,7 @@ export async function render(root: HTMLElement): Promise<void> {
     convs.length === 0 ? h("p", { class: "muted" }, "No conversations stored.") : null,
     ...convs.map((c) => h("details", {}, h("summary", {}, `${when(c.started_at)} · ${c.source} · ${c.lines.length} lines`),
       h("ul", { class: "list" }, ...c.lines.map((l) => h("li", { class: "row" },
-        h("span", {}, h("strong", {}, l.role === "user" ? "Child: " : l.role === "assistant" ? "Nexo: " : `tool ${l.tool ?? ""}: `), l.content)))))),
+        h("span", {}, h("strong", {}, l.role === "user" ? "Child: " : l.role === "assistant" ? "Milo: " : `tool ${l.tool ?? ""}: `), l.content)))))),
     convs.length ? h("div", { class: "actions" }, h("button", {
       type: "button", class: "danger",
       onclick: async (ev: Event) => {

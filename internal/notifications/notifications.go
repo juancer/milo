@@ -1,4 +1,4 @@
-// Package notifications plays Nexo's notification sounds, honouring the
+// Package notifications plays Milo's notification sounds, honouring the
 // parents' settings (sounds on/off, volume). Sounds never reveal message
 // content or the sender.
 package notifications
@@ -7,7 +7,7 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/juancer/nexo/internal/audio"
+	"github.com/juancer/milo/internal/audio"
 )
 
 // Setting keys in system_settings.

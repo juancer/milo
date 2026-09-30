@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/juancer/nexo/internal/actions"
-	"github.com/juancer/nexo/internal/permissions"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/permissions"
+	"github.com/juancer/milo/internal/store"
 )
 
 // Emergency is a high-priority message, not a phone call: the Bot API cannot

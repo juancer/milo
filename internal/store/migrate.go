@@ -102,7 +102,7 @@ func migrate(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 	}
 	for v := range applied {
 		if !known[v] {
-			return fmt.Errorf("store: database has migration %d that this version of nexo does not know; refusing to run (was nexo downgraded?)", v)
+			return fmt.Errorf("store: database has migration %d that this version of milo does not know; refusing to run (was milo downgraded?)", v)
 		}
 	}
 

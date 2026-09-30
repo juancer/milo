@@ -1,4 +1,4 @@
-// Package wakeword listens for "Hey Nexo" (or whatever the parents choose)
+// Package wakeword listens for "Hey Milo" (or whatever the parents choose)
 // without sending any audio anywhere. Detection is local:
 //
 //   - the built-in template detector compares what it hears to a few recordings

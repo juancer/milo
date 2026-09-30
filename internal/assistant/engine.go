@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/juancer/nexo/internal/actions"
-	"github.com/juancer/nexo/internal/audio"
-	"github.com/juancer/nexo/internal/moderation"
-	"github.com/juancer/nexo/internal/notifications"
-	"github.com/juancer/nexo/internal/speech"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/audio"
+	"github.com/juancer/milo/internal/moderation"
+	"github.com/juancer/milo/internal/notifications"
+	"github.com/juancer/milo/internal/speech"
+	"github.com/juancer/milo/internal/store"
 )
 
 // FeatureName is the feature under which the assistant is registered.
@@ -98,7 +98,7 @@ type Session struct {
 	history  []Message
 	source   string
 	// finished is set when the request has been carried out in a way that
-	// ends the conversation (for example music started), so Nexo does not keep
+	// ends the conversation (for example music started), so Milo does not keep
 	// a microphone open over the song.
 	finished bool
 }
@@ -383,7 +383,7 @@ func trim(h []Message, n int) []Message {
 // beyond the child's first name if the parents entered one.
 func (e *Engine) systemPrompt(ctx context.Context, s store.GPTSettings) string {
 	var b strings.Builder
-	b.WriteString("You are Nexo, a friendly voice assistant for a child")
+	b.WriteString("You are Milo, a friendly voice assistant for a child")
 	if s.ChildName != "" {
 		fmt.Fprintf(&b, " called %s", s.ChildName)
 	}

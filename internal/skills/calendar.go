@@ -16,8 +16,8 @@ import (
 	ics "github.com/arran4/golang-ical"
 	"github.com/teambition/rrule-go"
 
-	"github.com/juancer/nexo/internal/actions"
-	"github.com/juancer/nexo/internal/secrets"
+	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/secrets"
 )
 
 // SecretCalendarURL is the secret address of the family's iCalendar feed.
@@ -45,7 +45,7 @@ type Event struct {
 
 // Calendar is the read-only "calendar" feature. The family's calendar (Google
 // Calendar, Nextcloud, iCloud...) is read through its secret iCalendar (.ics)
-// address, which is stored encrypted. Nexo never writes to it. Recurring events
+// address, which is stored encrypted. Milo never writes to it. Recurring events
 // are expanded; exotic recurrence rules may be missed.
 type Calendar struct {
 	Common

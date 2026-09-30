@@ -10,15 +10,15 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/juancer/nexo/internal/audit"
-	"github.com/juancer/nexo/internal/auth"
-	"github.com/juancer/nexo/internal/secrets"
-	"github.com/juancer/nexo/internal/store"
-	"github.com/juancer/nexo/internal/system"
+	"github.com/juancer/milo/internal/audit"
+	"github.com/juancer/milo/internal/auth"
+	"github.com/juancer/milo/internal/secrets"
+	"github.com/juancer/milo/internal/store"
+	"github.com/juancer/milo/internal/system"
 )
 
 // openCLIStore opens the database and, when run as root, hands the files it may have just
-// created to the folder's owner: the nexo service could not open root-owned ones.
+// created to the folder's owner: the milo service could not open root-owned ones.
 func openCLIStore(ctx context.Context, cfg system.Config) (*store.Store, error) {
 	if err := system.CheckDBFile(cfg.DataDir, cfg.DBPath()); err != nil {
 		return nil, err

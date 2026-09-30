@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancer/nexo/internal/permissions"
+	"github.com/juancer/milo/internal/permissions"
 )
 
 type fakeFeatures map[string]bool

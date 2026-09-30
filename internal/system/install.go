@@ -15,20 +15,20 @@ import (
 	"strconv"
 	"syscall"
 
-	"github.com/juancer/nexo/internal/auth"
-	"github.com/juancer/nexo/internal/secrets"
-	"github.com/juancer/nexo/internal/store"
-	"github.com/juancer/nexo/systemd"
+	"github.com/juancer/milo/internal/auth"
+	"github.com/juancer/milo/internal/secrets"
+	"github.com/juancer/milo/internal/store"
+	"github.com/juancer/milo/systemd"
 )
 
 const (
-	serviceUser = "nexo"
-	binaryPath  = "/usr/local/bin/nexo"
-	unitPath    = "/etc/systemd/system/nexo.service"
-	configDir   = "/etc/nexo"
+	serviceUser = "milo"
+	binaryPath  = "/usr/local/bin/milo"
+	unitPath    = "/etc/systemd/system/milo.service"
+	configDir   = "/etc/milo"
 )
 
-// Install sets Nexo up as a systemd service. It is idempotent: re-running it
+// Install sets Milo up as a systemd service. It is idempotent: re-running it
 // upgrades the binary and unit but never touches the database, the master key
 // or any other user data.
 func Install(ctx context.Context, out io.Writer) error {
@@ -36,7 +36,7 @@ func Install(ctx context.Context, out io.Writer) error {
 		return fmt.Errorf("install is only supported on Linux (this is %s)", runtime.GOOS)
 	}
 	if os.Geteuid() != 0 {
-		return errors.New("install must run as root (try: sudo nexo install)")
+		return errors.New("install must run as root (try: sudo milo install)")
 	}
 	if runtime.GOARCH != "arm64" {
 		fmt.Fprintf(out, "warning: this binary is %s; the primary target is linux/arm64 (Raspberry Pi OS 64-bit)\n", runtime.GOARCH)
@@ -82,7 +82,7 @@ func Install(ctx context.Context, out io.Writer) error {
 	}
 
 	// Initialise the database and run migrations, then hand it to the service user.
-	dbPath := filepath.Join(DefaultDataDir, "nexo.db")
+	dbPath := filepath.Join(DefaultDataDir, "milo.db")
 	if err := CheckDBFile(DefaultDataDir, dbPath); err != nil {
 		return err
 	}
@@ -105,19 +105,19 @@ func Install(ctx context.Context, out io.Writer) error {
 	}
 	for _, args := range [][]string{
 		{"daemon-reload"},
-		{"enable", "nexo.service"},
-		{"restart", "nexo.service"},
+		{"enable", "milo.service"},
+		{"restart", "milo.service"},
 	} {
 		if err := run("systemctl", args...); err != nil {
 			return err
 		}
 	}
 
-	fmt.Fprintln(out, "\nNexo installed successfully.")
+	fmt.Fprintln(out, "\nMilo installed successfully.")
 	if created {
 		PrintFirstAdmin(out, fmt.Sprintf("http://%s:8080", localIP()), adminUser, adminPass)
 	} else {
-		fmt.Fprintf(out, "\nOpen:\n\n  http://%s:8080\n\nSign in with your existing account. Forgot the password?\n  sudo -u nexo nexo admin-reset\n", localIP())
+		fmt.Fprintf(out, "\nOpen:\n\n  http://%s:8080\n\nSign in with your existing account. Forgot the password?\n  sudo -u milo milo admin-reset\n", localIP())
 	}
 	return nil
 }
@@ -148,7 +148,7 @@ func installBinary(out io.Writer) error {
 		return err
 	}
 	defer src.Close()
-	tmp, err := os.CreateTemp(filepath.Dir(binaryPath), ".nexo-install-*")
+	tmp, err := os.CreateTemp(filepath.Dir(binaryPath), ".milo-install-*")
 	if err != nil {
 		return err
 	}
@@ -246,7 +246,7 @@ func run(name string, args ...string) error {
 	return nil
 }
 
-// Systemctl runs `systemctl <verb> nexo.service` with the terminal attached.
+// Systemctl runs `systemctl <verb> milo.service` with the terminal attached.
 // verb is restricted to a fixed set.
 func Systemctl(verb string) error {
 	switch verb {
@@ -254,7 +254,7 @@ func Systemctl(verb string) error {
 	default:
 		return fmt.Errorf("unsupported service command %q", verb)
 	}
-	return run("systemctl", verb, "nexo.service")
+	return run("systemctl", verb, "milo.service")
 }
 
 func localIP() string {
@@ -282,7 +282,7 @@ func PrintFirstAdmin(out io.Writer, address, username, password string) {
   Write this down now: it is shown only once.
   You will be asked to choose your own password when you
   first sign in. Then add mom, dad... under the Admins tab.
-  Lost it?   sudo -u nexo nexo admin-reset
+  Lost it?   sudo -u milo milo admin-reset
 ============================================================
 `, address, username, password)
 }

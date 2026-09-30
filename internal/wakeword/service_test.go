@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancer/nexo/internal/actions"
-	"github.com/juancer/nexo/internal/audio"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/audio"
+	"github.com/juancer/milo/internal/store"
 )
 
 type feat map[string]bool
@@ -65,7 +65,7 @@ func (r *rig) enrollSynthetic(t *testing.T) {
 	t.Helper()
 	rng := rand.New(rand.NewSource(11))
 	for _, v := range []struct{ f0, stretch float64 }{{125, 1.0}, {135, 0.92}, {118, 1.08}} {
-		f, err := Enroll(stream(speak(heyNexo, v.f0, v.stretch, 1, 25, rng), rng))
+		f, err := Enroll(stream(speak(heyMilo, v.f0, v.stretch, 1, 25, rng), rng))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -115,7 +115,7 @@ func TestHearingThePhraseStartsTheAssistantThroughTheActionEngine(t *testing.T) 
 		t.Fatal("the assistant started for something that is not the wake phrase")
 	}
 
-	r.audio.Feed(stream(speak(heyNexo, 129, 1.03, 1, 30, rng), rng))
+	r.audio.Feed(stream(speak(heyMilo, 129, 1.03, 1, 30, rng), rng))
 	waitCalls(t, r, 1)
 	actor := <-r.actors
 	if actor.Kind != actions.ActorDevice || actor.Label != "wake word" {
@@ -132,7 +132,7 @@ func TestWakeWordIgnoredWhileAConversationIsRunning(t *testing.T) {
 	r.start(t)
 	r.busy.v.Store(true)
 	rng := rand.New(rand.NewSource(13))
-	r.audio.Feed(stream(speak(heyNexo, 127, 1, 1, 30, rng), rng))
+	r.audio.Feed(stream(speak(heyMilo, 127, 1, 1, 30, rng), rng))
 	time.Sleep(150 * time.Millisecond)
 	if r.calls.Load() != 0 {
 		t.Fatal("the wake word interrupted a running conversation")
@@ -145,7 +145,7 @@ func TestBlockedAssistantGivesAnErrorToneNotSilence(t *testing.T) {
 	r.gptErr = actions.ErrScheduleBlocked
 	r.start(t)
 	rng := rand.New(rand.NewSource(14))
-	r.audio.Feed(stream(speak(heyNexo, 127, 1, 1, 30, rng), rng))
+	r.audio.Feed(stream(speak(heyMilo, 127, 1, 1, 30, rng), rng))
 	waitCalls(t, r, 1)
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {

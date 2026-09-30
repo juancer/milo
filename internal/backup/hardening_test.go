@@ -24,7 +24,7 @@ func packWithKey(t *testing.T, db, key []byte) []byte {
 	tw := tar.NewWriter(gz)
 	tw.WriteHeader(&tar.Header{Name: "manifest.json", Mode: 0o600, Size: 13})
 	tw.Write([]byte(`{"version":1}`))
-	tw.WriteHeader(&tar.Header{Name: "nexo.db", Mode: 0o600, Size: int64(len(db))})
+	tw.WriteHeader(&tar.Header{Name: "milo.db", Mode: 0o600, Size: int64(len(db))})
 	tw.Write(db)
 	tw.WriteHeader(&tar.Header{Name: "master.key", Mode: 0o600, Size: int64(len(key))})
 	tw.Write(key)
@@ -91,7 +91,7 @@ func TestReplaceKeyChecksTheCanaryAndKeepsTheOldKey(t *testing.T) {
 	if now, _ := os.ReadFile(target.keyPath); !bytes.Equal(now, oldKey) {
 		t.Fatal("a refused restore overwrote the device key")
 	}
-	if left, _ := filepath.Glob(filepath.Join(target.dataDir, "nexo.db.before-restore-*")); len(left) != 0 {
+	if left, _ := filepath.Glob(filepath.Join(target.dataDir, "milo.db.before-restore-*")); len(left) != 0 {
 		t.Fatalf("a refused restore swapped the database: %v", left)
 	}
 
@@ -125,7 +125,7 @@ func writeFiles(t *testing.T, files map[string]string) {
 
 func TestSwapKeepsTheWriteAheadLogWithThePreviousDatabase(t *testing.T) {
 	dir := t.TempDir()
-	live := filepath.Join(dir, "nexo.db")
+	live := filepath.Join(dir, "milo.db")
 	src := filepath.Join(dir, "new.db")
 	writeFiles(t, map[string]string{live: "db", live + "-wal": "wal frames", live + "-shm": "shm", src: "new"})
 	previous, err := swapDatabase(src, dir)
@@ -144,21 +144,21 @@ func TestSwapKeepsTheWriteAheadLogWithThePreviousDatabase(t *testing.T) {
 
 func TestFailedSwapPutsTheWriteAheadLogBack(t *testing.T) {
 	dir := t.TempDir()
-	live := filepath.Join(dir, "nexo.db")
+	live := filepath.Join(dir, "milo.db")
 	writeFiles(t, map[string]string{live: "db", live + "-wal": "wal frames", live + "-shm": "shm"})
 	if _, err := swapDatabase(filepath.Join(dir, "missing.db"), dir); err == nil {
 		t.Fatal("copy of a missing file succeeded")
 	}
 	for ext, want := range map[string]string{"": "db", "-wal": "wal frames", "-shm": "shm"} {
 		if got, _ := os.ReadFile(live + ext); string(got) != want {
-			t.Errorf("after the rollback nexo.db%s = %q, want %q", ext, got, want)
+			t.Errorf("after the rollback milo.db%s = %q, want %q", ext, got, want)
 		}
 	}
 }
 
 func TestPruningCountsDatabasesNotTheirSideFiles(t *testing.T) {
 	dir := t.TempDir()
-	live := filepath.Join(dir, "nexo.db")
+	live := filepath.Join(dir, "milo.db")
 	for _, n := range []string{"20240101-000000", "20240102-000000", "20240103-000000", "20240104-000000"} {
 		writeFiles(t, map[string]string{live + ".before-restore-" + n: "old", live + ".before-restore-" + n + "-wal": "w", live + ".before-restore-" + n + "-shm": "s"})
 	}
@@ -177,7 +177,7 @@ func TestPruningCountsDatabasesNotTheirSideFiles(t *testing.T) {
 // A FIFO swapped in for the restored database must not hang the root process at the chown.
 func TestChownDoesNotBlockOnAFIFO(t *testing.T) {
 	dir := t.TempDir()
-	fifo := filepath.Join(dir, "nexo.db")
+	fifo := filepath.Join(dir, "milo.db")
 	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -202,12 +202,12 @@ func TestQuarantineSetsAStagedRestoreAside(t *testing.T) {
 	os.MkdirAll(filepath.Join(dir, "restore-failed-20200101-000000"), 0o700)
 	pending := filepath.Join(dir, pendingDir)
 	os.MkdirAll(pending, 0o700)
-	os.WriteFile(filepath.Join(pending, "nexo.db"), []byte("x"), 0o600)
+	os.WriteFile(filepath.Join(pending, "milo.db"), []byte("x"), 0o600)
 	dest, err := Quarantine(dir)
 	if err != nil || !strings.HasPrefix(filepath.Base(dest), "restore-failed-") {
 		t.Fatalf("quarantine = %q %v", dest, err)
 	}
-	if _, err := os.Stat(filepath.Join(dest, "nexo.db")); err != nil {
+	if _, err := os.Stat(filepath.Join(dest, "milo.db")); err != nil {
 		t.Fatal("the staged database was not moved")
 	}
 	if _, err := os.Stat(pending); err == nil {
@@ -223,14 +223,14 @@ func TestQuarantineSetsAStagedRestoreAside(t *testing.T) {
 
 func TestSweepTempRemovesOnlyOldLeftovers(t *testing.T) {
 	dir := t.TempDir()
-	oldDir := filepath.Join(dir, "nexo-restore-123")
-	oldBackup := filepath.Join(dir, "nexo-backup-456")
-	oldDownload := filepath.Join(dir, "download-789.nexo")
-	fresh := filepath.Join(dir, "download-fresh.nexo")
-	keep := filepath.Join(dir, "nexo.db")
+	oldDir := filepath.Join(dir, "milo-restore-123")
+	oldBackup := filepath.Join(dir, "milo-backup-456")
+	oldDownload := filepath.Join(dir, "download-789.milo")
+	fresh := filepath.Join(dir, "download-fresh.milo")
+	keep := filepath.Join(dir, "milo.db")
 	for _, d := range []string{oldDir, oldBackup} {
 		os.MkdirAll(d, 0o700)
-		os.WriteFile(filepath.Join(d, "nexo.db"), []byte("x"), 0o600)
+		os.WriteFile(filepath.Join(d, "milo.db"), []byte("x"), 0o600)
 	}
 	writeFiles(t, map[string]string{oldDownload: "x", fresh: "x", keep: "x"})
 	past := time.Now().Add(-time.Hour)
@@ -286,7 +286,7 @@ func TestSnapshotWithANonPositiveKeepKeepsTheNewestCopy(t *testing.T) {
 		}
 	}
 	files, _ := List(dir)
-	if len(files) != 1 || files[0].Name != "nexo-20260301-120000.db" {
+	if len(files) != 1 || files[0].Name != "milo-20260301-120000.db" {
 		t.Fatalf("files = %+v", files)
 	}
 }

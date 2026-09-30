@@ -1,9 +1,9 @@
-# Contributing to Nexo
+# Contributing to Milo
 
-Nexo is open source under Apache-2.0. You are free to use, modify and fork it.
+Milo is open source under Apache-2.0. You are free to use, modify and fork it.
 
 **Please notify the project when you improve or fork it.** The easiest way is to open a
-pull request (preferred) or an issue at https://github.com/juancer/nexo describing what you
+pull request (preferred) or an issue at https://github.com/juancer/milo describing what you
 changed. This is a polite request that keeps the community informed; it is not a condition
 of the license, and you must keep the `LICENSE` and `NOTICE` files intact.
 

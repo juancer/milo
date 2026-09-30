@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juancer/nexo/internal/actions"
-	"github.com/juancer/nexo/internal/skills"
-	"github.com/juancer/nexo/internal/store"
+	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/skills"
+	"github.com/juancer/milo/internal/store"
 )
 
 var dirRe = regexp.MustCompile(`^/[A-Za-z0-9_./ -]{1,200}$`)
@@ -179,7 +179,7 @@ func (s *server) putMusic(w http.ResponseWriter, r *http.Request) {
 	}
 	body.Dir = strings.TrimSpace(body.Dir)
 	if !dirRe.MatchString(body.Dir) || strings.Contains(body.Dir, "..") {
-		writeError(w, http.StatusBadRequest, "enter an absolute folder path such as /var/lib/nexo/music")
+		writeError(w, http.StatusBadRequest, "enter an absolute folder path such as /var/lib/milo/music")
 		return
 	}
 	if info, err := os.Stat(body.Dir); err != nil || !info.IsDir() {

@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 )
 
-// Config is the bootstrap configuration, read from NEXO_* environment variables.
+// Config is the bootstrap configuration, read from MILO_* environment variables.
 type Config struct {
-	DataDir   string // directory holding nexo.db
+	DataDir   string // directory holding milo.db
 	Listen    string // admin UI listen address
 	LogLevel  string
 	LogFormat string
@@ -19,13 +19,13 @@ type Config struct {
 	Hardware  string // "real" or "mock"
 
 	// TelegramAPIURL overrides the Bot API address. For development and tests
-	// only (it points Nexo at the simulator); leave empty in production.
+	// only (it points Milo at the simulator); leave empty in production.
 	TelegramAPIURL string
 }
 
 const (
-	DefaultDataDir = "/var/lib/nexo"
-	DefaultKeyPath = "/etc/nexo/master.key"
+	DefaultDataDir = "/var/lib/milo"
+	DefaultKeyPath = "/etc/milo/master.key"
 	credentialName = "master.key"
 )
 
@@ -39,17 +39,17 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		return def
 	}
 	cfg := Config{
-		DataDir:   get("NEXO_DATA_DIR", DefaultDataDir),
-		Listen:    get("NEXO_LISTEN", ":8080"),
-		LogLevel:  get("NEXO_LOG_LEVEL", "info"),
-		LogFormat: get("NEXO_LOG_FORMAT", "text"),
-		Hardware:  get("NEXO_HARDWARE", "real"),
+		DataDir:   get("MILO_DATA_DIR", DefaultDataDir),
+		Listen:    get("MILO_LISTEN", ":8080"),
+		LogLevel:  get("MILO_LOG_LEVEL", "info"),
+		LogFormat: get("MILO_LOG_FORMAT", "text"),
+		Hardware:  get("MILO_HARDWARE", "real"),
 
-		TelegramAPIURL: getenv("NEXO_TELEGRAM_API_URL"),
+		TelegramAPIURL: getenv("MILO_TELEGRAM_API_URL"),
 	}
 	switch {
-	case getenv("NEXO_MASTER_KEY_FILE") != "":
-		cfg.KeyPath = getenv("NEXO_MASTER_KEY_FILE")
+	case getenv("MILO_MASTER_KEY_FILE") != "":
+		cfg.KeyPath = getenv("MILO_MASTER_KEY_FILE")
 	case getenv("CREDENTIALS_DIRECTORY") != "":
 		// Provided by systemd LoadCredential=.
 		cfg.KeyPath = filepath.Join(getenv("CREDENTIALS_DIRECTORY"), credentialName)
@@ -57,10 +57,10 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		cfg.KeyPath = DefaultKeyPath
 	}
 	if cfg.Hardware != "real" && cfg.Hardware != "mock" {
-		return Config{}, fmt.Errorf("NEXO_HARDWARE must be \"real\" or \"mock\", got %q", cfg.Hardware)
+		return Config{}, fmt.Errorf("MILO_HARDWARE must be \"real\" or \"mock\", got %q", cfg.Hardware)
 	}
 	return cfg, nil
 }
 
 // DBPath is the SQLite database file.
-func (c Config) DBPath() string { return filepath.Join(c.DataDir, "nexo.db") }
+func (c Config) DBPath() string { return filepath.Join(c.DataDir, "milo.db") }

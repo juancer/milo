@@ -1,9 +1,9 @@
-// Package systemd embeds the service unit installed by `nexo install`.
+// Package systemd embeds the service unit installed by `milo install`.
 package systemd
 
 import _ "embed"
 
-// Unit is the contents of nexo.service.
+// Unit is the contents of milo.service.
 //
-//go:embed nexo.service
+//go:embed milo.service
 var Unit []byte

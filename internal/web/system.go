@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/juancer/nexo/internal/audio"
-	"github.com/juancer/nexo/internal/telegram"
+	"github.com/juancer/milo/internal/audio"
+	"github.com/juancer/milo/internal/telegram"
 )
 
 func (s *server) systemRoutes(mux *http.ServeMux) {

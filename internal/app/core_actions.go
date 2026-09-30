@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/juancer/nexo/internal/actions"
-	"github.com/juancer/nexo/internal/audio"
+	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/audio"
 )
 
 // registerCoreActions registers actions that need no feature.

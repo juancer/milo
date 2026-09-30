@@ -3,7 +3,7 @@ package app
 import (
 	"context"
 
-	"github.com/juancer/nexo/internal/wifi"
+	"github.com/juancer/milo/internal/wifi"
 )
 
 // SyncWifi applies the configured Wi-Fi networks to the operating system.

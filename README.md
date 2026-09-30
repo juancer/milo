@@ -1,10 +1,10 @@
-# Nexo
+# Milo
 
-Nexo is an open-source, screenless, child-friendly communication and AI assistant for the
+Milo is an open-source, screenless, child-friendly communication and AI assistant for the
 Raspberry Pi. A child uses physical buttons and voice; authorized family members reach the
 device through their own Telegram bot; parents configure everything from a local web admin.
 
-Nexo is the name of the software, not of any child. Nothing about a specific family,
+Milo is the name of the software, not of any child. Nothing about a specific family,
 Telegram account or bot is hardcoded: each installation is configured on its own.
 
 > **Status: all planned phases done.** Foundation, configurable buttons, audio, the Action Engine, the
@@ -31,14 +31,14 @@ You need Docker and Docker Compose. No Go, Node or Python on the host.
 
 ```sh
 make test         # go vet + go test, inside Docker
-make build-arm64  # builds the UI, then dist/nexo-linux-arm64 (CGO_ENABLED=0)
-make dev          # Nexo (http://localhost:8080) + simulator of family phones (http://localhost:8090)
+make build-arm64  # builds the UI, then dist/milo-linux-arm64 (CGO_ENABLED=0)
+make dev          # Milo (http://localhost:8080) + simulator of family phones (http://localhost:8090)
 make web-dev      # Astro dev server with hot reload on http://localhost:4321
 make help
 ```
 
 `make dev` seeds a demo installation: sign in as `admin` (or `mom`) with the password printed once
-when the demo is seeded (set `NEXO_DEV_PASSWORD` to choose it). Real devices get a generated password at
+when the demo is seeded (set `MILO_DEV_PASSWORD` to choose it). Real devices get a generated password at
 install time.
 
 Details: [docs/development.md](docs/development.md).
@@ -49,8 +49,8 @@ Target: Raspberry Pi 3B, Raspberry Pi OS 64-bit.
 
 ```sh
 make build-arm64
-scp dist/nexo-linux-arm64 pi@raspberrypi:nexo
-ssh pi@raspberrypi 'sudo ./nexo install'   # prints your admin username and a generated password, once
+scp dist/milo-linux-arm64 pi@raspberrypi:milo
+ssh pi@raspberrypi 'sudo ./milo install'   # prints your admin username and a generated password, once
 ```
 
 `install` is idempotent and never deletes data. Details: [docs/installation.md](docs/installation.md).
@@ -59,5 +59,5 @@ ssh pi@raspberrypi 'sudo ./nexo install'   # prints your admin username and a ge
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
-Nexo is open source: improve it, fork it. Please let the project know by opening a pull request
+Milo is open source: improve it, fork it. Please let the project know by opening a pull request
 or issue (see [CONTRIBUTING.md](CONTRIBUTING.md)).

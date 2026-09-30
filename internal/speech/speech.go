@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juancer/nexo/internal/audio"
+	"github.com/juancer/milo/internal/audio"
 )
 
 // STT converts speech to text.
@@ -162,7 +162,7 @@ func (p *Piper) Synthesize(ctx context.Context, text string) ([]byte, error) {
 	if len(text) > 4000 {
 		text = text[:4000]
 	}
-	dir, err := os.MkdirTemp("", "nexo-tts-")
+	dir, err := os.MkdirTemp("", "milo-tts-")
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +304,7 @@ func NewWhisperCpp(binary, model string) (*WhisperCpp, error) {
 
 // Transcribe implements STT.
 func (w *WhisperCpp) Transcribe(ctx context.Context, wav []byte) (string, error) {
-	dir, err := os.MkdirTemp("", "nexo-stt-")
+	dir, err := os.MkdirTemp("", "milo-stt-")
 	if err != nil {
 		return "", err
 	}
