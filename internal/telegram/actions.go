@@ -20,6 +20,10 @@ const (
 	maxReadAtOnce     = 10
 	deliveredMsg      = "Delivered ✓"
 	deliveredLaterMsg = "Delivered ✓ It will be heard when the device is available again."
+
+	// maxPlayAttempts is how often a voice message that cannot be decoded is retried. After
+	// that it is marked failed, so one bad recording cannot hold back the messages behind it.
+	maxPlayAttempts = 3
 )
 
 // RegisterActions registers Telegram's actions with the Action Engine. They
@@ -207,6 +211,16 @@ func (s *Service) playNext(ctx context.Context) (bool, error) {
 		wav, err := s.Codec.OggToWAV(ctx, m.Audio)
 		if err != nil {
 			s.Notify.Notify(ctx, audio.NotifyError) //nolint:errcheck
+			if ctx.Err() == nil {
+				// The retry time is not used for incoming messages; a non-nil value keeps the
+				// message pending until the last attempt.
+				var retry *time.Time
+				if m.Attempts+1 < maxPlayAttempts {
+					now := s.now()
+					retry = &now
+				}
+				s.Store.MarkAttemptFailed(ctx, m.ID, "cannot decode voice message", retry) //nolint:errcheck
+			}
 			return false, fmt.Errorf("cannot decode voice message: %w", err)
 		}
 		if err := s.Audio.Play(ctx, wav); err != nil {

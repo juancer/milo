@@ -1310,18 +1310,52 @@ func TestAdminValidationAuditAndSecrecy(t *testing.T) {
 	}
 }
 
-func TestLoginAttemptsAreThrottledPerAccountToo(t *testing.T) {
+// loginFrom calls the login handler as a client at addr (the test server only sees one address).
+func (e *env) loginFrom(addr, user, pass string) int {
+	body, _ := json.Marshal(map[string]string{"username": user, "password": pass})
+	req := httptest.NewRequest("POST", "/api/login", bytes.NewReader(body))
+	req.RemoteAddr = addr + ":40000"
+	rec := httptest.NewRecorder()
+	e.impl.login(rec, req)
+	return rec.Code
+}
+
+// Failed sign-ins are counted per address. If they were counted per username, anyone on the
+// network could lock the owner out by naming "admin".
+func TestFailedLoginsFromOneAddressDoNotLockOutTheAccountForOthers(t *testing.T) {
 	e := newEnv(t, true)
-	// Spread over "addresses" is not possible in a test, but the per-account limit must trip
-	// on its own: 8 failures for one username block even a correct password.
-	for i := 0; i < 8; i++ {
-		e.impl.userLimiter.Fail("admin")
+	for i := 0; i < 5; i++ {
+		if code := e.loginFrom("192.0.2.9", "admin", "wrong-password-here"); code != 401 {
+			t.Fatalf("attempt %d = %d, want 401", i+1, code)
+		}
 	}
-	if r := e.do(t, "POST", "/api/login", `{"username":"admin","password":"`+testPassword+`"}`, nil, nil); r.StatusCode != 429 {
-		t.Fatalf("throttled account = %d, want 429", r.StatusCode)
+	if code := e.loginFrom("192.0.2.9", "admin", "wrong-password-here"); code != 429 {
+		t.Fatalf("attacker after 5 failures = %d, want 429", code)
 	}
-	if r := e.do(t, "POST", "/api/login", `{"username":"other","password":"whatever-it-is"}`, nil, nil); r.StatusCode == 429 {
-		t.Fatal("another account was throttled")
+	for i := 0; i < 3; i++ { // 8 failures for "admin" in total, from two addresses
+		e.loginFrom("192.0.2.10", "admin", "wrong-password-here")
+	}
+	if code := e.loginFrom("192.0.2.77", "admin", testPassword); code != 200 {
+		t.Fatalf("the owner from another address = %d, want 200", code)
+	}
+}
+
+// A burst of parallel attempts must be counted before the password checks run, not after.
+func TestParallelBadLoginsCannotGetPastThePerAddressLimit(t *testing.T) {
+	e := newEnv(t, true)
+	const burst = 24
+	codes := make(chan int, burst)
+	for i := 0; i < burst; i++ {
+		go func() { codes <- e.loginFrom("192.0.2.9", "nobody", "wrong-password-here") }()
+	}
+	checked := 0
+	for i := 0; i < burst; i++ {
+		if <-codes == 401 {
+			checked++
+		}
+	}
+	if checked != 5 {
+		t.Fatalf("%d passwords were checked, want 5", checked)
 	}
 }
 
@@ -1527,5 +1561,28 @@ func TestLocalBackupSettingsRunAndListing(t *testing.T) {
 	}](t, e.do(t, "GET", "/api/backup", "", cookie, nil))
 	if len(got.Files) != 2 || got.Settings.LastAt.IsZero() || got.Settings.LastError != "" {
 		t.Fatalf("after runs = %+v", got)
+	}
+}
+
+// A backup holds every admin account and, with the key, every secret; a restore replaces the
+// account table. A non-owner administrator must not be able to do either.
+func TestBackupDownloadAndRestoreAreOwnerOnly(t *testing.T) {
+	e := newEnv(t, true)
+	owner := e.login(t)
+	e.post(t, "/api/admins", map[string]string{"username": "mom", "password": "moms-first-password-1"}, owner)
+	mom := e.loginAs(t, "mom", "moms-first-password-1")
+	r := e.post(t, "/api/account/password", map[string]string{"current_password": "moms-first-password-1", "new_password": "moms-own-password-42"}, mom)
+	for _, c := range r.Cookies() {
+		mom = c
+	}
+
+	body, _ := json.Marshal(map[string]any{"passphrase": backupPass, "include_key": true})
+	if r := e.do(t, "POST", "/api/backup/download", string(body), mom, nil); r.StatusCode != 403 {
+		t.Fatalf("download by a non-owner = %d, want 403", r.StatusCode)
+	}
+	archive := downloadBackup(t, e, owner, false) // the owner still can
+	form, ctype := multipartBody([][2]string{{"passphrase", backupPass}}, "b.nexo", archive)
+	if r := e.upload(t, "/api/backup/restore", form, ctype, mom); r.StatusCode != 403 {
+		t.Fatalf("restore by a non-owner = %d, want 403", r.StatusCode)
 	}
 }

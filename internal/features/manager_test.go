@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/juancer/nexo/internal/store"
 )
@@ -120,5 +121,34 @@ func TestShutdownStopsRunningFeatures(t *testing.T) {
 	m.Shutdown(ctx)
 	if f.stops != 1 {
 		t.Fatalf("stops = %d", f.stops)
+	}
+}
+
+// A restart that started before an admin switched the feature off must not undo the switch.
+func TestRestartHonoursASwitchOffThatLandsWhileItWaits(t *testing.T) {
+	ctx := context.Background()
+	m, st := newManager(t)
+	tg := &fake{name: "telegram"}
+	m.Register(ctx, tg)
+	if err := m.SetEnabled(ctx, "telegram", true); err != nil {
+		t.Fatal(err)
+	}
+
+	m.mu.Lock() // stands in for a SetEnabled that is running at the same moment
+	done := make(chan error, 1)
+	go func() { done <- m.Restart(ctx, "telegram") }()
+	time.Sleep(50 * time.Millisecond) // Restart is now waiting for the lock
+	if err := st.SetFeatureEnabled(ctx, "telegram", false); err != nil {
+		t.Fatal(err)
+	}
+	m.reconcile(ctx, m.features["telegram"], false)
+	m.mu.Unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+
+	list, _ := m.List(ctx)
+	if len(list) != 1 || list[0].Enabled || list[0].Running || tg.starts != 1 {
+		t.Fatalf("feature restarted although it was switched off: %+v starts=%d", list, tg.starts)
 	}
 }

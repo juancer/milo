@@ -70,12 +70,12 @@ func (m *Manager) Register(ctx context.Context, f Feature) error {
 
 // Sync starts every enabled feature and stops every disabled one.
 func (m *Manager) Sync(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	rows, err := m.store.ListFeatures(ctx)
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	for _, row := range rows {
 		if e, ok := m.features[row.Name]; ok {
 			m.reconcile(ctx, e, row.Enabled)
@@ -157,21 +157,18 @@ func (m *Manager) Enabled(ctx context.Context, name string) (bool, error) {
 // Restart stops and starts a feature again if it is enabled, for example after
 // its credentials changed.
 func (m *Manager) Restart(ctx context.Context, name string) error {
-	rows, err := m.store.ListFeatures(ctx)
-	if err != nil {
-		return err
-	}
+	// The flag is read with the lock held, so a switch-off that lands meanwhile is honoured.
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e, ok := m.features[name]
 	if !ok {
 		return ErrUnknownFeature
 	}
-	m.reconcile(ctx, e, false)
-	for _, r := range rows {
-		if r.Name == name && r.Enabled {
-			m.reconcile(ctx, e, true)
-		}
+	enabled, err := m.store.FeatureEnabled(ctx, name)
+	if err != nil {
+		return err
 	}
+	m.reconcile(ctx, e, false)
+	m.reconcile(ctx, e, enabled)
 	return nil
 }

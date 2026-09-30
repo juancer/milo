@@ -28,13 +28,12 @@ const (
 )
 
 type server struct {
-	app         *app.App
-	version     string
-	accounts    *auth.Accounts
-	sessions    *auth.Sessions
-	limiter     *auth.Limiter // failed sign-ins per client address
-	userLimiter *auth.Limiter // failed sign-ins per username
-	started     time.Time
+	app      *app.App
+	version  string
+	accounts *auth.Accounts
+	sessions *auth.Sessions
+	limiter  *auth.Limiter // sign-in attempts per client address
+	started  time.Time
 }
 
 type ctxKey struct{}
@@ -52,13 +51,12 @@ func New(a *app.App, version string, assets fs.FS) http.Handler {
 
 func newServer(a *app.App, version string) *server {
 	return &server{
-		app:         a,
-		version:     version,
-		accounts:    auth.NewAccounts(a.Store),
-		sessions:    auth.NewSessions(sessionTTL),
-		limiter:     auth.NewLimiter(5, 15*time.Minute),
-		userLimiter: auth.NewLimiter(8, 15*time.Minute),
-		started:     time.Now(),
+		app:      a,
+		version:  version,
+		accounts: auth.NewAccounts(a.Store),
+		sessions: auth.NewSessions(sessionTTL),
+		limiter:  auth.NewLimiter(5, 15*time.Minute),
+		started:  time.Now(),
 	}
 }
 
@@ -207,16 +205,15 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	if len(name) > 40 {
 		name = name[:40]
 	}
-	// Both the address and the account are throttled, so guessing one account's
-	// password from several machines is slowed down as well.
-	if !s.limiter.Allowed(ip) || !s.userLimiter.Allowed(name) {
+	// Attempts are throttled per address only. A limit per username would let anyone on the
+	// network lock the owner out just by naming "admin". Each attempt is counted before it
+	// runs, so parallel requests cannot get past the limit together.
+	if !s.limiter.Try(ip) {
 		writeError(w, http.StatusTooManyRequests, "too many failed attempts, try again later")
 		return
 	}
 	user, err := s.accounts.Authenticate(r.Context(), body.Username, body.Password)
 	if errors.Is(err, auth.ErrBadCredentials) {
-		s.limiter.Fail(ip)
-		s.userLimiter.Fail(name)
 		s.app.Audit.Record(r.Context(), "anonymous", "admin.login_failed", name, map[string]string{"ip": ip})
 		writeError(w, http.StatusUnauthorized, "incorrect username or password")
 		return
@@ -227,7 +224,6 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.limiter.Reset(ip)
-	s.userLimiter.Reset(name)
 	if err := s.startSession(w, user); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return

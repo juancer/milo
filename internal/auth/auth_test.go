@@ -2,6 +2,7 @@ package auth
 
 import (
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -102,5 +103,32 @@ func TestLimiter(t *testing.T) {
 	l.Reset("ip")
 	if len(l.fails) != 0 {
 		t.Fatal("Reset left state")
+	}
+}
+
+// Try counts the attempt in the same step as the check, so a burst cannot all get through.
+func TestLimiterTryAdmitsAtMostMaxAttemptsInAParallelBurst(t *testing.T) {
+	l := NewLimiter(5, time.Minute)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	admitted := 0
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if l.Try("ip") {
+				mu.Lock()
+				admitted++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if admitted != 5 {
+		t.Fatalf("admitted %d attempts, want 5", admitted)
+	}
+	l.Reset("ip")
+	if !l.Try("ip") {
+		t.Fatal("still blocked after Reset")
 	}
 }
