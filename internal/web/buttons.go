@@ -60,22 +60,22 @@ func (d buttonDTO) toStore() (store.Button, string) {
 		Enabled: d.Enabled, Actions: map[string]store.ButtonAction{}}
 	switch {
 	case d.Name == "" || len([]rune(d.Name)) > 40:
-		return b, "name must be 1-40 characters"
+		return b, "web.err.name_must_be_1_40_characters"
 	case len([]rune(d.Color)) > 20:
-		return b, "color must be at most 20 characters"
+		return b, "web.err.color_must_be_at_most_20_characters"
 	case d.GPIO < 0 || d.GPIO > 27:
-		return b, "gpio must be between 0 and 27 (BCM numbering)"
+		return b, "web.err.gpio_must_be_between_0_and_27_bcm_numbering"
 	}
 	for event, a := range d.Actions {
 		if !eventTypes[event] {
-			return b, "unknown event type " + strconv.Quote(event)
+			return b, "web.err.unknown_event_type"
 		}
 		if !actionNameRe.MatchString(a.Action) {
-			return b, "invalid action name for " + event
+			return b, "web.err.invalid_action_name_for_an_event"
 		}
 		params, err := json.Marshal(a.Parameters)
 		if err != nil || len(params) > 1024 {
-			return b, "parameters for " + event + " are invalid or too large"
+			return b, "web.err.parameters_for_an_event_are_invalid_or_too_l"
 		}
 		if a.Parameters == nil {
 			params = []byte("{}")
@@ -88,7 +88,7 @@ func (d buttonDTO) toStore() (store.Button, string) {
 func (s *server) listButtons(w http.ResponseWriter, r *http.Request) {
 	list, err := s.app.Store.ListButtons(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	out := make([]buttonDTO, 0, len(list))
@@ -106,7 +106,7 @@ func (s *server) saveButton(w http.ResponseWriter, r *http.Request, create bool)
 	if !create {
 		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid id")
+			writeError(w, http.StatusBadRequest, "web.err.invalid_id")
 			return
 		}
 		dto.ID = id
@@ -126,11 +126,11 @@ func (s *server) saveButton(w http.ResponseWriter, r *http.Request, create bool)
 	}
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		writeError(w, http.StatusNotFound, "no such button")
+		writeError(w, http.StatusNotFound, "web.err.no_such_button")
 		return
 	case err != nil:
 		// Most likely a duplicate name or GPIO pin.
-		writeError(w, http.StatusConflict, "cannot save button: name and GPIO pin must be unique")
+		writeError(w, http.StatusConflict, "web.err.cannot_save_button_name_and_gpio_pin_must_be")
 		return
 	}
 	s.audit(r, action, b.Name, map[string]string{"gpio": strconv.Itoa(b.GPIO)})
@@ -145,14 +145,14 @@ func (s *server) updateButton(w http.ResponseWriter, r *http.Request) { s.saveBu
 func (s *server) deleteButton(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid id")
+		writeError(w, http.StatusBadRequest, "web.err.invalid_id")
 		return
 	}
 	if err := s.app.Store.DeleteButton(r.Context(), id); errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "no such button")
+		writeError(w, http.StatusNotFound, "web.err.no_such_button")
 		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, "button.deleted", strconv.FormatInt(id, 10), nil)

@@ -19,7 +19,7 @@ Both cloud providers use the OpenAI-compatible wire format, so any compatible se
 change the address, model name and key. OpenRouter is only an LLM provider; it does not do
 speech recognition, which is why speech-to-text is a separate provider. Free models are rate
 limited: Milo retries with backoff and, if the service stays unavailable, the child hears
-*"I can't think right now. Please try again in a little while."* instead of silence. A per-hour
+a kind spoken sentence (in the assistant language) instead of silence. A per-hour
 question limit (default 60) protects free-tier quotas.
 
 API keys are stored encrypted (see [security.md](security.md)) and are never shown again. If you change a provider address to a different host, its stored key is removed and you must enter it again.
@@ -44,6 +44,14 @@ Install a Piper build for ARM64 and a voice, then set the voice file (a `.onnx` 
 Assistant → Providers. Milo runs `piper --model <voice> --output_file <tmp>` with the text on
 standard input; the command line is fixed. With text-to-speech off, the child hears tones
 instead of spoken answers.
+
+### Languages
+
+The **assistant language** is a language code (or `auto`) and is separate from the interface,
+notification and voice languages ([i18n.md](i18n.md)). Milo states it to the model explicitly
+in every conversation instead of relying on the model to remember it; with `auto` the model
+answers in the language the child speaks. The **voice language** and the voice model, speed and
+volume are set under Providers; leave the voice language empty to follow the assistant language.
 
 ## What the model can do: only registered actions
 
@@ -74,7 +82,7 @@ Milo adds its own checks around the model, because a model cannot be trusted wit
   message with the sentence. Switch the message off with *Message the parents…*.
 - **Age and personality.** The system prompt adapts vocabulary and tone to the age you set.
 
-These checks use short word lists (English and Spanish) and are a safety net, not a guarantee.
+These checks use short word lists (English and Spanish; the replies are translated) and are a safety net, not a guarantee.
 Review the conversations regularly.
 
 ## Conversation history

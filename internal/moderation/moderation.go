@@ -33,10 +33,10 @@ type Verdict struct {
 	Reply   string // what to say instead
 }
 
-// Reply texts.
+// Reply texts, as i18n keys: the assistant translates them into its language.
 const (
-	ReplyBlocked = "Let's talk about something else! Ask me about animals, space, stories or games."
-	ReplyConcern = "That sounds important. Please tell a grown-up you trust right now. I'm here too, and you are not alone."
+	ReplyBlocked = "assistant.reply_blocked"
+	ReplyConcern = "assistant.reply_concern"
 )
 
 // Rule is a parent-defined blocked phrase.

@@ -51,11 +51,20 @@ type Manager struct {
 	store    *store.Store
 	log      *slog.Logger
 	features map[string]*entry
+	onFail   func(name string)
 }
 
 // NewManager returns an empty Manager.
 func NewManager(s *store.Store, log *slog.Logger) *Manager {
 	return &Manager{store: s, log: log, features: map[string]*entry{}}
+}
+
+// SetFailureHook registers a function that is called, in its own goroutine, whenever a feature
+// fails to start. It receives only the feature name.
+func (m *Manager) SetFailureHook(f func(name string)) {
+	m.mu.Lock()
+	m.onFail = f
+	m.mu.Unlock()
 }
 
 // Register adds a feature. Newly registered features start disabled.
@@ -156,6 +165,9 @@ func (m *Manager) reconcile(ctx context.Context, e *entry, enabled bool) {
 		if err != nil {
 			e.lastErr = err.Error()
 			m.log.Error("feature failed to start", "feature", name, "error", err)
+			if m.onFail != nil {
+				go m.onFail(name)
+			}
 			return
 		}
 		e.running, e.lastErr = true, ""

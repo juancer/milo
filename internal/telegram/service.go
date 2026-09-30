@@ -12,8 +12,11 @@ import (
 	"github.com/juancer/milo/internal/actions"
 	"github.com/juancer/milo/internal/audio"
 	"github.com/juancer/milo/internal/audit"
+	"github.com/juancer/milo/internal/features"
+	"github.com/juancer/milo/internal/i18n"
 	"github.com/juancer/milo/internal/notifications"
 	"github.com/juancer/milo/internal/permissions"
+	"github.com/juancer/milo/internal/schedules"
 	"github.com/juancer/milo/internal/secrets"
 	"github.com/juancer/milo/internal/store"
 )
@@ -41,6 +44,9 @@ type Deps struct {
 	Perms   *permissions.Checker
 	Audit   *audit.Logger
 	Log     *slog.Logger
+	// Features and Schedules back the admin menu (switching features, usage hours).
+	Features  *features.Manager
+	Schedules *schedules.Service
 	// BaseURL overrides the Bot API address (development and tests only).
 	BaseURL string
 	// Speak reads text aloud (text-to-speech). Nil until an assistant is configured.
@@ -80,6 +86,13 @@ type Service struct {
 	strangerLogSkips int           // warnings suppressed since then
 	tick             time.Duration // maintenance interval; tests shorten it
 
+	version       string              // shown in the admin menu status
+	started       time.Time           // process start, for the uptime in the admin menu
+	adminTapGap   time.Duration       // minimum time between two admin-menu taps; tests shorten it
+	adminTapAt    map[int64]time.Time // user id -> last admin-menu tap (rate limit)
+	quietFeatures map[string]bool     // features being switched on by a person: no failure alert
+	bootOnce      sync.Once           // the "device started" alert goes out once per process
+
 	emergencyConfirm map[int64]time.Time // user id -> confirmation expiry
 	emergencyAt      map[int64]time.Time // user id -> last alert
 	urgentUntil      map[int64]time.Time // user id -> follow-up window end
@@ -89,11 +102,22 @@ type Service struct {
 // New creates the (not yet running) service.
 func New(d Deps) *Service {
 	return &Service{Deps: d, replyAt: map[int64]time.Time{}, wake: make(chan struct{}, 1), now: time.Now,
+		started: time.Now(), adminTapAt: map[int64]time.Time{}, quietFeatures: map[string]bool{},
 		emergencyConfirm: map[int64]time.Time{}, emergencyAt: map[int64]time.Time{}, urgentUntil: map[int64]time.Time{}, urgentLeft: map[int64]int{}}
 }
 
 // Name implements features.Feature.
 func (s *Service) Name() string { return FeatureName }
+
+// SetVersion sets the version shown in the admin menu.
+func (s *Service) SetVersion(v string) {
+	s.mu.Lock()
+	s.version = v
+	s.mu.Unlock()
+}
+
+// SetAdminTapGap changes the minimum time between two admin-menu taps from one person (default 250ms).
+func (s *Service) SetAdminTapGap(d time.Duration) { s.adminTapGap = d }
 
 // SetTick changes how often the maintenance loop runs (default 30s).
 func (s *Service) SetTick(d time.Duration) { s.tick = d }
@@ -128,7 +152,7 @@ func (s *Service) scheduleOpen(ctx context.Context) bool {
 func (s *Service) Start(ctx context.Context) error {
 	tok, err := s.Vault.Get(ctx, SecretBotToken)
 	if errors.Is(err, secrets.ErrNotFound) {
-		return errors.New("no Telegram bot token configured (add it in the Telegram tab)")
+		return errors.New("no Telegram bot token configured (open Telegram in the admin and add it)")
 	}
 	if err != nil {
 		return err
@@ -160,6 +184,7 @@ func (s *Service) Start(ctx context.Context) error {
 	s.spawn(func() { s.outboxLoop(runCtx, client) })
 	s.spawn(func() { s.maintenanceLoop(runCtx) })
 	s.Log.Info("telegram started", "bot", me.Username)
+	s.announceStart()
 	return nil
 }
 
@@ -267,4 +292,33 @@ func sleep(ctx context.Context, d time.Duration) bool {
 	case <-ctx.Done():
 		return false
 	}
+}
+
+// tr translates key for lang, with alternating name, value placeholder arguments.
+func tr(lang, key string, kv ...any) string { return i18n.Tf(lang, key, kv...) }
+
+// langFor is the language to use when writing to a known person: their own, else the
+// notification language.
+func (s *Service) langFor(ctx context.Context, u store.User) string {
+	return i18n.ForUser(ctx, s.Store, u.Language)
+}
+
+// langForID is langFor for a user id (the person may have been removed meanwhile).
+func (s *Service) langForID(ctx context.Context, id int64) string {
+	u, err := s.Store.GetUser(ctx, id)
+	if err != nil {
+		return i18n.Notification(ctx, s.Store)
+	}
+	return s.langFor(ctx, u)
+}
+
+// spokenLang is the language of text Milo reads aloud (text-to-speech language, else the
+// assistant language, else the notification language).
+func (s *Service) spokenLang(ctx context.Context) string {
+	if g, err := s.Store.GetGPTSettings(ctx); err == nil {
+		if l := g.SpeechLanguage(); l != "" {
+			return i18n.Resolve(l)
+		}
+	}
+	return i18n.Notification(ctx, s.Store)
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/juancer/milo/internal/actions"
 	"github.com/juancer/milo/internal/audio"
+	"github.com/juancer/milo/internal/i18n"
 )
 
 const (
@@ -27,7 +28,7 @@ func (e *Engine) Start(ctx context.Context) error {
 		return err
 	}
 	if _, err := e.backends.LLM(ctx, s); errors.Is(err, ErrNotConfigured) {
-		return fmt.Errorf("%w: add the AI API key in the Assistant tab", err)
+		return fmt.Errorf("%w: add the AI API key under Assistant in the admin", err)
 	} else if err != nil {
 		return err
 	}
@@ -217,7 +218,7 @@ func (e *Engine) RunVoice(ctx context.Context, source string) error {
 		switch {
 		case errors.Is(err, ErrUnavailable):
 			e.log.Warn("assistant unavailable", "error", err)
-			e.say(ctx, ReplyUnavailable)
+			e.say(ctx, i18n.T(sess.settings.Language, ReplyUnavailable, nil))
 			return nil
 		case err != nil:
 			e.note(ctx, audio.NotifyError)

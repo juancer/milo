@@ -16,3 +16,9 @@ Master key lookup: `MILO_MASTER_KEY_FILE`, then `$CREDENTIALS_DIRECTORY/master.k
 (systemd), then `/etc/milo/master.key`.
 
 Never put tokens, keys or passwords in the environment or in the repository.
+
+## Language settings
+
+Languages are settings, not environment variables: interface, notification, assistant and
+text-to-speech languages are separate, each defaulting to English, and each person can have their
+own. See [i18n.md](i18n.md).

@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +33,28 @@ type STT interface {
 // TTS converts text to speech (a WAV file).
 type TTS interface {
 	Synthesize(ctx context.Context, text string) ([]byte, error)
+}
+
+// TTSOptions are the voice settings. Each engine uses what it supports and ignores the rest:
+// Piper takes its language from the voice model and cloud voices from the voice name, so Language
+// is what the caller wants spoken, for engines and callers that care.
+type TTSOptions struct {
+	Language string  // locale code, "" when not fixed
+	Voice    string  // engine-specific voice name
+	Speed    float64 // 1 is normal; 0 means normal
+	Volume   int     // percent, 0-100; 100 leaves the audio unchanged
+}
+
+// DefaultTTSOptions is normal speed and full volume.
+func DefaultTTSOptions() TTSOptions { return TTSOptions{Speed: 1, Volume: 100} }
+
+func (o TTSOptions) scale(wav []byte) []byte { return audio.Scale(wav, o.Volume) }
+
+func (o TTSOptions) speed() float64 {
+	if o.Speed <= 0 {
+		return 1
+	}
+	return o.Speed
 }
 
 // ---------------------------------------------------------------- STT (OpenAI-compatible)
@@ -138,6 +161,7 @@ func ValidModelPath(p string) bool { return modelPathRe.MatchString(p) && !strin
 // nothing the child or the model says can reach a shell.
 type Piper struct {
 	binary, model string
+	opts          TTSOptions
 }
 
 // NewPiper validates the paths. binary is usually just "piper".
@@ -151,7 +175,13 @@ func NewPiper(binary, model string) (*Piper, error) {
 	if !ValidModelPath(model) {
 		return nil, fmt.Errorf("speech: invalid Piper voice model %q (expected a path to a .onnx file)", model)
 	}
-	return &Piper{binary: binary, model: model}, nil
+	return &Piper{binary: binary, model: model, opts: DefaultTTSOptions()}, nil
+}
+
+// WithOptions sets speed and volume. Piper's language and voice are the model file.
+func (p *Piper) WithOptions(o TTSOptions) *Piper {
+	p.opts = o
+	return p
 }
 
 // Synthesize implements TTS.
@@ -171,7 +201,11 @@ func (p *Piper) Synthesize(ctx context.Context, text string) ([]byte, error) {
 
 	cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(cctx, p.binary, "--model", p.model, "--output_file", out)
+	args := []string{"--model", p.model, "--output_file", out}
+	if sp := p.opts.speed(); sp != 1 {
+		args = append(args, "--length_scale", strconv.FormatFloat(1/sp, 'f', 3, 64)) // longer scale = slower speech
+	}
+	cmd := exec.CommandContext(cctx, p.binary, args...)
 	cmd.Stdin = strings.NewReader(text + "\n")
 	stderr := audio.NewStderrBuffer()
 	cmd.Stderr = stderr
@@ -191,7 +225,7 @@ func (p *Piper) Synthesize(ctx context.Context, text string) ([]byte, error) {
 	if err := checkTTSWAV(wav); err != nil {
 		return nil, fmt.Errorf("piper output is not usable audio: %w", err)
 	}
-	return wav, nil
+	return p.opts.scale(wav), nil
 }
 
 // MockTTS "speaks" by producing a short tone burst that carries the text, so
@@ -220,13 +254,23 @@ func (EmbeddedTextSTT) Transcribe(_ context.Context, wav []byte) (string, error)
 // for WAV output. Use it when the device is too slow for Piper.
 type OpenAICompatTTS struct {
 	base, key, model, voice string
+	opts                    TTSOptions
 	http                    *http.Client
 }
 
 // NewOpenAICompatTTS returns a client.
 func NewOpenAICompatTTS(baseURL, apiKey, model, voice string) *OpenAICompatTTS {
-	return &OpenAICompatTTS{base: strings.TrimRight(baseURL, "/"), key: apiKey, model: model, voice: voice,
+	return &OpenAICompatTTS{base: strings.TrimRight(baseURL, "/"), key: apiKey, model: model, voice: voice, opts: DefaultTTSOptions(),
 		http: &http.Client{Timeout: 60 * time.Second}}
+}
+
+// WithOptions sets the voice, speed and volume. A non-empty Voice overrides the constructor's.
+func (t *OpenAICompatTTS) WithOptions(o TTSOptions) *OpenAICompatTTS {
+	t.opts = o
+	if o.Voice != "" {
+		t.voice = o.Voice
+	}
+	return t
 }
 
 // Synthesize implements TTS.
@@ -243,6 +287,9 @@ func (t *OpenAICompatTTS) Synthesize(ctx context.Context, text string) ([]byte, 
 	body := map[string]any{"model": t.model, "input": text, "response_format": "wav"}
 	if t.voice != "" {
 		body["voice"] = t.voice
+	}
+	if sp := t.opts.speed(); sp != 1 {
+		body["speed"] = sp
 	}
 	payload, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.base+"/audio/speech", bytes.NewReader(payload))
@@ -270,7 +317,7 @@ func (t *OpenAICompatTTS) Synthesize(ctx context.Context, text string) ([]byte, 
 	if err := checkTTSWAV(wav); err != nil {
 		return nil, fmt.Errorf("text-to-speech returned unusable audio: %w", err)
 	}
-	return wav, nil
+	return t.opts.scale(wav), nil
 }
 
 var whisperModelRe = regexp.MustCompile(`^[A-Za-z0-9_./-]{1,200}\.(bin|gguf)$`)

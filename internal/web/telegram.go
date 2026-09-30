@@ -38,7 +38,7 @@ func (s *server) telegramRoutes(mux *http.ServeMux) {
 func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
-		writeError(w, http.StatusBadRequest, "invalid id")
+		writeError(w, http.StatusBadRequest, "web.err.invalid_id")
 		return 0, false
 	}
 	return id, true
@@ -66,12 +66,12 @@ func (s *server) setTelegramToken(w http.ResponseWriter, r *http.Request) {
 	}
 	tok := strings.TrimSpace(body.Token)
 	if !tokenRe.MatchString(tok) {
-		writeError(w, http.StatusBadRequest, "that does not look like a Telegram bot token (from @BotFather)")
+		writeError(w, http.StatusBadRequest, "web.err.that_does_not_look_like_a_telegram_bot_token")
 		return
 	}
 	if err := s.app.Vault.Put(r.Context(), telegram.SecretBotToken, []byte(tok)); err != nil {
 		s.app.Log.Error("store telegram token", "error", err)
-		writeError(w, http.StatusInternalServerError, "could not store the token")
+		writeError(w, http.StatusInternalServerError, "web.err.could_not_store_the_token")
 		return
 	}
 	s.audit(r, "telegram.token_set", "", nil) // the value is never recorded
@@ -81,7 +81,7 @@ func (s *server) setTelegramToken(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) deleteTelegramToken(w http.ResponseWriter, r *http.Request) {
 	if err := s.app.Store.DeleteSecret(r.Context(), telegram.SecretBotToken); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, "telegram.token_removed", "", nil)
@@ -102,7 +102,7 @@ func (s *server) restartTelegram(ctx context.Context) {
 func (s *server) listInvitations(w http.ResponseWriter, r *http.Request) {
 	list, err := s.app.Store.ListInvitations(r.Context(), 50)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	now := time.Now()
@@ -132,25 +132,25 @@ func (s *server) createInvitation(w http.ResponseWriter, r *http.Request) {
 	}
 	// Invitations can never grant OWNER.
 	if body.Role != "PARENT" && body.Role != "FAMILY" && body.Role != "CHILD" {
-		writeError(w, http.StatusBadRequest, "role must be PARENT, FAMILY or CHILD")
+		writeError(w, http.StatusBadRequest, "web.err.role_must_be_parent_family_or_child")
 		return
 	}
 	if body.TTLHours == 0 {
 		body.TTLHours = 24
 	}
 	if body.TTLHours < 1 || body.TTLHours > 168 || len([]rune(body.Note)) > 60 {
-		writeError(w, http.StatusBadRequest, "ttl_hours must be 1-168 and note at most 60 characters")
+		writeError(w, http.StatusBadRequest, "web.err.ttl_hours_must_be_1_168_and_note_at_most_60")
 		return
 	}
 	token, hash, err := telegram.NewInvitationToken()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	expires := time.Now().Add(time.Duration(body.TTLHours) * time.Hour)
 	id, err := s.app.Store.CreateInvitation(r.Context(), hash, body.Role, strings.TrimSpace(body.Note), expires)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, "invitation.created", strconv.FormatInt(id, 10), map[string]string{"role": body.Role})
@@ -171,10 +171,10 @@ func (s *server) revokeInvitation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.app.Store.RevokeInvitation(r.Context(), id, time.Now()); errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "no such active invitation")
+		writeError(w, http.StatusNotFound, "web.err.no_such_active_invitation")
 		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, "invitation.revoked", strconv.FormatInt(id, 10), nil)
@@ -186,7 +186,7 @@ func (s *server) revokeInvitation(w http.ResponseWriter, r *http.Request) {
 func (s *server) listAuthorizations(w http.ResponseWriter, r *http.Request) {
 	list, err := s.app.Store.ListPending(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	type row struct {
@@ -218,30 +218,20 @@ func (s *server) approveAuthorization(w http.ResponseWriter, r *http.Request) {
 	}
 	name := strings.TrimSpace(body.DisplayName)
 	if len([]rune(name)) > 40 {
-		writeError(w, http.StatusBadRequest, "name must be at most 40 characters")
+		writeError(w, http.StatusBadRequest, "web.err.name_must_be_at_most_40_characters")
 		return
 	}
-	user, err := s.app.Store.ApprovePending(r.Context(), id, name, time.Now())
+	user, err := s.app.Telegram.ApproveRequest(r.Context(), id, name, body.CreateChat)
 	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "no such pending request")
+		writeError(w, http.StatusNotFound, "web.err.no_such_pending_request")
 		return
 	}
 	if err != nil {
 		s.app.Log.Error("approve authorization", "error", err)
-		writeError(w, http.StatusConflict, "this person is already authorized")
+		writeError(w, http.StatusConflict, "web.err.this_person_is_already_authorized")
 		return
 	}
 	s.audit(r, "authorization.approved", strconv.FormatInt(user.TelegramID, 10), map[string]string{"role": user.Role})
-	if body.CreateChat {
-		existing, _ := s.app.Store.ListChats(r.Context())
-		if _, err := s.app.Store.CreateChat(r.Context(), store.Chat{
-			Name: user.DisplayName, Kind: "user", UserID: user.ID, TelegramChatID: user.TelegramID,
-			Favorite: true, Position: len(existing) + 1, Enabled: true, // new chats go last
-		}); err != nil {
-			s.app.Log.Warn("create chat for approved user", "error", err) // name clash: parents can add it by hand
-		}
-	}
-	s.app.Telegram.SendText(user.TelegramID, "You have been approved! Send a voice message or a text and it will be delivered. Use /menu for options.")
 	writeJSON(w, http.StatusOK, map[string]any{"user_id": user.ID})
 }
 
@@ -250,17 +240,16 @@ func (s *server) rejectAuthorization(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	tg, err := s.app.Store.RejectPending(r.Context(), id, time.Now())
+	tg, err := s.app.Telegram.RejectRequest(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "no such pending request")
+		writeError(w, http.StatusNotFound, "web.err.no_such_pending_request")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, "authorization.rejected", strconv.FormatInt(tg, 10), nil)
-	s.app.Telegram.SendText(tg, "Your request was declined.")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -276,6 +265,11 @@ type userDTO struct {
 	Effective        map[string]bool `json:"effective"`
 	Overrides        map[string]bool `json:"overrides"`
 	RoleDefaults     []string        `json:"role_defaults"`
+	Language         string          `json:"language"` // "" follows the notification language
+	// ForwardIncoming: this person gets a copy of messages others leave for the device (opt-in;
+	// only people who can manage users may turn it on). DeviceAlerts is shown, changed from Telegram.
+	ForwardIncoming bool `json:"forward_incoming"`
+	DeviceAlerts    bool `json:"device_alerts"`
 }
 
 func (s *server) userDTO(ctx context.Context, u store.TelegramUser) (userDTO, error) {
@@ -288,7 +282,7 @@ func (s *server) userDTO(ctx context.Context, u store.TelegramUser) (userDTO, er
 		return userDTO{}, err
 	}
 	d := userDTO{ID: u.ID, DisplayName: u.DisplayName, Role: u.Role, Active: u.Active, TelegramID: u.TelegramID,
-		TelegramUsername: u.TelegramUsername, Effective: map[string]bool{}, Overrides: over, RoleDefaults: []string{}}
+		TelegramUsername: u.TelegramUsername, Language: u.Language, ForwardIncoming: u.ForwardIncoming, DeviceAlerts: u.DeviceAlerts, Effective: map[string]bool{}, Overrides: over, RoleDefaults: []string{}}
 	for p, v := range eff {
 		d.Effective[string(p)] = v
 	}
@@ -301,14 +295,14 @@ func (s *server) userDTO(ctx context.Context, u store.TelegramUser) (userDTO, er
 func (s *server) listUsers(w http.ResponseWriter, r *http.Request) {
 	list, err := s.app.Store.ListTelegramUsers(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	out := make([]userDTO, 0, len(list))
 	for _, u := range list {
 		d, err := s.userDTO(r.Context(), u)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error")
+			writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 			return
 		}
 		out = append(out, d)
@@ -325,40 +319,52 @@ func (s *server) updateUser(w http.ResponseWriter, r *http.Request) {
 		DisplayName string           `json:"display_name"`
 		Role        string           `json:"role"`
 		Active      bool             `json:"active"`
-		Permissions map[string]*bool `json:"permissions"` // null clears the override
+		Language    *string          `json:"language"`         // nil keeps the current one
+		Forward     *bool            `json:"forward_incoming"` // nil keeps the current one
+		Permissions map[string]*bool `json:"permissions"`      // null clears the override
 	}
 	if !decodeJSONLimit(w, r, &body, 8<<10) {
 		return
 	}
 	name := strings.TrimSpace(body.DisplayName)
 	if name == "" || len([]rune(name)) > 40 || !permissions.ValidRole(permissions.Role(body.Role)) {
-		writeError(w, http.StatusBadRequest, "a name (1-40 characters) and a valid role are required")
+		writeError(w, http.StatusBadRequest, "web.err.a_name_1_40_characters_and_a_valid_role_are")
+		return
+	}
+	if body.Language != nil && *body.Language != "" && !validLanguage(*body.Language) {
+		writeError(w, http.StatusBadRequest, "web.err.the_language_must_be_a_supported_language")
 		return
 	}
 	for p := range body.Permissions {
 		if !permissions.ValidPermission(permissions.Permission(p)) {
-			writeError(w, http.StatusBadRequest, "unknown permission "+strconv.Quote(p))
+			writeError(w, http.StatusBadRequest, "web.err.unknown_permission", "name", strconv.Quote(p))
 			return
 		}
 	}
 	ctx := r.Context()
 	before, err := s.app.Store.GetUser(ctx, id)
 	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "no such user")
+		writeError(w, http.StatusNotFound, "web.err.no_such_user")
 		return
 	}
 	// Like invitations, this cannot make anyone an OWNER.
 	if body.Role == string(permissions.RoleOwner) && before.Role != body.Role {
-		writeError(w, http.StatusBadRequest, "role must be PARENT, FAMILY or CHILD")
+		writeError(w, http.StatusBadRequest, "web.err.role_must_be_parent_family_or_child")
 		return
 	}
 	if err := s.app.Store.UpdateUser(ctx, id, name, body.Role, body.Active); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
+	}
+	if body.Language != nil {
+		if err := s.app.Store.SetUserLanguage(ctx, id, *body.Language); err != nil {
+			writeError(w, http.StatusInternalServerError, "web.err.internal_error")
+			return
+		}
 	}
 	if !body.Active {
 		if err := s.app.Store.ExpirePendingFrom(ctx, id); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error")
+			writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 			return
 		}
 	}
@@ -369,16 +375,34 @@ func (s *server) updateUser(w http.ResponseWriter, r *http.Request) {
 			err = s.app.Perms.Set(ctx, id, permissions.Permission(p), *v)
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error")
+			writeError(w, http.StatusInternalServerError, "web.err.internal_error")
+			return
+		}
+	}
+	if body.Forward != nil && *body.Forward != before.ForwardIncoming {
+		if *body.Forward {
+			if ok, _ := s.app.Perms.Has(ctx, id, permissions.ManageUsers); !ok {
+				writeError(w, http.StatusBadRequest, "web.err.message_copies_need_the_manage_users_permission")
+				return
+			}
+		}
+		if err := s.app.Store.SetUserForwardIncoming(ctx, id, *body.Forward); err != nil {
+			writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 			return
 		}
 	}
 	changes := map[string]string{}
+	if body.Forward != nil && *body.Forward != before.ForwardIncoming {
+		changes["forward_incoming"] = strconv.FormatBool(*body.Forward)
+	}
 	if before.Role != body.Role {
 		changes["role"] = before.Role + "->" + body.Role
 	}
 	if before.Active != body.Active {
 		changes["active"] = strconv.FormatBool(body.Active)
+	}
+	if body.Language != nil && *body.Language != before.Language {
+		changes["language"] = *body.Language
 	}
 	for p, v := range body.Permissions {
 		if v == nil {
@@ -415,7 +439,7 @@ type chatDTO struct {
 func (s *server) listChats(w http.ResponseWriter, r *http.Request) {
 	list, err := s.app.Store.ListChats(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	out := make([]chatDTO, 0, len(list))
@@ -440,7 +464,7 @@ func (s *server) saveChat(w http.ResponseWriter, r *http.Request) {
 	}
 	d.Name = strings.TrimSpace(d.Name)
 	if d.Name == "" || len([]rune(d.Name)) > 40 || d.Position < 0 || d.Position > 1000 {
-		writeError(w, http.StatusBadRequest, "name must be 1-40 characters")
+		writeError(w, http.StatusBadRequest, "web.err.name_must_be_1_40_characters")
 		return
 	}
 	c := store.Chat{ID: d.ID, Name: d.Name, Kind: d.Kind, UserID: d.UserID, TelegramChatID: d.TelegramChatID,
@@ -456,24 +480,24 @@ func (s *server) saveChat(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !found {
-			writeError(w, http.StatusBadRequest, "choose an authorized user for this chat")
+			writeError(w, http.StatusBadRequest, "web.err.choose_an_authorized_user_for_this_chat")
 			return
 		}
 	case "group":
 		c.UserID = 0
 		if d.TelegramChatID == 0 {
-			writeError(w, http.StatusBadRequest, "a Telegram group chat id is required")
+			writeError(w, http.StatusBadRequest, "web.err.a_telegram_group_chat_id_is_required")
 			return
 		}
 	default:
-		writeError(w, http.StatusBadRequest, "kind must be user or group")
+		writeError(w, http.StatusBadRequest, "web.err.kind_must_be_user_or_group")
 		return
 	}
 	// send_message matches names without regard to case, so they must differ by more than case.
 	existing, _ := s.app.Store.ListChats(r.Context())
 	for _, o := range existing {
 		if o.ID != c.ID && strings.ToLower(o.Name) == strings.ToLower(c.Name) {
-			writeError(w, http.StatusConflict, "cannot save chat: the name must be unique")
+			writeError(w, http.StatusConflict, "web.err.cannot_save_chat_the_name_must_be_unique")
 			return
 		}
 	}
@@ -487,11 +511,11 @@ func (s *server) saveChat(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		writeError(w, http.StatusNotFound, "no such chat")
+		writeError(w, http.StatusNotFound, "web.err.no_such_chat")
 	case err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed"):
-		writeError(w, http.StatusConflict, "cannot save chat: the name must be unique")
+		writeError(w, http.StatusConflict, "web.err.cannot_save_chat_the_name_must_be_unique")
 	case err != nil:
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 	default:
 		s.audit(r, action, c.Name, nil)
 		saved, _ := s.app.Store.GetChat(r.Context(), c.ID)
@@ -505,10 +529,10 @@ func (s *server) deleteChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.app.Store.DeleteChat(r.Context(), id); errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "no such chat")
+		writeError(w, http.StatusNotFound, "web.err.no_such_chat")
 		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, "chat.deleted", strconv.FormatInt(id, 10), nil)
@@ -522,7 +546,7 @@ func (s *server) deleteChat(w http.ResponseWriter, r *http.Request) {
 func (s *server) listMessages(w http.ResponseWriter, r *http.Request) {
 	list, err := s.app.Store.RecentMessages(r.Context(), 30)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	type row struct {

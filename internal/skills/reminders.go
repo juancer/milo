@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/juancer/milo/internal/actions"
+	"github.com/juancer/milo/internal/i18n"
 )
 
 const maxReminders = 50 // pending reminders
@@ -55,7 +56,7 @@ func (r *Reminders) fireDue(ctx context.Context) {
 		return
 	}
 	for _, rem := range due {
-		r.Announce.Announce(ctx, "Reminder: "+rem.Text, false)
+		r.Announce.Announce(ctx, i18n.Tf(r.spokenLang(ctx), "skills.reminder", "text", rem.Text), false)
 		if ctx.Err() != nil {
 			return // stopped while speaking: it stays pending
 		}

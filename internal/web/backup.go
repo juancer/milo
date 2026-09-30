@@ -49,21 +49,21 @@ func (s *server) putBackup(w http.ResponseWriter, r *http.Request) {
 	b.Dir = strings.TrimSpace(b.Dir)
 	switch {
 	case !dirRe.MatchString(b.Dir) || strings.Contains(b.Dir, ".."):
-		writeError(w, http.StatusBadRequest, "enter an absolute folder path such as /var/lib/milo/backups")
+		writeError(w, http.StatusBadRequest, "web.err.enter_an_absolute_folder_path_such_as_var_li")
 		return
 	case !s.app.BackupDirAllowed(b.Dir):
-		writeError(w, http.StatusBadRequest, "the folder must be inside Milo's data folder, for example "+filepath.Join(s.app.Cfg.DataDir, "backups"))
+		writeError(w, http.StatusBadRequest, "web.err.folder_inside_data_dir", "example", filepath.Join(s.app.Cfg.DataDir, "backups"))
 		return
 	case b.Keep < 1 || b.Keep > 60 || b.EveryHours < 1 || b.EveryHours > 168:
-		writeError(w, http.StatusBadRequest, "keep 1-60 copies, every 1-168 hours")
+		writeError(w, http.StatusBadRequest, "web.err.keep_1_60_copies_every_1_168_hours")
 		return
 	}
 	if err := os.MkdirAll(b.Dir, 0o700); err != nil {
-		writeError(w, http.StatusBadRequest, "that folder cannot be created or written by Milo (only /var/lib/milo is writable by default)")
+		writeError(w, http.StatusBadRequest, "web.err.that_folder_cannot_be_created_or_written_by")
 		return
 	}
 	if err := s.app.SaveBackupSettings(r.Context(), b); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, "backup.settings_updated", "", nil)
@@ -100,14 +100,14 @@ func (s *server) downloadBackup(w http.ResponseWriter, r *http.Request) {
 	// Build the file on disk first so a failure becomes a clean error, not a broken download.
 	tmp, err := os.CreateTemp(s.app.Cfg.DataDir, "download-*.milo")
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "cannot prepare the backup")
+		writeError(w, http.StatusInternalServerError, "web.err.cannot_prepare_the_backup")
 		return
 	}
 	defer os.Remove(tmp.Name())
 	defer tmp.Close()
 	if err := backup.Create(r.Context(), s.app.Store, opts, tmp); err != nil {
 		s.app.Log.Error("backup download", "error", err)
-		writeError(w, http.StatusInternalServerError, "the backup could not be created")
+		writeError(w, http.StatusInternalServerError, "web.err.the_backup_could_not_be_created")
 		return
 	}
 	info, _ := tmp.Stat()
@@ -126,7 +126,7 @@ func (s *server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	// Their own bucket: a mistyped restore passphrase must not count against signing in.
 	if !s.restoreLimiter.Try(ip) {
-		writeError(w, http.StatusTooManyRequests, "too many failed attempts, try again later")
+		writeError(w, http.StatusTooManyRequests, "web.err.too_many_failed_attempts_try_again_later")
 		return
 	}
 	wrongPass := false
@@ -136,21 +136,21 @@ func (s *server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	if !restoreBusy.TryLock() {
-		writeError(w, http.StatusConflict, "another restore is being checked, try again in a moment")
+		writeError(w, http.StatusConflict, "web.err.another_restore_is_being_checked_try_again_i")
 		return
 	}
 	defer restoreBusy.Unlock()
 	r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
 	mr, err := r.MultipartReader()
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "send the backup as a form upload")
+		writeError(w, http.StatusBadRequest, "web.err.send_the_backup_as_a_form_upload")
 		return
 	}
 	var pass string
 	for {
 		part, err := mr.NextPart()
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "the passphrase and the backup file are both required")
+			writeError(w, http.StatusBadRequest, "web.err.the_passphrase_and_the_backup_file_are_both")
 			return
 		}
 		if part.FormName() == "passphrase" {
@@ -159,7 +159,7 @@ func (s *server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if part.FormName() != "file" || pass == "" {
-			writeError(w, http.StatusBadRequest, "send the passphrase before the file")
+			writeError(w, http.StatusBadRequest, "web.err.send_the_passphrase_before_the_file")
 			return
 		}
 		wrongPass = s.stageRestore(w, r, part, pass)
@@ -178,11 +178,11 @@ func (s *server) stageRestore(w http.ResponseWriter, r *http.Request, file io.Re
 	}
 	defer c.Close()
 	if err := backup.Stage(c, s.app.Cfg.DataDir, s.app.Cfg.KeyPath); err != nil {
-		msg := err.Error()
 		if errors.Is(err, backup.ErrKeyMismatch) && c.Manifest.IncludesKey {
-			msg += ". Restore it from the command line instead (sudo milo restore FILE --replace-key)"
+			writeError(w, http.StatusUnprocessableEntity, "web.err.restore_key_mismatch", "reason", err.Error())
+		} else {
+			writeError(w, http.StatusUnprocessableEntity, err.Error())
 		}
-		writeError(w, http.StatusUnprocessableEntity, msg)
 		return false
 	}
 	s.audit(r, "backup.restore_staged", c.Manifest.DeviceName, nil)

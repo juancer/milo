@@ -41,7 +41,7 @@ func (s *server) runAction(w http.ResponseWriter, r *http.Request, name string, 
 	case err == nil:
 		return res, true
 	case errors.Is(err, actions.ErrFeatureDisabled):
-		writeError(w, http.StatusConflict, "turn this feature on in the Dashboard first")
+		writeError(w, http.StatusConflict, "web.err.turn_this_feature_on_in_the_dashboard_first")
 	case errors.Is(err, actions.ErrInvalidParams):
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:
@@ -97,10 +97,10 @@ func (s *server) deleteTimer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.app.Store.CancelTimer(r.Context(), id); errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "no such timer")
+		writeError(w, http.StatusNotFound, "web.err.no_such_timer")
 		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, "timer.cancelled", strconv.FormatInt(id, 10), nil)
@@ -116,7 +116,7 @@ func (s *server) createReminder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if on, err := s.app.Features.Enabled(r.Context(), "reminders"); err != nil || !on {
-		writeError(w, http.StatusConflict, "turn this feature on in the Dashboard first")
+		writeError(w, http.StatusConflict, "web.err.turn_this_feature_on_in_the_dashboard_first")
 		return
 	}
 	loc := s.app.Schedules.Location(r.Context())
@@ -124,28 +124,28 @@ func (s *server) createReminder(w http.ResponseWriter, r *http.Request) {
 	text := strings.TrimSpace(body.Text)
 	switch {
 	case err != nil:
-		writeError(w, http.StatusBadRequest, "choose a date and time")
+		writeError(w, http.StatusBadRequest, "web.err.choose_a_date_and_time")
 		return
 	case text == "" || len([]rune(text)) > 200:
-		writeError(w, http.StatusBadRequest, "the reminder must be 1-200 characters")
+		writeError(w, http.StatusBadRequest, "web.err.the_reminder_must_be_1_200_characters")
 		return
 	case !due.After(time.Now()):
-		writeError(w, http.StatusBadRequest, "choose a time in the future")
+		writeError(w, http.StatusBadRequest, "web.err.choose_a_time_in_the_future")
 		return
 	case s.app.CheckText(r.Context(), text) != nil:
-		writeError(w, http.StatusBadRequest, "that text contains a blocked word")
+		writeError(w, http.StatusBadRequest, "web.err.that_text_contains_a_blocked_word")
 		return
 	}
 	if pending, err := s.app.Store.PendingReminders(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	} else if len(pending) >= skills.MaxReminders {
-		writeError(w, http.StatusBadRequest, "there are already "+strconv.Itoa(skills.MaxReminders)+" reminders")
+		writeError(w, http.StatusBadRequest, "web.err.too_many_reminders", "max", strconv.Itoa(skills.MaxReminders))
 		return
 	}
 	id, err := s.app.Store.CreateReminder(r.Context(), text, due, "admin")
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, "reminder.created", strconv.FormatInt(id, 10), nil)
@@ -158,10 +158,10 @@ func (s *server) deleteReminder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.app.Store.CancelReminder(r.Context(), id); errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "no such reminder")
+		writeError(w, http.StatusNotFound, "web.err.no_such_reminder")
 		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, "reminder.cancelled", strconv.FormatInt(id, 10), nil)
@@ -179,15 +179,15 @@ func (s *server) putMusic(w http.ResponseWriter, r *http.Request) {
 	}
 	body.Dir = strings.TrimSpace(body.Dir)
 	if !dirRe.MatchString(body.Dir) || strings.Contains(body.Dir, "..") {
-		writeError(w, http.StatusBadRequest, "enter an absolute folder path such as /var/lib/milo/music")
+		writeError(w, http.StatusBadRequest, "web.err.enter_an_absolute_folder_path_such_as_var_li_2")
 		return
 	}
 	if info, err := os.Stat(body.Dir); err != nil || !info.IsDir() {
-		writeError(w, http.StatusBadRequest, "that folder does not exist on the device")
+		writeError(w, http.StatusBadRequest, "web.err.that_folder_does_not_exist_on_the_device")
 		return
 	}
 	if err := s.app.Store.SetSetting(r.Context(), "music.dir", body.Dir); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, "music.folder_changed", body.Dir, nil)
@@ -237,7 +237,7 @@ func (s *server) putWeather(w http.ResponseWriter, r *http.Request) {
 	}
 	body.Place = strings.TrimSpace(body.Place)
 	if body.Units != "celsius" && body.Units != "fahrenheit" || len([]rune(body.Place)) > 80 {
-		writeError(w, http.StatusBadRequest, "units must be celsius or fahrenheit and the place at most 80 characters")
+		writeError(w, http.StatusBadRequest, "web.err.units_must_be_celsius_or_fahrenheit_and_the")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
@@ -271,11 +271,11 @@ func (s *server) putCalendar(w http.ResponseWriter, r *http.Request) {
 	}
 	body.URL = strings.TrimSpace(body.URL)
 	if len(body.URL) > 500 || strings.ContainsAny(body.URL, " \t\r\n") || s.app.Calendar.CheckURL(body.URL) != nil {
-		writeError(w, http.StatusBadRequest, "enter the calendar's secret address; it must start with https://")
+		writeError(w, http.StatusBadRequest, "web.err.enter_the_calendar_s_secret_address_it_must")
 		return
 	}
 	if err := s.app.Vault.Put(r.Context(), skills.SecretCalendarURL, []byte(body.URL)); err != nil {
-		writeError(w, http.StatusInternalServerError, "could not store the address")
+		writeError(w, http.StatusInternalServerError, "web.err.could_not_store_the_address")
 		return
 	}
 	s.app.Calendar.Invalidate()

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/juancer/milo/internal/assistant"
+	"github.com/juancer/milo/internal/i18n"
 	"github.com/juancer/milo/internal/notifications"
 	"github.com/juancer/milo/internal/openrouter"
 	"github.com/juancer/milo/internal/permissions"
@@ -47,12 +48,14 @@ func (b backends) STT(ctx context.Context, s store.GPTSettings) (speech.STT, err
 	}
 	key, err := b.key(ctx, SecretSTTKey)
 	if err != nil {
-		return nil, fmt.Errorf("%w: add the speech-to-text API key in the Assistant tab", err)
+		return nil, fmt.Errorf("%w: add the speech-to-text API key under Assistant in the admin", err)
 	}
 	return speech.NewOpenAICompatSTT(s.STTBaseURL, key, s.STTModel), nil
 }
 
 func (b backends) TTS(ctx context.Context, s store.GPTSettings) (speech.TTS, error) {
+	// No hardcoded language or voice: everything comes from the settings.
+	opts := speech.TTSOptions{Language: s.SpeechLanguage(), Voice: s.TTSVoice, Speed: s.TTSSpeed, Volume: s.TTSVolume}
 	if b.a.Cfg.Hardware == "mock" {
 		return speech.MockTTS{}, nil
 	}
@@ -62,11 +65,15 @@ func (b backends) TTS(ctx context.Context, s store.GPTSettings) (speech.TTS, err
 	case "cloud":
 		key, err := b.key(ctx, SecretTTSKey)
 		if err != nil {
-			return nil, fmt.Errorf("%w: add the text-to-speech API key in the Assistant tab", err)
+			return nil, fmt.Errorf("%w: add the text-to-speech API key under Assistant in the admin", err)
 		}
-		return speech.NewOpenAICompatTTS(s.TTSBaseURL, key, s.TTSModel, s.TTSVoice), nil
+		return speech.NewOpenAICompatTTS(s.TTSBaseURL, key, s.TTSModel, s.TTSVoice).WithOptions(opts), nil
 	}
-	return speech.NewPiper(b.a.Setting(ctx, "tts.piper_binary", "piper"), s.TTSModelPath)
+	p, err := speech.NewPiper(b.a.Setting(ctx, "tts.piper_binary", "piper"), s.TTSModelPath)
+	if err != nil {
+		return nil, err
+	}
+	return p.WithOptions(opts), nil
 }
 
 func (a *App) initAssistant() {
@@ -87,14 +94,13 @@ func (a *App) alertParents(ctx context.Context, quote string) {
 	if err != nil {
 		return
 	}
-	msg := fmt.Sprintf("💛 Milo noticed something that may need your attention. The child said: “%s”. "+
-		"Milo answered kindly and suggested talking to a trusted adult. You can review conversations in the admin under Assistant.", quote)
 	sent := 0
 	for _, u := range users {
 		if !u.Active || u.TelegramID == 0 || (u.Role != string(permissions.RoleOwner) && u.Role != string(permissions.RoleParent)) {
 			continue
 		}
-		a.Telegram.SendText(u.TelegramID, msg)
+		lang := i18n.ForUser(ctx, a.Store, u.Language)
+		a.Telegram.SendText(u.TelegramID, i18n.Tf(lang, "assistant.concern_alert", "quote", quote))
 		sent++
 	}
 	a.Audit.Record(ctx, "assistant", "concern.detected", "", map[string]string{"parents_alerted": fmt.Sprint(sent)})

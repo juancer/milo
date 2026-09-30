@@ -27,6 +27,7 @@ type Bubble struct {
 	Kind     string     `json:"kind"` // "text" or "voice"
 	Text     string     `json:"text,omitempty"`
 	Audio    []byte     `json:"-"`
+	Caption  string     `json:"caption,omitempty"`
 	Seconds  int        `json:"seconds,omitempty"`
 	Buttons  [][]Button `json:"buttons,omitempty"`
 	At       time.Time  `json:"at"`
@@ -216,6 +217,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.sendMessage(w, r)
 	case "sendVoice":
 		s.sendVoice(w, r)
+	case "editMessageText":
+		s.editMessage(w, r)
 	case "answerCallbackQuery":
 		var p struct {
 			Text string `json:"text"`
@@ -350,9 +353,46 @@ func (s *Server) sendVoice(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	id := s.nextMsg
 	s.nextMsg++
-	s.convo[chatID] = append(s.convo[chatID], Bubble{ID: id, From: "bot", Kind: "voice", Audio: audio, Seconds: secs, At: time.Now()})
+	s.convo[chatID] = append(s.convo[chatID], Bubble{ID: id, From: "bot", Kind: "voice", Audio: audio, Seconds: secs, Caption: r.FormValue("caption"), At: time.Now()})
 	s.mu.Unlock()
 	reply(w, map[string]any{"message_id": id, "chat": map[string]any{"id": chatID}})
+}
+
+// editMessage replaces the text and buttons of an earlier bot bubble, like editMessageText.
+func (s *Server) editMessage(w http.ResponseWriter, r *http.Request) {
+	var p struct {
+		ChatID      int64  `json:"chat_id"`
+		MessageID   int64  `json:"message_id"`
+		Text        string `json:"text"`
+		ReplyMarkup struct {
+			Inline [][]struct {
+				Text string `json:"text"`
+				Data string `json:"callback_data"`
+			} `json:"inline_keyboard"`
+		} `json:"reply_markup"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil || p.ChatID == 0 || p.Text == "" {
+		fail(w, 400, "Bad Request: chat_id, message_id and text are required")
+		return
+	}
+	var kb [][]Button
+	for _, row := range p.ReplyMarkup.Inline {
+		var out []Button
+		for _, b := range row {
+			out = append(out, Button{Text: b.Text, Data: b.Data})
+		}
+		kb = append(kb, out)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.convo[p.ChatID] {
+		if b := &s.convo[p.ChatID][i]; b.ID == p.MessageID && b.From == "bot" && b.Kind == "text" {
+			b.Text, b.Buttons = p.Text, kb
+			reply(w, map[string]any{"message_id": p.MessageID, "chat": map[string]any{"id": p.ChatID}})
+			return
+		}
+	}
+	fail(w, 400, "Bad Request: message to edit not found")
 }
 
 func reply(w http.ResponseWriter, result any) {

@@ -65,30 +65,31 @@ func NewAccounts(s *store.Store) *Accounts {
 	return &Accounts{store: s, dummyHash: h, now: time.Now}
 }
 
-// FirstAdminUsername is the name of the account created at first start.
-const FirstAdminUsername = "admin"
+// ErrSetupDone is returned by Setup once an administrator exists.
+var ErrSetupDone = errors.New("setup is already done")
 
-// EnsureFirstAdmin creates the owner account with a generated password if no
-// admin exists yet. The password is returned once so the caller can show it to
-// the person installing the device; it is never stored or logged. The account
-// must change it at first sign-in.
-func (a *Accounts) EnsureFirstAdmin(ctx context.Context) (created bool, username, password string, err error) {
-	admins, err := a.store.ListAdmins(ctx)
-	if err != nil || len(admins) > 0 {
-		return false, "", "", err
+// Setup creates the owner account chosen by the person doing the first-run setup in the
+// browser. It succeeds only while no administrator exists, atomically.
+func (a *Accounts) Setup(ctx context.Context, username, password string) (store.AdminUser, error) {
+	username = strings.ToLower(strings.TrimSpace(username))
+	if err := ValidateUsername(username); err != nil {
+		return store.AdminUser{}, err
 	}
-	password, err = GeneratePassword()
+	if err := ValidatePassword(password); err != nil {
+		return store.AdminUser{}, err
+	}
+	hash, err := HashPasswordContext(ctx, password)
 	if err != nil {
-		return false, "", "", err
+		return store.AdminUser{}, err
 	}
-	hash, err := HashPassword(password)
+	id, err := a.store.CreateFirstOwner(ctx, username, hash)
+	if errors.Is(err, store.ErrAdminExists) {
+		return store.AdminUser{}, ErrSetupDone
+	}
 	if err != nil {
-		return false, "", "", err
+		return store.AdminUser{}, err
 	}
-	if _, err := a.store.CreateAdmin(ctx, FirstAdminUsername, hash, true, true); err != nil {
-		return false, "", "", err
-	}
-	return true, FirstAdminUsername, password, nil
+	return a.store.GetAdmin(ctx, id)
 }
 
 // Authenticate checks a username and password.

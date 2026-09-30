@@ -34,8 +34,8 @@ func (s *Store) CreateTelegramUser(ctx context.Context, displayName, role string
 func (s *Store) GetUserByTelegramID(ctx context.Context, telegramID int64) (User, error) {
 	var u User
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, display_name, role, active FROM users WHERE telegram_id = ?`, telegramID).
-		Scan(&u.ID, &u.DisplayName, &u.Role, &u.Active)
+		`SELECT id, display_name, role, active, language, forward_incoming, device_alerts FROM users WHERE telegram_id = ?`, telegramID).
+		Scan(&u.ID, &u.DisplayName, &u.Role, &u.Active, &u.Language, &u.ForwardIncoming, &u.DeviceAlerts)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
@@ -47,7 +47,7 @@ func (s *Store) GetUserByTelegramID(ctx context.Context, telegramID int64) (User
 
 // ListTelegramUsers returns all users with their Telegram identity.
 func (s *Store) ListTelegramUsers(ctx context.Context) ([]TelegramUser, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, display_name, role, active, COALESCE(telegram_id, 0), telegram_username
+	rows, err := s.db.QueryContext(ctx, `SELECT id, display_name, role, active, language, forward_incoming, device_alerts, COALESCE(telegram_id, 0), telegram_username
 		FROM users ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list users: %w", err)
@@ -56,7 +56,7 @@ func (s *Store) ListTelegramUsers(ctx context.Context) ([]TelegramUser, error) {
 	var out []TelegramUser
 	for rows.Next() {
 		var u TelegramUser
-		if err := rows.Scan(&u.ID, &u.DisplayName, &u.Role, &u.Active, &u.TelegramID, &u.TelegramUsername); err != nil {
+		if err := rows.Scan(&u.ID, &u.DisplayName, &u.Role, &u.Active, &u.Language, &u.ForwardIncoming, &u.DeviceAlerts, &u.TelegramID, &u.TelegramUsername); err != nil {
 			return nil, err
 		}
 		out = append(out, u)

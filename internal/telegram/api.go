@@ -209,11 +209,28 @@ func (c *Client) AnswerCallback(ctx context.Context, id, text string) error {
 	return c.call(ctx, "answerCallbackQuery", map[string]any{"callback_query_id": id, "text": text}, nil)
 }
 
+// EditMessage replaces the text and keyboard of a message the bot sent earlier.
+func (c *Client) EditMessage(ctx context.Context, chatID, messageID int64, text string, kb Keyboard) error {
+	params := map[string]any{"chat_id": chatID, "message_id": messageID, "text": text}
+	if len(kb) > 0 {
+		params["reply_markup"] = map[string]any{"inline_keyboard": kb}
+	}
+	return c.call(ctx, "editMessageText", params, nil)
+}
+
 // SendVoice uploads an OGG/Opus voice note.
 func (c *Client) SendVoice(ctx context.Context, chatID int64, ogg []byte, durationSec int) (int64, error) {
+	return c.SendVoiceCaption(ctx, chatID, ogg, durationSec, "")
+}
+
+// SendVoiceCaption uploads an OGG/Opus voice note with a short caption.
+func (c *Client) SendVoiceCaption(ctx context.Context, chatID int64, ogg []byte, durationSec int, caption string) (int64, error) {
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	mw.WriteField("chat_id", fmt.Sprint(chatID))
+	if caption != "" {
+		mw.WriteField("caption", caption)
+	}
 	if durationSec > 0 {
 		mw.WriteField("duration", fmt.Sprint(durationSec))
 	}

@@ -13,22 +13,33 @@ import (
 func (a *App) registerCoreActions() {
 	lo, hi := actions.Range(0, 100)
 	dlo, dhi := actions.Range(-100, 100)
+	tlo, thi := actions.Range(0, 10)
 	all := actions.ExposeDevice | actions.ExposeAssistant | actions.ExposeTelegram
 
 	a.Actions.MustRegister(actions.Action{
 		Name:        "set_volume",
-		Description: "Set the speaker volume (level 0-100) or change it by an amount (change -100..100).",
+		Description: "Set the speaker volume or change it by an amount. People say volume either as a percentage (level 0-100) or as a number from 0 to 10 (level_10): \"volume 7\" is level_10 7, \"volume 70 percent\" is level 70. Or use change (-100..100).",
 		Exposure:    all,
 		Params: []actions.Param{
 			{Name: "level", Description: "Absolute volume, 0 to 100", Type: actions.Integer, Min: lo, Max: hi},
+			{Name: "level_10", Description: "Absolute volume on a 0 to 10 scale: 7 means 70 percent", Type: actions.Integer, Min: tlo, Max: thi},
 			{Name: "change", Description: "Relative change, for example 10 or -10", Type: actions.Integer, Min: dlo, Max: dhi},
 		},
 		Handler: func(ctx context.Context, c actions.Call) (actions.Result, error) {
-			if c.Args.Has("level") == c.Args.Has("change") {
-				return actions.Result{}, fmt.Errorf("%w: give exactly one of level or change", actions.ErrInvalidParams)
+			given := 0
+			for _, k := range []string{"level", "level_10", "change"} {
+				if c.Args.Has(k) {
+					given++
+				}
+			}
+			if given != 1 {
+				return actions.Result{}, fmt.Errorf("%w: give exactly one of level, level_10 or change", actions.ErrInvalidParams)
 			}
 			level := c.Args.Int("level")
-			if c.Args.Has("change") {
+			switch {
+			case c.Args.Has("level_10"):
+				level = c.Args.Int("level_10") * 10
+			case c.Args.Has("change"):
 				level = a.Audio.Status(ctx).Volume + c.Args.Int("change")
 			}
 			level = max(0, min(100, level))

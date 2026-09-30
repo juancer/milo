@@ -14,14 +14,10 @@ import (
 )
 
 const (
-	maxTextLen        = 1000
-	maxRecording      = 60 * time.Second
-	minRecording      = 600 * time.Millisecond
-	maxReadAtOnce     = 10
-	deliveredMsg      = "Delivered ✓"
-	deliveredLaterMsg = "Delivered ✓ It will be heard when the device is available again."
-	tooManyWaitingMsg = "Not delivered: too many of your messages are still waiting to be heard."
-
+	maxTextLen    = 1000
+	maxRecording  = 60 * time.Second
+	minRecording  = 600 * time.Millisecond
+	maxReadAtOnce = 10
 	// MaxPendingPerSender bounds the unheard messages one person can leave, so a single
 	// account cannot fill the device's storage. Emergency follow-ups are not counted.
 	MaxPendingPerSender = 50
@@ -36,7 +32,6 @@ const (
 	// so an outage or a disabled feature cannot grow the queue without limit.
 	MaxQueuedPerChat = 100
 	MaxQueuedTotal   = 500
-	notQueuedMsg     = "Not queued: too many messages are still waiting to be sent."
 
 	// maxPlayAttempts is how often a voice message that cannot be decoded is retried. After
 	// that it is marked failed, so one bad recording cannot hold back the messages behind it.
@@ -119,6 +114,7 @@ func (s *Service) RegisterActions(e *actions.Engine) {
 // ---------------------------------------------------------------- deliver
 
 func (s *Service) deliverMessage(ctx context.Context, c actions.Call) (actions.Result, error) {
+	lang := s.langForID(ctx, c.Actor.UserID)
 	kind := c.Args.String("kind")
 	text := strings.TrimSpace(c.Args.String("text"))
 	audioData := c.Args.Bytes("audio")
@@ -133,16 +129,17 @@ func (s *Service) deliverMessage(ctx context.Context, c actions.Call) (actions.R
 		msg.Type, msg.Priority = "emergency", "critical"
 	}
 	if s.senderAtCeiling(ctx, c.Actor.UserID, msg.Priority == "critical") {
-		return actions.Result{Message: tooManyWaitingMsg}, nil
+		return actions.Result{Message: tr(lang, "telegram.too_many_waiting")}, nil
 	}
 	id, err := s.Store.InsertMessage(ctx, msg)
 	if err != nil {
 		return actions.Result{}, err
 	}
+	s.forwardCopies(c.Actor.UserID, kind, text, audioData) // opt-in copies to administrators, off the delivery path
 	if s.announce(ctx, id, false) {
-		return actions.Result{Message: deliveredMsg}, nil
+		return actions.Result{Message: tr(lang, "telegram.delivered")}, nil
 	}
-	return actions.Result{Message: deliveredLaterMsg}, nil
+	return actions.Result{Message: tr(lang, "telegram.delivered_later")}, nil
 }
 
 // senderAtCeiling reports whether the sender already has as many unheard messages
@@ -489,7 +486,7 @@ func (s *Service) sendMessage(ctx context.Context, c actions.Call) (actions.Resu
 				return actions.Result{}, fmt.Errorf("%w: text is empty", actions.ErrInvalidParams)
 			}
 			if s.outboxFull(ctx, ch.ID) {
-				return actions.Result{Message: notQueuedMsg}, nil
+				return actions.Result{Message: tr(s.langForID(ctx, c.Actor.UserID), "telegram.not_queued")}, nil
 			}
 			if _, err := s.Store.InsertMessage(ctx, store.Message{Direction: "out", Kind: "text", ChatID: ch.ID, Body: text}); err != nil {
 				return actions.Result{}, err

@@ -111,16 +111,19 @@ func devSeed(ctx context.Context, cfg system.Config) error {
 	}
 
 	family := []struct {
-		name, role string
-		tg         int64
+		name, role, language string // language "" follows the notification language
+		tg                   int64
 	}{
-		{"Dad", "PARENT", 1001},
-		{"Mum", "PARENT", 1002},
-		{"Grandma", "FAMILY", 1003},
+		{"Dad", "PARENT", "en", 1001},
+		{"Mum", "PARENT", "es", 1002},
+		{"Grandma", "FAMILY", "", 1003},
 	}
 	for _, f := range family {
 		uid, err := st.CreateTelegramUser(ctx, f.name, f.role, f.tg, f.name+"_demo")
 		if err != nil {
+			return err
+		}
+		if err := st.SetUserLanguage(ctx, uid, f.language); err != nil {
 			return err
 		}
 		if _, err := st.CreateChat(ctx, store.Chat{Name: f.name, Kind: "user", UserID: uid, TelegramChatID: f.tg,

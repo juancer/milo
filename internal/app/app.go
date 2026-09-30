@@ -250,9 +250,11 @@ func (a *App) initTelegram(ctx context.Context) error {
 	a.Telegram = telegram.New(telegram.Deps{
 		Store: a.Store, Vault: a.Vault, Audio: a.Audio, Codec: codec, Notify: a.Notifier,
 		Actions: a.Actions, Perms: a.Perms, Audit: a.Audit, Log: a.Log, BaseURL: a.Cfg.TelegramAPIURL,
+		Features: a.Features, Schedules: a.Schedules,
 		Speak: a.Assistant.Speak,
 	})
 	a.Telegram.SetSchedules(a.Schedules)
+	a.Features.SetFailureHook(a.Telegram.FeatureFailed)
 	a.Telegram.RegisterActions(a.Actions)
 	if err := a.Features.Register(ctx, a.Telegram); err != nil {
 		return err

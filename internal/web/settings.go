@@ -28,16 +28,16 @@ func (s *server) putNotifications(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if d.NewMessageSound == nil || d.EmergencySound == nil || d.NotifyPendingAfter == nil || d.Volume == nil {
-		writeError(w, http.StatusBadRequest, "send all four notification settings")
+		writeError(w, http.StatusBadRequest, "web.err.send_all_four_notification_settings")
 		return
 	}
 	c := notifications.Config{NewMessageSound: *d.NewMessageSound, EmergencySound: *d.EmergencySound, NotifyPendingAfter: *d.NotifyPendingAfter, Volume: *d.Volume}
 	if c.Volume < 0 || c.Volume > 100 {
-		writeError(w, http.StatusBadRequest, "volume must be 0-100")
+		writeError(w, http.StatusBadRequest, "web.err.volume_must_be_0_100")
 		return
 	}
 	if err := notifications.Save(r.Context(), s.app.Store, c); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
 		return
 	}
 	s.audit(r, "settings.notifications", "", nil)

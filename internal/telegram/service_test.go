@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -43,6 +45,7 @@ type harness struct {
 	ctx  context.Context
 
 	downloads atomic.Int32 // getFile requests seen by the fake API
+	failChat  atomic.Int64 // when set, every API call addressed to this chat id fails
 }
 
 func newHarness(t *testing.T, withToken bool) *harness {
@@ -54,6 +57,14 @@ func newHarness(t *testing.T, withToken bool) *harness {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/getFile") {
 			h.downloads.Add(1)
+		}
+		if id := h.failChat.Load(); id != 0 {
+			body, _ := io.ReadAll(r.Body)
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			if bytes.Contains(body, []byte(fmt.Sprintf(`"chat_id":%d`, id))) || bytes.Contains(body, []byte(fmt.Sprintf("name=\"chat_id\"\r\n\r\n%d\r\n", id))) {
+				http.Error(w, "simulated failure", http.StatusInternalServerError)
+				return
+			}
 		}
 		fake.ServeHTTP(w, r)
 	}))
