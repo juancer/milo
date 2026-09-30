@@ -1,5 +1,8 @@
+import { actions, card, checkbox, formCard, note, submit, toggle } from "../../components/ui";
+import { t } from "../../i18n";
 import { api, type Status } from "../api";
-import { clear, errorMessage, h, toast } from "../dom";
+import { clear, h } from "../dom";
+import { guard } from "../ui";
 
 interface Notif {
   new_message_sound_enabled: boolean;
@@ -8,43 +11,40 @@ interface Notif {
   volume: number;
 }
 
+/** The same volume as a percentage and on the 0-10 scale people say aloud ("volume 7"). */
+function volumeText(percent: number): string {
+  return `${percent}% · ${Math.round(percent / 10)}/10`;
+}
+
 export async function render(root: HTMLElement): Promise<void> {
   const [cfg, status] = await Promise.all([api<Notif>("GET", "/api/settings/notifications"), api<Status>("GET", "/api/status")]);
   clear(root);
 
-  const msg = h("input", { type: "checkbox", checked: cfg.new_message_sound_enabled });
-  const emg = h("input", { type: "checkbox", checked: cfg.emergency_sound_enabled });
-  const after = h("input", { type: "checkbox", checked: cfg.notify_pending_after_schedule });
-  const vol = h("input", { type: "range", min: "0", max: "100", value: String(cfg.volume), ariaLabel: "Notification volume" });
-  const volLabel = h("span", {}, `${cfg.volume}%`);
-  vol.addEventListener("input", () => (volLabel.textContent = `${vol.value}%`));
+  const msg = checkbox(cfg.new_message_sound_enabled);
+  const emg = checkbox(cfg.emergency_sound_enabled);
+  const after = checkbox(cfg.notify_pending_after_schedule);
+  const vol = h("input", { type: "range", min: "0", max: "100", value: String(cfg.volume), ariaLabel: t("sound.volume") });
+  const volLabel = h("span", {}, volumeText(cfg.volume));
+  vol.addEventListener("input", () => (volLabel.textContent = volumeText(Number(vol.value))));
 
   root.append(
-    h("section", { class: "card" }, h("h2", {}, "Audio"),
-      h("p", {}, `Backend: ${status.audio.backend} · ${status.audio.available ? "available" : "unavailable"} · speaker volume ${status.audio.volume}%`),
-      status.audio.detail ? h("p", { class: "muted" }, status.audio.detail) : null,
-      h("p", { class: "muted" }, "Speaker volume is changed with the volume buttons (set_volume action) or by voice. Test the hardware on the device with: milo test-audio")),
-    h("form", {
-      class: "card",
-      onsubmit: async (ev: Event) => {
-        ev.preventDefault();
-        try {
-          await api("PUT", "/api/settings/notifications", {
-            new_message_sound_enabled: msg.checked, emergency_sound_enabled: emg.checked,
-            notify_pending_after_schedule: after.checked, volume: Number(vol.value),
-          });
-          toast("Saved");
-        } catch (e) {
-          toast(errorMessage(e), true);
-        }
-      },
+    card(t("sound.audio"),
+      h("p", {}, t("sound.backend", { backend: status.audio.backend, state: status.audio.available ? t("sound.available") : t("sound.unavailable"), volume: status.audio.volume })),
+      status.audio.detail ? note(status.audio.detail) : null,
+      note(t("sound.help"))),
+    formCard(async (ev) => {
+      ev.preventDefault();
+      await guard(() => api("PUT", "/api/settings/notifications", {
+        new_message_sound_enabled: msg.checked, emergency_sound_enabled: emg.checked,
+        notify_pending_after_schedule: after.checked, volume: Number(vol.value),
+      }), "common.saved");
     },
-      h("h2", {}, "Notification sounds"),
-      h("p", { class: "muted" }, "Sounds never reveal who wrote or what. A short “piii” means a message is waiting; three long tones mean an emergency."),
-      h("label", { class: "check" }, msg, " Play a sound for new messages"),
-      h("label", { class: "check" }, emg, " Play the emergency sound"),
-      h("label", { class: "check" }, after, " Announce messages that arrived outside usage hours when hours begin"),
-      h("label", { class: "field" }, h("span", {}, "Notification volume ", volLabel), vol),
-      h("div", { class: "actions" }, h("button", { type: "submit" }, "Save"))),
+      h("h2", {}, t("sound.notifications")),
+      note(t("sound.notificationsHelp")),
+      toggle(t("sound.newMessage"), msg),
+      toggle(t("sound.emergency"), emg),
+      toggle(t("sound.afterHours"), after),
+      h("label", { class: "field" }, h("span", {}, t("sound.volumeLabel"), " ", volLabel), vol),
+      actions(submit(t("common.save")))),
   );
 }

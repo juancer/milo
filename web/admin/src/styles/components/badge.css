@@ -1,0 +1,12 @@
+.badge {
+  display: inline-block;
+  padding: 0.1rem var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line);
+  font-size: 0.75rem;
+}
+
+.badge.warn {
+  border-color: var(--danger);
+  color: var(--danger);
+}

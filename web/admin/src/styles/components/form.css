@@ -1,0 +1,75 @@
+label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.field {
+  display: grid;
+  gap: var(--space-1);
+  font-size: 0.85rem;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+}
+
+input[type="text"],
+input[type="number"],
+input[type="time"],
+input[type="url"],
+input[type="search"],
+input[type="password"],
+input[type="datetime-local"],
+select,
+textarea {
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  max-width: 100%;
+}
+
+input[type="password"] {
+  min-width: 16rem;
+}
+
+input[type="number"] {
+  width: 6rem;
+}
+
+input[type="time"] {
+  width: 8rem;
+}
+
+input[type="range"] {
+  width: min(24rem, 100%);
+}
+
+textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+/* Inside a narrow card (sign-in) inputs fill the width. */
+.narrow input {
+  width: 100%;
+  min-width: 0;
+  margin-bottom: var(--space-2);
+}
+
+/* The username shown to a new owner: big and copyable. */
+.username-callout {
+  font-size: var(--text-xl, 1.5rem);
+  font-weight: 600;
+  padding: var(--space-3, 0.75rem) var(--space-4, 1rem);
+  border-radius: var(--radius-md, 10px);
+  background: var(--surface-2, rgba(127, 127, 127, 0.12));
+  text-align: center;
+  user-select: all;
+}

@@ -1,5 +1,9 @@
+import { actions, button, card, field, fields, formCard, checkbox, note, select, submit, toggle } from "../../components/ui";
+import { t } from "../../i18n";
 import { api } from "../api";
-import { clear, confirmTwice, errorMessage, field, h, toast } from "../dom";
+import { clear, h } from "../dom";
+import { loadLocales } from "../locales";
+import { changeLocale, confirmTwice, guard, toast } from "../ui";
 
 interface System {
   device_name: string;
@@ -10,66 +14,77 @@ interface System {
   double_press_ms: number;
   audio: { capture_device: string; playback_device: string; mixer_card: string; mixer_control: string };
 }
+interface Language {
+  interface_language: string;
+  notification_language: string;
+}
 
 export async function render(root: HTMLElement): Promise<void> {
-  const [s, logs] = await Promise.all([api<System>("GET", "/api/system"), api<{ lines: string[] }>("GET", "/api/logs")]);
+  const [s, logs, lang, locales] = await Promise.all([
+    api<System>("GET", "/api/system"),
+    api<{ lines: string[] }>("GET", "/api/logs"),
+    api<Language>("GET", "/api/settings/language"),
+    loadLocales(),
+  ]);
   clear(root);
-  const f = {
-    name: h("input", { type: "text", value: s.device_name, maxLength: 40, required: true, ariaLabel: "Device name" }),
-    retention: h("input", { type: "number", value: String(s.message_retention_days), min: "0", max: "365", ariaLabel: "Message retention days" }),
-    announce: h("input", { type: "checkbox", checked: s.announce_sender }),
-    long: h("input", { type: "number", value: String(s.long_press_ms), min: "300", max: "3000", ariaLabel: "Long press ms" }),
-    dbl: h("input", { type: "number", value: String(s.double_press_ms), min: "150", max: "1000", ariaLabel: "Double press ms" }),
-    cap: h("input", { type: "text", value: s.audio.capture_device, ariaLabel: "Capture device" }),
-    play: h("input", { type: "text", value: s.audio.playback_device, ariaLabel: "Playback device" }),
-    card: h("input", { type: "text", value: s.audio.mixer_card, ariaLabel: "Mixer card" }),
-    ctl: h("input", { type: "text", value: s.audio.mixer_control, ariaLabel: "Mixer control" }),
-  };
-  root.append(h("form", {
-    class: "card",
-    onsubmit: async (ev: Event) => {
-      ev.preventDefault();
-      try {
-        await api("PUT", "/api/system", {
-          device_name: f.name.value.trim(), timezone: s.timezone, message_retention_days: Number(f.retention.value),
-          announce_sender: f.announce.checked, long_press_ms: Number(f.long.value), double_press_ms: Number(f.dbl.value),
-          audio: { capture_device: f.cap.value.trim(), playback_device: f.play.value.trim(), mixer_card: f.card.value.trim(), mixer_control: f.ctl.value.trim() },
-        });
-        toast("Saved. Restart Milo to apply the button and audio settings.");
-      } catch (e) {
-        toast(errorMessage(e), true);
-      }
-    },
+
+  // ---- languages: separate settings (the assistant and voice languages are in the Assistant tab)
+  const options = locales.map((l): [string, string] => [l.code, l.name]);
+  const iface = select(t("system.interfaceLanguage"), options, lang.interface_language);
+  const notify = select(t("system.notificationLanguage"), options, lang.notification_language);
+  root.append(formCard(async (ev) => {
+    ev.preventDefault();
+    if (await guard(() => api("PUT", "/api/settings/language", { interface_language: iface.value, notification_language: notify.value }))) {
+      changeLocale(iface.value); // repaints the whole UI, including this view
+      toast(t("common.saved"));
+    }
   },
-    h("h2", {}, "Device"),
-    h("div", { class: "fields" }, field("Name", f.name), field("Timezone (change it in Schedules)", h("input", { type: "text", value: s.timezone, disabled: true }))),
-    h("h2", {}, "Messages"),
-    h("div", { class: "fields" }, field("Delete finished messages after (days, 0 = keep)", f.retention),
-      h("label", { class: "check" }, f.announce, " Say who a message is from before playing it")),
-    h("h2", {}, "Buttons"),
-    h("div", { class: "fields" }, field("Long press starts after (ms)", f.long), field("Double press window (ms)", f.dbl)),
-    h("h2", {}, "Audio devices"),
-    h("p", { class: "muted" }, "The defaults suit the Waveshare WM8960 HAT. List sound cards on the device with: aplay -l"),
-    h("div", { class: "fields" }, field("Microphone", f.cap), field("Speaker", f.play), field("Mixer card", f.card), field("Volume control", f.ctl)),
-    h("div", { class: "actions" }, h("button", { type: "submit" }, "Save"))));
+    h("h2", {}, t("system.languages")),
+    note(t("system.languagesHelp")),
+    fields(field(t("system.interfaceLanguage"), iface), field(t("system.notificationLanguage"), notify), submit(t("common.save")))));
 
-  root.append(h("section", { class: "card" }, h("h2", {}, "Restart"),
-    h("p", { class: "muted" }, "Restarts the Milo program (not the whole Raspberry Pi). It is back within a few seconds."),
-    h("div", { class: "actions" }, h("button", {
-      type: "button", class: "secondary",
-      onclick: async (ev: Event) => {
-        if (!confirmTwice(ev.currentTarget as HTMLButtonElement, "Restart Milo")) return;
-        try {
-          await api("POST", "/api/system/restart");
-          toast("Restarting… reload this page in a few seconds.");
-        } catch (e) {
-          toast(errorMessage(e), true);
-        }
+  const f = {
+    name: h("input", { type: "text", value: s.device_name, maxLength: 40, required: true, ariaLabel: t("system.deviceName") }),
+    retention: h("input", { type: "number", value: String(s.message_retention_days), min: "0", max: "365", ariaLabel: t("system.retentionDays") }),
+    announce: checkbox(s.announce_sender),
+    long: h("input", { type: "number", value: String(s.long_press_ms), min: "300", max: "3000", ariaLabel: t("system.longPress") }),
+    dbl: h("input", { type: "number", value: String(s.double_press_ms), min: "150", max: "1000", ariaLabel: t("system.doublePress") }),
+    cap: h("input", { type: "text", value: s.audio.capture_device, ariaLabel: t("system.captureDevice") }),
+    play: h("input", { type: "text", value: s.audio.playback_device, ariaLabel: t("system.playbackDevice") }),
+    card: h("input", { type: "text", value: s.audio.mixer_card, ariaLabel: t("system.mixerCard") }),
+    ctl: h("input", { type: "text", value: s.audio.mixer_control, ariaLabel: t("system.mixerControl") }),
+  };
+  root.append(formCard(async (ev) => {
+    ev.preventDefault();
+    await guard(() => api("PUT", "/api/system", {
+      device_name: f.name.value.trim(), timezone: s.timezone, message_retention_days: Number(f.retention.value),
+      announce_sender: f.announce.checked, long_press_ms: Number(f.long.value), double_press_ms: Number(f.dbl.value),
+      audio: { capture_device: f.cap.value.trim(), playback_device: f.play.value.trim(), mixer_card: f.card.value.trim(), mixer_control: f.ctl.value.trim() },
+    }), "system.saved");
+  },
+    h("h2", {}, t("system.device")),
+    fields(field(t("common.name"), f.name), field(t("system.timezoneField"), h("input", { type: "text", value: s.timezone, disabled: true }))),
+    h("h2", {}, t("system.messages")),
+    fields(field(t("system.retentionLabel"), f.retention), toggle(t("system.announceSender"), f.announce)),
+    h("h2", {}, t("system.buttons")),
+    fields(field(t("system.longLabel"), f.long), field(t("system.doubleLabel"), f.dbl)),
+    h("h2", {}, t("system.audioDevices")),
+    note(t("system.audioHelp")),
+    fields(field(t("system.microphone"), f.cap), field(t("system.speaker"), f.play), field(t("system.mixerCard"), f.card), field(t("system.volumeControl"), f.ctl)),
+    actions(submit(t("common.save")))));
+
+  root.append(card(t("system.restart"),
+    note(t("system.restartHelp")),
+    actions(button(t("system.restartButton"), {
+      variant: "secondary",
+      onclick: async (ev) => {
+        if (!confirmTwice(ev.currentTarget as HTMLButtonElement)) return;
+        await guard(() => api("POST", "/api/system/restart"), "system.restarting");
       },
-    }, "Restart Milo"))));
+    }))));
 
-  root.append(h("section", { class: "card" }, h("h2", {}, "Recent log"),
-    h("p", { class: "muted" }, "The latest events since Milo started. Secrets and message contents never appear here."),
-    h("pre", { class: "log" }, logs.lines.length ? logs.lines.join("\n") : "(empty)"),
-    h("div", { class: "actions" }, h("button", { type: "button", class: "secondary", onclick: () => render(root) }, "Refresh"))));
+  root.append(card(t("system.log"),
+    note(t("system.logHelp")),
+    h("pre", { class: "log" }, logs.lines.length ? logs.lines.join("\n") : t("system.logEmpty")),
+    actions(button(t("common.refresh"), { variant: "secondary", onclick: () => render(root) }))));
 }

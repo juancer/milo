@@ -1,0 +1,9 @@
+---
+import { t } from "../i18n";
+interface Props {
+  labelKey: string;
+  warn?: boolean;
+}
+const { labelKey, warn = false } = Astro.props;
+---
+<span class:list={["badge", { warn }]} data-i18n={labelKey}>{t(labelKey)}</span>

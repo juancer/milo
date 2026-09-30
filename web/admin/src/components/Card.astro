@@ -1,0 +1,7 @@
+---
+interface Props {
+  narrow?: boolean;
+}
+const { narrow = false } = Astro.props;
+---
+<section class:list={["card", { narrow }]}><slot /></section>

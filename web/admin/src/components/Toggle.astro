@@ -1,0 +1,10 @@
+---
+import { t } from "../i18n";
+interface Props {
+  id: string;
+  labelKey: string;
+  checked?: boolean;
+}
+const { id, labelKey, checked = false } = Astro.props;
+---
+<label class="check"><input id={id} type="checkbox" checked={checked} /> <span data-i18n={labelKey}>{t(labelKey)}</span></label>

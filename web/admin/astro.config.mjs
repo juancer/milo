@@ -11,7 +11,16 @@ export default defineConfig({
     build: { assetsInlineLimit: 0 },
     server: {
       proxy: {
-        "/api": apiTarget,
+        // The server refuses requests whose Origin differs from its Host. Behind this dev proxy the
+        // browser's Origin is the dev server's address, so it is rewritten to match the Host the proxy sends.
+        "/api": {
+          target: apiTarget,
+          configure: (proxy) => {
+            proxy.on("proxyReq", (req) => {
+              if (req.getHeader("origin")) req.setHeader("origin", `http://${req.getHeader("host")}`);
+            });
+          },
+        },
         "/health": apiTarget,
       },
     },

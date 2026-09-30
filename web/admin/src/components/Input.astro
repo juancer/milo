@@ -1,0 +1,14 @@
+---
+import { t } from "../i18n";
+interface Props {
+  id: string;
+  labelKey: string;
+  type?: string;
+  autocomplete?: string;
+  required?: boolean;
+  minlength?: number;
+}
+const { id, labelKey, type = "text", autocomplete, required = false, minlength } = Astro.props;
+---
+<label for={id} data-i18n={labelKey}>{t(labelKey)}</label>
+<input id={id} type={type} autocomplete={autocomplete} required={required} minlength={minlength} autocapitalize="none" />
