@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for a new Milo release
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target
