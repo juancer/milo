@@ -36,6 +36,25 @@ Wi-Fi is managed in the admin UI ([wifi.md](wifi.md)); it needs NetworkManager. 
 
 Logs: `journalctl -u milo -f` (the admin **System** tile shows the latest lines too). Service control: `milo start|stop|restart|status`.
 
+## Automatic updates
+
+Every push to `main` runs `.github/workflows/release.yml`, which tests, builds `arm64` and `armv7`
+binaries and republishes the rolling `latest` release. Devices pull it; nothing connects to them.
+On 32-bit Raspberry Pi OS the binary is `milo-linux-armv7` (`make build-armv7`).
+
+On the Pi (as root), once:
+
+```sh
+install -m 755 deploy/pi/milo-update.sh /usr/local/sbin/milo-update
+install -m 644 deploy/pi/milo-update.service deploy/pi/milo-update.timer /etc/systemd/system/
+install -m 600 /dev/null /etc/milo/update.env
+printf 'REPO=owner/milo\nGH_TOKEN=<fine-grained token, Contents: read-only on this repo>\n' > /etc/milo/update.env
+systemctl daemon-reload && systemctl enable --now milo-update.timer
+```
+
+It checks every 10 minutes, verifies the SHA-256, runs `milo install` (an idempotent upgrade that
+keeps the database and master key) and restarts the service. Logs: `journalctl -u milo-update`.
+
 ## Back up
 
 Use the **Backup** tile (or `milo backup FILE`): one encrypted file with the database and the master
