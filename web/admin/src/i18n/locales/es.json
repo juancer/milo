@@ -240,6 +240,7 @@
   "voices.fast": "rápida en este dispositivo",
   "voices.slow": "lenta en una Raspberry Pi 3",
   "voices.speakers": "{n} voces",
+  "voices.noneFast": "No hay voces rápidas para este idioma: se ocultan {n} más lentas porque tardarían varios segundos en responder en este dispositivo.",
   "voices.none": "No hay voces para este idioma.",
   "voices.piperMissing": "El motor de voz Piper (unos 25 MB) se descargará junto con tu primera voz.",
   "voices.downloadingPiper": "Descargando Piper…",
