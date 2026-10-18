@@ -5,6 +5,7 @@
 import type { IconName } from "../components/icons";
 import type { Tone } from "../components/tile";
 import * as admins from "./views/admins";
+import * as ai from "./views/ai";
 import * as assistant from "./views/assistant";
 import * as backup from "./views/backup";
 import * as buttons from "./views/buttons";
@@ -18,6 +19,7 @@ import * as spotify from "./views/spotify";
 import * as sound from "./views/sound";
 import * as system from "./views/system";
 import * as telegram from "./views/telegram";
+import * as voice from "./views/voice";
 import * as wakeword from "./views/wakeword";
 import * as wifi from "./views/wifi";
 
@@ -43,6 +45,8 @@ export const SECTIONS: Section[] = [
   { id: "people", group: "family", icon: "people", tone: "orange", render: people.render },
   { id: "chats", group: "family", icon: "chats", tone: "green", render: chats.render },
   { id: "schedules", group: "family", icon: "schedules", tone: "indigo", render: schedules.render },
+  { id: "ai", group: "assistant", icon: "ai", tone: "indigo", render: ai.render },
+  { id: "voice", group: "assistant", icon: "voice", tone: "teal", render: voice.render },
   { id: "assistant", group: "assistant", icon: "assistant", tone: "purple", render: assistant.render, features: ["assistant"] },
   { id: "wakeword", group: "assistant", icon: "wakeword", tone: "pink", render: wakeword.render, stop: wakeword.stop, features: ["wakeword"] },
   { id: "skills", group: "assistant", icon: "skills", tone: "orange", render: skills.render, stop: skills.stop, features: ["timer", "reminders", "weather", "music", "calendar"] },
