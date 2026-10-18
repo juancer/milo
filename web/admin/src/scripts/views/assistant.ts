@@ -1,7 +1,7 @@
 import { actions, badge, button, card, checkbox, emptyState, field, fields, formCard, list, note, row, select, submit, toggle } from "../../components/ui";
 import { getLocale, t, tOr } from "../../i18n";
 import { api } from "../api";
-import { clear, h, when } from "../dom";
+import { clear, errorMessage, h, when } from "../dom";
 import { AUTO, loadLocales } from "../locales";
 import { confirmDialog, guard, toast } from "../ui";
 
@@ -54,7 +54,13 @@ interface Conversation {
 
 interface VoiceRow { key: string; name: string; quality: string; language: string; country: string; speakers: number; size_bytes: number; installed: boolean; fast: boolean }
 interface VoiceJob { key: string; running: boolean; stage: string; done: number; total: number; error?: string }
-interface VoiceList { language: string; languages: { code: string; name: string }[]; voices: VoiceRow[]; current: string; piper_installed: boolean; job: VoiceJob }
+interface VoiceList { language: string; languages: { code: string; name: string }[]; voices: VoiceRow[]; current: string; in_use: { language: string; key: string }[]; piper_installed: boolean; job: VoiceJob }
+interface Similarity { source_f0: number; matches: { voice: VoiceRow; f0: number; diff_hz: number }[]; considered: number; analysed: number; capped: boolean; slower: number }
+
+/** "davefx" from "es_ES-davefx-medium". */
+const voiceName = (key: string): string => key.split("-").slice(1, -1).join("-") || key;
+/** The most demos one suggestion downloads; the server enforces the same cap. */
+const MAX_SUGGESTION_DEMOS = 12;
 
 const mb = (bytes: number): string => (bytes / 1048576).toFixed(bytes < 10485760 ? 1 : 0);
 
@@ -122,11 +128,14 @@ function voicesCard(initialLanguage?: string): HTMLElement {
       btn.addEventListener("click", () => toggleDemo(key, btn));
       return btn;
     };
-    const rows = data.voices.map((v) => row(
+    const langName = (code: string): string => data.languages.find((l) => l.code === code)?.name.split(" (")[0] ?? code;
+    const inUseKeys = new Set(data.in_use.map((u) => u.key));
+    /** One voice: a play/pause demo, and Use / Remove / Download and use. `extra` is a short note after the name. */
+    const renderRow = (v: VoiceRow, extra?: string): HTMLElement => row(
       h("span", {}, `${v.name} · ${v.country}`, " ", badge(v.quality), " ", v.fast ? badge(t("voices.fast")) : badge(t("voices.slow"), true),
-        h("span", { class: "muted" }, ` ${mb(v.size_bytes)} MB${v.speakers > 1 ? " · " + t("voices.speakers", { n: v.speakers }) : ""}`)),
+        h("span", { class: "muted" }, ` ${mb(v.size_bytes)} MB${v.speakers > 1 ? " · " + t("voices.speakers", { n: v.speakers }) : ""}${extra ? " · " + extra : ""}`)),
       demoButton(v.key),
-      v.key === data.current ? badge(t("voices.inUse"))
+      inUseKeys.has(v.key) ? badge(t("voices.inUse"))
         : v.installed ? actions(
           button(t("voices.use"), { onclick: async () => { if (await guard(() => api("POST", `/api/voices/${v.key}/use`), "voices.nowUsing")) await load(data.language); } }),
           button(t("voices.remove"), { variant: "danger", onclick: async () => { if (await guard(() => api("DELETE", `/api/voices/${v.key}`))) await load(data.language); } }))
@@ -135,10 +144,44 @@ function voicesCard(initialLanguage?: string): HTMLElement {
             onclick: async () => {
               if (await guard(() => api("POST", `/api/voices/${v.key}/install`, { use: true }))) await load(data.language);
             },
-          })));
+          }));
+    // Only voices that speak fast enough on a Raspberry Pi 3 are offered, plus any already installed or in use.
+    const usable = data.voices.filter((v) => v.fast || v.installed || inUseKeys.has(v.key));
+    const hidden = data.voices.length - usable.length;
+    const rows = usable.map((v) => renderRow(v));
+
+    // "Suggest a similar voice": for a voice already chosen in another language, the closest pitch in this one.
+    const suggestions = h("div", {});
+    const suggestButtons = data.in_use.filter((u) => u.language !== data.language).map((u) => {
+      const btn = button(t("voices.suggest", { name: voiceName(u.key), language: langName(data.language) }), { variant: "secondary" });
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        clear(suggestions);
+        suggestions.append(note(t("voices.suggesting", { n: MAX_SUGGESTION_DEMOS })));
+        try {
+          const res = await api<Similarity>("GET", `/api/voices/${encodeURIComponent(u.key)}/similar?lang=${encodeURIComponent(data.language)}`);
+          clear(suggestions);
+          suggestions.append(
+            res.matches.length > 0
+              ? list(...res.matches.map((m) => renderRow(m.voice, t("voices.pitchDiff", { hz: Math.round(m.diff_hz) }))))
+              : note(t("voices.suggestNone")),
+            note(t("voices.suggestNote")),
+            ...(res.capped ? [note(t("voices.suggestCapped", { n: res.analysed }))] : []),
+            ...(res.slower > 0 ? [note(t("voices.suggestSlower", { n: res.slower }))] : []));
+        } catch (e) {
+          clear(suggestions);
+          toast(errorMessage(e), true);
+        }
+        btn.disabled = false;
+      });
+      return btn;
+    });
+    const summary = data.in_use.map((u) => `${langName(u.language)}: ${voiceName(u.key)}`).join(" · ");
     clear(body);
-    body.append(field(t("voices.language"), langSelect), ...(data.piper_installed ? [] : [note(t("voices.piperMissing"))]), progress,
-      rows.length > 0 ? list(...rows) : emptyState(t("voices.none")));
+    body.append(field(t("voices.language"), langSelect), ...(summary ? [note(t("voices.inUseSummary", { list: summary }))] : []),
+      ...(data.piper_installed ? [] : [note(t("voices.piperMissing"))]), progress,
+      rows.length > 0 ? list(...rows) : emptyState(hidden > 0 ? t("voices.noneFast", { n: hidden }) : t("voices.none")),
+      ...(suggestButtons.length > 0 ? [actions(...suggestButtons), suggestions] : []));
     if (busy) {
       const tick = async (): Promise<void> => {
         if (!body.isConnected) return;
