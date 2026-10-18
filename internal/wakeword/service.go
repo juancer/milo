@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strconv"
 	"sync"
 	"time"
@@ -133,6 +134,7 @@ func (s *Service) prefilterOn(ctx context.Context) bool {
 }
 
 func (s *Service) recordScore(dist float64) {
+	s.Log.Info("wake word candidate", "distance", math.Round(dist*100)/100, "threshold", math.Round(s.thresh*100)/100) // no audio, only how close it was
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.scores = append(s.scores, Score{At: s.now(), Distance: dist})
@@ -270,6 +272,9 @@ func (s *Service) fire(ctx context.Context) {
 	s.Log.Info("wake word heard")
 	go func() {
 		defer s.recoverPanic("wake word fire")
+		// A loud chirp first, so the person knows they were heard. It finishes before the
+		// assistant starts recording, so the microphone does not pick it up.
+		s.Audio.PlayNotification(ctx, audio.NotifyWake, 100) //nolint:errcheck // a missing chirp is not worth failing for
 		actor := actions.Actor{Kind: actions.ActorDevice, Label: "wake word"}
 		if _, err := s.Actions.Execute(ctx, actor, "gpt", nil); err != nil && ctx.Err() == nil {
 			s.Log.Info("wake word could not start the assistant", "reason", err.Error())

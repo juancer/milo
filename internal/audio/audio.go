@@ -21,6 +21,7 @@ type Notification string
 const (
 	NotifyMessage     Notification = "message"      // short "piii"
 	NotifyEmergency   Notification = "emergency"    // PIII - PIII - PIII
+	NotifyWake        Notification = "wake"         // loud rising chirp: the wake word was heard
 	NotifyRecordStart Notification = "record_start" // rising blip
 	NotifyRecordStop  Notification = "record_stop"  // falling blip
 	NotifyOK          Notification = "ok"

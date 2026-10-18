@@ -11,6 +11,12 @@ type beep struct {
 	dur  time.Duration
 }
 
+// defaultAmplitude is the level of a tone as a fraction of full scale; loudAmplitude lists the
+// sounds that must cut through a small speaker (and a noisy room) at nearly full scale.
+const defaultAmplitude = 0.45
+
+var loudAmplitude = map[Notification]float64{NotifyWake: 0.95}
+
 var sounds = map[Notification][]beep{
 	NotifyMessage: {{880, 180 * time.Millisecond}},
 	NotifyEmergency: {
@@ -18,6 +24,8 @@ var sounds = map[Notification][]beep{
 		{1200, 450 * time.Millisecond}, {0, 200 * time.Millisecond},
 		{1200, 450 * time.Millisecond},
 	},
+	// The wake word was heard: higher, because small speakers are weak below 500 Hz.
+	NotifyWake:        {{1400, 90 * time.Millisecond}, {2000, 90 * time.Millisecond}, {2600, 160 * time.Millisecond}},
 	NotifyRecordStart: {{660, 80 * time.Millisecond}, {880, 120 * time.Millisecond}},
 	NotifyRecordStop:  {{880, 80 * time.Millisecond}, {660, 120 * time.Millisecond}},
 	NotifyOK:          {{784, 90 * time.Millisecond}, {0, 40 * time.Millisecond}, {988, 130 * time.Millisecond}},
@@ -39,24 +47,27 @@ func NotificationWAV(n Notification) []byte {
 	}
 	var pcm []byte
 	for _, b := range seq {
-		pcm = append(pcm, synth(b.freq, b.dur)...)
+		pcm = append(pcm, synth(b.freq, b.dur, loudAmplitude[n])...)
 	}
 	return EncodeWAV(pcm, SampleRate)
 }
 
 // Tone returns 16-bit mono PCM for a sine tone of the given frequency (0 = silence).
-func Tone(freq float64, d time.Duration) []byte { return synth(freq, d) }
+func Tone(freq float64, d time.Duration) []byte { return synth(freq, d, 0) }
 
 // synth renders a sine tone with short fades so it does not click.
-func synth(freq float64, d time.Duration) []byte {
+func synth(freq float64, d time.Duration, amplitude float64) []byte {
 	n := int(d.Seconds() * SampleRate)
 	out := make([]byte, n*2)
+	if amplitude == 0 {
+		amplitude = defaultAmplitude
+	}
 	if freq == 0 {
 		return out
 	}
 	fade := SampleRate / 200 // 5 ms
 	for i := 0; i < n; i++ {
-		amp := 0.45
+		amp := amplitude
 		if i < fade {
 			amp *= float64(i) / float64(fade)
 		} else if n-i < fade {
@@ -92,8 +103,8 @@ func Blips(n int) []byte {
 	n = max(1, min(n, 9))
 	var pcm []byte
 	for i := 0; i < n; i++ {
-		pcm = append(pcm, synth(660, 110*time.Millisecond)...)
-		pcm = append(pcm, synth(0, 110*time.Millisecond)...)
+		pcm = append(pcm, synth(660, 110*time.Millisecond, 0)...)
+		pcm = append(pcm, synth(0, 110*time.Millisecond, 0)...)
 	}
 	return EncodeWAV(pcm, SampleRate)
 }

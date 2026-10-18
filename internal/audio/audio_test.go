@@ -48,7 +48,7 @@ func TestDecodeWAVRejectsBadInput(t *testing.T) {
 }
 
 func TestEveryNotificationIsValidAudio(t *testing.T) {
-	all := []Notification{NotifyMessage, NotifyEmergency, NotifyRecordStart, NotifyRecordStop, NotifyOK, NotifyError, NotifyNone, NotifyAlarm}
+	all := []Notification{NotifyMessage, NotifyEmergency, NotifyRecordStart, NotifyRecordStop, NotifyOK, NotifyError, NotifyNone, NotifyAlarm, NotifyWake}
 	for _, n := range all {
 		wav := NotificationWAV(n)
 		if _, _, err := DecodeWAV(wav); err != nil || Duration(wav) < 50*time.Millisecond {
@@ -276,5 +276,26 @@ func TestListenReportsAMissingMicrophone(t *testing.T) {
 	err := a.Listen(context.Background(), func([]byte) {})
 	if err == nil || !strings.Contains(err.Error(), "no such device") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWakeChirpIsLouderThanOtherNotifications(t *testing.T) {
+	peak := func(n Notification) int {
+		pcm, _, err := DecodeWAV(NotificationWAV(n))
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := 0
+		for i := 0; i+1 < len(pcm); i += 2 {
+			v := int(int16(uint16(pcm[i]) | uint16(pcm[i+1])<<8))
+			if v < 0 {
+				v = -v
+			}
+			p = max(p, v)
+		}
+		return p
+	}
+	if wake, other := peak(NotifyWake), peak(NotifyMessage); wake < 2*other-1000 {
+		t.Errorf("wake chirp peak %d, other notification %d: want about twice as loud", wake, other)
 	}
 }
