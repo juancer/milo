@@ -240,6 +240,7 @@
   "voices.fast": "fast on this device",
   "voices.slow": "slow on a Raspberry Pi 3",
   "voices.speakers": "{n} speakers",
+  "voices.noneFast": "No fast voices for this language: {n} slower ones are hidden because they would take several seconds to answer on this device.",
   "voices.none": "No voices for this language.",
   "voices.piperMissing": "The Piper speech engine (about 25 MB) will be downloaded together with your first voice.",
   "voices.downloadingPiper": "Downloading Piper…",

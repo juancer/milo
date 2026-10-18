@@ -122,23 +122,33 @@ function voicesCard(initialLanguage?: string): HTMLElement {
       btn.addEventListener("click", () => toggleDemo(key, btn));
       return btn;
     };
-    const rows = data.voices.map((v) => row(
-      h("span", {}, `${v.name} · ${v.country}`, " ", badge(v.quality), " ", v.fast ? badge(t("voices.fast")) : badge(t("voices.slow"), true),
-        h("span", { class: "muted" }, ` ${mb(v.size_bytes)} MB${v.speakers > 1 ? " · " + t("voices.speakers", { n: v.speakers }) : ""}`)),
-      demoButton(v.key),
-      v.key === data.current ? badge(t("voices.inUse"))
-        : v.installed ? actions(
+    // Only the voices that run fast enough on this device are shown; the slow ones are hidden.
+    const usable = data.voices.filter((v) => v.fast || v.installed || v.key === data.current);
+    const hidden = data.voices.length - usable.length;
+    // Every row has the same three columns (what the voice is, Play/Pause, the action), so the
+    // buttons line up whatever the length of a voice's name.
+    const rows = usable.map((v) => {
+      const choice = v.key === data.current ? badge(t("voices.inUse"))
+        : v.installed ? h("div", { class: "voice-action" },
           button(t("voices.use"), { onclick: async () => { if (await guard(() => api("POST", `/api/voices/${v.key}/use`), "voices.nowUsing")) await load(data.language); } }),
           button(t("voices.remove"), { variant: "danger", onclick: async () => { if (await guard(() => api("DELETE", `/api/voices/${v.key}`))) await load(data.language); } }))
-          : button(t("voices.download"), {
+          : h("div", { class: "voice-action" }, button(t("voices.download"), {
             disabled: busy,
             onclick: async () => {
               if (await guard(() => api("POST", `/api/voices/${v.key}/install`, { use: true }))) await load(data.language);
             },
-          })));
+          }));
+      return h("li", { class: "row voice-row" },
+        h("div", { class: "voice-info" },
+          h("strong", {}, v.name), h("span", { class: "muted" }, ` · ${v.country}`),
+          h("div", { class: "voice-meta" }, badge(v.quality), " ", v.fast ? badge(t("voices.fast")) : badge(t("voices.slow"), true),
+            h("span", { class: "muted" }, ` ${mb(v.size_bytes)} MB${v.speakers > 1 ? " · " + t("voices.speakers", { n: v.speakers }) : ""}`))),
+        h("div", { class: "voice-play" }, demoButton(v.key)),
+        h("div", { class: "voice-choice" }, choice));
+    });
     clear(body);
     body.append(field(t("voices.language"), langSelect), ...(data.piper_installed ? [] : [note(t("voices.piperMissing"))]), progress,
-      rows.length > 0 ? list(...rows) : emptyState(t("voices.none")));
+      rows.length > 0 ? list(...rows) : emptyState(hidden > 0 ? t("voices.noneFast", { n: hidden }) : t("voices.none")));
     if (busy) {
       const tick = async (): Promise<void> => {
         if (!body.isConnected) return;
