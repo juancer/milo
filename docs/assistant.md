@@ -46,6 +46,21 @@ cloud voice below. Free plans have usage limits.
 Press the GPT button once and speak; it stops listening when you fall silent. Press it again
 while it is listening to finish early. Press it while Milo is thinking or speaking to interrupt.
 
+### Choosing a voice
+
+The **Voices** card lists the official Piper voices for a language, each with a demo you can listen to
+before downloading. Choosing **Download and use** makes Milo fetch Piper (once, about 25 MB) and the
+voice, check them against their checksums, keep them under `/var/lib/milo` and switch the assistant
+to that voice. Nothing is bundled in Milo's binary: Piper and the voices have their own licences.
+On a Raspberry Pi 3B only the *x_low* and *low* qualities speak in about real time; a *medium* voice
+took 11 s to say a 3 s phrase.
+
+### Provider models
+
+Next to each model field, **List models** asks the provider which models it offers (using the saved
+address and key) so you can pick one from a list. Only the fields of the chosen engine are shown:
+choosing cloud speech-to-text hides the whisper.cpp path, and the other way round.
+
 ### Text-to-speech with Piper
 
 Install a Piper build for ARM64 and a voice, then set the voice file (a `.onnx` path) under
