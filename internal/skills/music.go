@@ -331,9 +331,15 @@ const (
 	StatePaused  PlayerState = "paused"
 )
 
+// ErrNoMusic means there is nothing to play in the music folder.
+var ErrNoMusic = errors.New("there is no music in the music folder yet")
+
 // AudioSource is another source of sound the music actions can hand over to: when no local
 // song is playing, "pause", "stop" and "next" act on it.
 type AudioSource interface {
+	// PlayAnything handles "play some music" when this source is the preferred one; handled is false
+	// when it is not and the local music should play instead.
+	PlayAnything(ctx context.Context, actor actions.Actor, query string) (msg string, handled bool, err error)
 	Active() bool
 	Pause(ctx context.Context) error
 	Skip(ctx context.Context, actor actions.Actor) (string, error)
@@ -467,7 +473,7 @@ func (m *Music) Play(ctx context.Context, query string) (string, error) {
 	}
 	if len(m.tracks) == 0 {
 		m.mu.Unlock()
-		return "", errors.New("there is no music in the music folder yet")
+		return "", ErrNoMusic
 	}
 	var first Track
 	if strings.TrimSpace(query) == "" {
@@ -704,7 +710,16 @@ func (m *Music) RegisterActions(e *actions.Engine) {
 		Feature: "music", Exposure: both,
 		Params: []actions.Param{{Name: "query", Description: "Words from the song or folder name, for example frozen", Type: actions.String, MaxLen: 100}},
 		Handler: func(ctx context.Context, c actions.Call) (actions.Result, error) {
+			if m.Other != nil {
+				if msg, handled, err := m.Other.PlayAnything(ctx, c.Actor, c.Args.String("query")); handled {
+					return actions.Result{Message: msg}, err
+				}
+			}
 			title, err := m.Play(ctx, c.Args.String("query"))
+			if errors.Is(err, ErrNoMusic) {
+				// Said as it is, so the assistant tells the child the truth instead of guessing.
+				return actions.Result{Message: "There is no music on the device yet: a parent needs to connect Spotify or add songs."}, nil
+			}
 			if err != nil {
 				return actions.Result{}, err
 			}

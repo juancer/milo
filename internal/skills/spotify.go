@@ -25,6 +25,12 @@ import (
 const (
 	SettingSpotifyBinary = "spotify.binary"
 	SettingSpotifyVoice  = "spotify.voice_control" // "1" lets the assistant control Spotify; off by default
+	// SettingMusicSource says where "play some music" comes from: "spotify" (the default, used whenever
+	// Spotify is connected) or "local" (only the family's music folder).
+	SettingMusicSource = "music.source"
+	// SettingSpotifyDefaultPlaylist holds words from the name of the playlist "play some music" starts
+	// when nothing is paused; empty means the account's first playlist.
+	SettingSpotifyDefaultPlaylist = "spotify.default_playlist"
 
 	// DefaultSpotifyBinary is where `milo install` puts the go-librespot release binary.
 	DefaultSpotifyBinary = "/usr/local/bin/go-librespot"
@@ -517,6 +523,68 @@ func (s *Spotify) Skip(ctx context.Context, actor actions.Actor) (string, error)
 		return "", err
 	}
 	return "Next song.", nil
+}
+
+// PlayAnything is "play some music" when Spotify is the music source. It returns handled=false when
+// Spotify is not the right place to play (switched to local, not running, not paired), so the local
+// music takes over. Otherwise it plays: a playlist whose name matches the words, else whatever was
+// paused, else the default or first playlist. When it cannot, it says why instead of failing.
+func (s *Spotify) PlayAnything(ctx context.Context, actor actions.Actor, query string) (string, bool, error) {
+	if s.setting(ctx, SettingMusicSource, "spotify") == "local" {
+		return "", false, nil
+	}
+	s.mu.Lock()
+	up, signedIn, loaded := s.snap.up, s.snap.signedIn, s.snap.st.Track != nil
+	s.mu.Unlock()
+	if !up || !signedIn {
+		return "", false, nil
+	}
+	if msg := s.blocked(ctx, actor); msg != "" {
+		return msg, true, nil
+	}
+	c, err := s.api()
+	if err != nil {
+		return err.Error(), true, nil
+	}
+	play := func(uri string) error {
+		if s.OnPlay != nil {
+			s.OnPlay() // the local music gives way
+		}
+		return c.Play(ctx, uri)
+	}
+	lists, err := c.Playlists(ctx)
+	if err != nil {
+		return "", true, err
+	}
+	names := make([]string, len(lists))
+	for i, l := range lists {
+		names[i] = l.Name
+	}
+	if i, ok := bestWordMatch(names, query); ok {
+		if err := play(lists[i].URI); err != nil {
+			return "", true, err
+		}
+		return "Playing " + lists[i].Name + ".", true, nil
+	}
+	if loaded {
+		if s.OnPlay != nil {
+			s.OnPlay()
+		}
+		if err := c.Resume(ctx); err == nil {
+			return "Playing.", true, nil
+		}
+	}
+	if len(lists) == 0 {
+		return "I could not find any playlist on the paired Spotify account. Make one in the Spotify app first.", true, nil
+	}
+	pick := 0
+	if i, ok := bestWordMatch(names, s.setting(ctx, SettingSpotifyDefaultPlaylist, "")); ok {
+		pick = i
+	}
+	if err := play(lists[pick].URI); err != nil {
+		return "", true, err
+	}
+	return "Playing " + lists[pick].Name + ".", true, nil
 }
 
 // YieldToLocal pauses Spotify because the local music is about to play.

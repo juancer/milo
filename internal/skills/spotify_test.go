@@ -443,3 +443,52 @@ func TestStartingLocalMusicPausesSpotify(t *testing.T) {
 	}
 	waitFor(t, "Spotify to be paused", func() bool { return sr.fake.count("pause") >= 1 })
 }
+
+func TestPlaySomeMusicGoesToSpotifyAndSaysWhyWhenItCannot(t *testing.T) {
+	sr := newSpotifyRig(t, false)
+	m := &Music{Common: sr.common, Audio: sr.mock, Dir: t.TempDir(), Other: sr.sp} // an empty music folder
+	m.RegisterActions(sr.eng)
+	ctx := context.Background()
+	if err := m.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(m.Halt)
+	sr.start(t)
+	sr.store.SetSetting(ctx, SettingSpotifyVoice, "1") //nolint:errcheck
+	sr.fake.set(func() {
+		sr.fake.playlists = []spotifyPlaylist{{"spotify:playlist:a", "Bedtime lullabies"}, {"spotify:playlist:b", "Dance Party Mix"}}
+	})
+	waitFor(t, "the receiver to answer", func() bool { return sr.sp.Info(ctx).SignedIn })
+	sr.fake.set(func() { sr.fake.track = "" })
+
+	// Nothing loaded: "play some music" starts the first playlist.
+	res, err := sr.run(actions.ActorAssistant, "play_music", map[string]any{})
+	if err != nil || res.Message != "Playing Bedtime lullabies." || sr.fake.count("play spotify:playlist:a") != 1 {
+		t.Fatalf("play = %q %v calls=%v", res.Message, err, sr.fake.called())
+	}
+	// Words that match a playlist start that one.
+	if res, _ := sr.run(actions.ActorAssistant, "play_music", map[string]any{"query": "dance party"}); res.Message != "Playing Dance Party Mix." {
+		t.Fatalf("matching playlist = %q", res.Message)
+	}
+	// The preferred playlist is configurable.
+	sr.store.SetSetting(ctx, SettingSpotifyDefaultPlaylist, "dance") //nolint:errcheck
+	if res, _ := sr.run(actions.ActorAssistant, "play_music", map[string]any{}); res.Message != "Playing Dance Party Mix." {
+		t.Fatalf("default playlist = %q", res.Message)
+	}
+	// Voice control off: the child is told, and nothing local plays instead.
+	sr.store.SetSetting(ctx, SettingSpotifyVoice, "0") //nolint:errcheck
+	if res, _ := sr.run(actions.ActorAssistant, "play_music", map[string]any{}); !strings.Contains(res.Message, "voice control is switched off") {
+		t.Fatalf("blocked = %q", res.Message)
+	}
+	// Switched to local: Spotify is not asked at all.
+	sr.store.SetSetting(ctx, SettingSpotifyVoice, "1")    //nolint:errcheck
+	sr.store.SetSetting(ctx, SettingMusicSource, "local") //nolint:errcheck
+	before := len(sr.fake.called())
+	if res, err := sr.run(actions.ActorAssistant, "play_music", map[string]any{}); !strings.Contains(res.Message, "no music on the device") {
+		t.Fatalf("local with an empty folder = %q (err %v)", res.Message, err)
+	}
+	if len(sr.fake.called()) != before {
+		t.Error("Spotify was used although the source is local")
+	}
+	_ = m
+}
