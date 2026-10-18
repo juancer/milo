@@ -27,6 +27,7 @@ func (s *server) skillRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/music/play", s.requireAuth(s.playMusic))
 	mux.Handle("POST /api/music/stop", s.requireAuth(s.stopMusic))
 	mux.Handle("PUT /api/weather", s.requireAuth(s.putWeather))
+	mux.Handle("GET /api/weather/places", s.requireAuth(s.searchWeatherPlaces))
 	mux.Handle("POST /api/weather/detect", s.requireAuth(s.detectWeather))
 	mux.Handle("POST /api/weather/test", s.requireAuth(s.testWeather))
 	mux.Handle("PUT /api/calendar", s.requireAuth(s.putCalendar))
@@ -232,6 +233,10 @@ func (s *server) putWeather(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Place string `json:"place"`
 		Units string `json:"units"`
+		// A suggestion picked from /api/weather/places: saved as is, without geocoding the name again.
+		Latitude  *float64 `json:"latitude"`
+		Longitude *float64 `json:"longitude"`
+		Label     string   `json:"label"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -243,7 +248,13 @@ func (s *server) putWeather(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	if body.Place != "" {
+	if body.Latitude != nil && body.Longitude != nil {
+		p := skills.Place{Name: strings.TrimSpace(body.Label), Lat: *body.Latitude, Lon: *body.Longitude}
+		if len([]rune(p.Name)) > 80 || s.app.Weather.SetExactPlace(ctx, p) != nil {
+			writeError(w, http.StatusBadRequest, "web.err.units_must_be_celsius_or_fahrenheit_and_the")
+			return
+		}
+	} else if body.Place != "" {
 		if _, err := s.app.Weather.SetPlace(ctx, body.Place); err != nil {
 			writeError(w, http.StatusUnprocessableEntity, err.Error())
 			return
@@ -253,6 +264,20 @@ func (s *server) putWeather(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, "weather.settings_updated", "", nil)
 	s.restartFeature(r.Context(), "weather")
 	s.getSkills(w, r)
+}
+
+// searchWeatherPlaces suggests places for the town picker. The text goes to the geocoder and the
+// device's internet address is checked (once every few hours) to rank nearby places first.
+func (s *server) searchWeatherPlaces(w http.ResponseWriter, r *http.Request) {
+	places, err := s.app.Weather.Search(r.Context(), r.URL.Query().Get("q"))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "web.err.internal_error")
+		return
+	}
+	if places == nil {
+		places = []skills.PlaceOption{}
+	}
+	writeJSON(w, http.StatusOK, places)
 }
 
 // detectWeather sets the location from the device's internet address. It only runs on this

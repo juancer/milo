@@ -644,6 +644,7 @@
   "audit.volume.changed": "Volume changed",
   "audit.telegram.alerts": "Device alerts changed",
   "audit.telegram.forward": "Message copies changed",
+  "skills.placeSearchPrivacy": "While you type, the text is sent to Open-Meteo's place search, and your internet address is checked once every few hours to show places in your country first. Places elsewhere appear too, so a VPN does not get in the way.",
   "skills.detect": "Detect my location",
   "skills.detected": "Location detected",
   "skills.detectPrivacy": "Uses your internet address once to find your area; nothing is stored except the place. It is approximate: type your town to correct it.",
