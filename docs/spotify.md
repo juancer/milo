@@ -68,6 +68,15 @@ Web API, which Milo does not use). Physical buttons are not voice control and al
 The audio source is chosen by what is playing: "pause", "stop" and "next song" act on local music
 when it plays and on Spotify otherwise.
 
+## "Play some music" means Spotify
+
+When Spotify is connected and running, "play some music" (by voice, through the assistant) plays
+Spotify, not the local music folder: a playlist whose name matches the words, else whatever was paused,
+else the playlist set in `spotify.default_playlist` (words from its name), else the account's first
+playlist. It needs **voice control** switched on, and says so when it is off. Set `music.source` to
+`local` to keep "play some music" on the local folder. When Spotify is not connected, the local music
+plays; with an empty folder, Milo says there is no music yet instead of pretending.
+
 ## What is stored and sent
 
 - go-librespot keeps its sign-in (`state.json`) in `<data dir>/spotify`, mode 0700. **It is not
