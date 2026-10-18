@@ -26,7 +26,7 @@ const (
 	SettingSpotifyBinary = "spotify.binary"
 	SettingSpotifyVoice  = "spotify.voice_control" // "1" lets the assistant control Spotify; off by default
 
-	// DefaultSpotifyBinary is where the user installs the go-librespot release binary.
+	// DefaultSpotifyBinary is where `milo install` puts the go-librespot release binary.
 	DefaultSpotifyBinary = "/usr/local/bin/go-librespot"
 
 	// go-librespot's pipe backend writes 44.1 kHz stereo signed 16-bit little-endian PCM.
@@ -102,7 +102,7 @@ func binaryOK(path string) bool {
 func (s *Spotify) Start(ctx context.Context) error {
 	bin := s.binary(ctx)
 	if !binaryOK(bin) {
-		return fmt.Errorf("go-librespot is not installed at %s: download it and copy it there (see docs/spotify.md)", bin)
+		return fmt.Errorf("go-librespot is not installed at %s: run `sudo milo install` to fetch it (see docs/spotify.md)", bin)
 	}
 	dir := s.dir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {

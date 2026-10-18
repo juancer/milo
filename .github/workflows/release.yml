@@ -20,8 +20,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: make test
-      - run: make build-arm64 build-armv7
+      # The admin UI is embedded in the binary, so it must be built before vet and test can compile.
+      - run: make web-build test build-arm64 build-armv7
       - name: Checksums and commit marker
         run: |
           cd dist

@@ -72,6 +72,7 @@ func Install(ctx context.Context, out io.Writer) error {
 	if err := installBinary(out); err != nil {
 		return err
 	}
+	installLibrespotDefault(ctx, out)
 
 	created, err := secrets.GenerateKeyFile(DefaultKeyPath)
 	if err != nil {
