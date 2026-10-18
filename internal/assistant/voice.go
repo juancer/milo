@@ -214,6 +214,12 @@ func (e *Engine) RunVoice(ctx context.Context, source string) error {
 			return nil
 		}
 
+		if e.tryIntent(ctx, sess, text) { // a plain command: no round trip to the model
+			if sess.finished || !sess.settings.FollowUp {
+				return nil
+			}
+			continue
+		}
 		reply, err := e.Converse(ctx, sess, text)
 		switch {
 		case errors.Is(err, ErrUnavailable):

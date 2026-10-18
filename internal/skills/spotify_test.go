@@ -21,6 +21,7 @@ import (
 type fakeLibrespot struct {
 	mu        sync.Mutex
 	signedIn  bool
+	hung      bool // /status answers 503, like a wedged receiver
 	stopped   bool
 	paused    bool
 	track     string
@@ -36,6 +37,10 @@ func newFakeLibrespot(t *testing.T) *fakeLibrespot {
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
+		if f.hung {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		if !f.signedIn {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -59,6 +64,9 @@ func newFakeLibrespot(t *testing.T) *fakeLibrespot {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		json.NewEncoder(w).Encode(map[string]any{"items": f.playlists})
+	})
+	mux.HandleFunc("POST /token", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"token": "tok-123"})
 	})
 	act := func(name string, apply func(body map[string]any)) {
 		mux.HandleFunc("POST /player/"+name, func(w http.ResponseWriter, r *http.Request) {
@@ -491,4 +499,70 @@ func TestPlaySomeMusicGoesToSpotifyAndSaysWhyWhenItCannot(t *testing.T) {
 		t.Error("Spotify was used although the source is local")
 	}
 	_ = m
+}
+
+func TestAReceiverThatStopsAnsweringIsRestarted(t *testing.T) {
+	sr := newSpotifyRig(t, false)
+	sr.sp.HungAfter = 150 * time.Millisecond
+	sr.start(t)
+	waitFor(t, "the receiver to answer", func() bool { return sr.sp.Info(context.Background()).SignedIn })
+	starts := func() int {
+		b, _ := os.ReadFile(filepath.Join(sr.dir, "args"))
+		return strings.Count(string(b), "--config_dir")
+	}
+	if starts() != 1 {
+		t.Fatalf("receiver started %d times before the hang", starts())
+	}
+	sr.fake.set(func() { sr.fake.hung = true })
+	waitFor(t, "the wedged receiver to be restarted", func() bool { return starts() >= 2 })
+}
+
+func TestPlaySomeMusicByAnArtistSearchesSpotify(t *testing.T) {
+	sr := newSpotifyRig(t, false)
+	ctx := context.Background()
+	var auth, query string
+	status := http.StatusOK
+	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth, query = r.Header.Get("Authorization"), r.URL.Query().Get("q")
+		w.WriteHeader(status)
+		if status == http.StatusOK {
+			if query == "nadie" {
+				w.Write([]byte(`{"artists":{"items":[]}}`))
+				return
+			}
+			w.Write([]byte(`{"artists":{"items":[{"name":"Belinda","uri":"spotify:artist:abc123"}]}}`))
+		}
+	}))
+	defer web.Close()
+	sr.sp.WebAPIBase = web.URL
+	sr.start(t)
+	sr.store.SetSetting(ctx, SettingSpotifyVoice, "1") //nolint:errcheck
+	sr.fake.set(func() { sr.fake.playlists = []spotifyPlaylist{{"spotify:playlist:a", "Bedtime lullabies"}} })
+	waitFor(t, "the receiver to answer", func() bool { return sr.sp.Info(ctx).SignedIn })
+	m := &Music{Common: sr.common, Audio: sr.mock, Dir: t.TempDir(), Other: sr.sp}
+	m.RegisterActions(sr.eng)
+	if err := m.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(m.Halt)
+
+	res, err := sr.run(actions.ActorAssistant, "play_music", map[string]any{"query": "belinda"})
+	if err != nil || res.Message != "Playing music by Belinda." || res.Refused || sr.fake.count("play spotify:artist:abc123") != 1 {
+		t.Fatalf("artist = %q refused=%v err=%v calls=%v", res.Message, res.Refused, err, sr.fake.called())
+	}
+	if auth != "Bearer tok-123" || query != "belinda" {
+		t.Errorf("the search was sent as auth=%q q=%q", auth, query)
+	}
+	// An artist Spotify does not know, and a search that is rate-limited, are said as they are, not
+	// replaced by some other music.
+	res, _ = sr.run(actions.ActorAssistant, "play_music", map[string]any{"query": "nadie"})
+	if !res.Refused || !strings.Contains(res.Message, "could not find") {
+		t.Errorf("unknown artist = %+v", res)
+	}
+	status = http.StatusTooManyRequests
+	before := len(sr.fake.called())
+	res, _ = sr.run(actions.ActorAssistant, "play_music", map[string]any{"query": "belinda"})
+	if !res.Refused || !strings.Contains(res.Message, "right now") || len(sr.fake.called()) != before {
+		t.Errorf("rate-limited = %+v calls=%v", res, sr.fake.called())
+	}
 }

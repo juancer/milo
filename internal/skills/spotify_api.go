@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -130,3 +131,52 @@ func (c *spotifyClient) Playlists(ctx context.Context) ([]spotifyPlaylist, error
 	}
 	return out.Items, nil
 }
+
+// errSpotifySearchBusy means Spotify's Web API refused the search for now (the receiver's token is
+// shared with everyone who uses go-librespot, and Spotify rate-limits it).
+var errSpotifySearchBusy = errors.New("spotify: artist search is busy right now")
+
+// searchArtist looks up an artist on Spotify's Web API with the signed-in receiver's own token, so no
+// developer app is needed. webBase is the API address (https://api.spotify.com by default).
+func (c *spotifyClient) searchArtist(ctx context.Context, webBase, query string) (name, uri string, err error) {
+	var tok struct {
+		Token string `json:"token"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/token", nil, &tok); err != nil || tok.Token == "" {
+		return "", "", fmt.Errorf("spotify: no token for the search: %w", err)
+	}
+	u := strings.TrimRight(webBase, "/") + "/v1/search?" + url.Values{"q": {query}, "type": {"artist"}, "limit": {"1"}}.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok.Token)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", "", errSpotifySearchBusy
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return "", "", errSpotifySearchBusy
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("spotify: search answered %d", resp.StatusCode)
+	}
+	var out struct {
+		Artists struct {
+			Items []struct {
+				Name string `json:"name"`
+				URI  string `json:"uri"`
+			} `json:"items"`
+		} `json:"artists"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
+		return "", "", err
+	}
+	if len(out.Artists.Items) == 0 || !strings.HasPrefix(out.Artists.Items[0].URI, "spotify:artist:") {
+		return "", "", errSpotifyNoArtist
+	}
+	return out.Artists.Items[0].Name, out.Artists.Items[0].URI, nil
+}
+
+var errSpotifyNoArtist = errors.New("spotify: no such artist")

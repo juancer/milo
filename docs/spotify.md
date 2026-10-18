@@ -62,8 +62,7 @@ deletes the saved sign-in) and pair again.
 In **Home → Spotify → Settings**, *Let the assistant control Spotify by voice* enables these
 assistant actions: pause (always available), resume, next, previous and **play a playlist by
 name**. "Play my bedtime playlist" picks the playlist of the paired account whose name best
-matches the words. **Searching for a song or artist is not possible** (that needs Spotify's
-Web API, which Milo does not use). Physical buttons are not voice control and always work.
+matches the words. **Searching for a single song is not possible.** Physical buttons are not voice control and always work.
 
 The audio source is chosen by what is playing: "pause", "stop" and "next song" act on local music
 when it plays and on Spotify otherwise.
@@ -76,6 +75,20 @@ else the playlist set in `spotify.default_playlist` (words from its name), else 
 playlist. It needs **voice control** switched on, and says so when it is off. Set `music.source` to
 `local` to keep "play some music" on the local folder. When Spotify is not connected, the local music
 plays; with an empty folder, Milo says there is no music yet instead of pretending.
+
+## Commands that skip the model, and artists
+
+Plain commands are recognised by rules and carried out at once, without a trip to the language model:
+"pon algo de música", "play something", "pon música de Belinda", "pon la playlist de dormir", "pausa",
+"para", "siguiente", "sube el volumen", "volumen 7" (Spanish and English). They run as the assistant,
+so Spotify voice control, the switches and the schedules apply as for the model. A command the rules do
+not recognise, or that is refused ("Spotify is not connected"), goes to the model as usual, which
+explains it in the child's language.
+
+For "música de <artist>" Milo first looks for a playlist of yours with those words, then searches Spotify
+for the artist with the receiver's own sign-in (no developer app) and plays it. Spotify rate-limits that
+shared access (HTTP 429) and may refuse at times: Milo then says it could not look the artist up, instead
+of playing something else.
 
 ## What is stored and sent
 
