@@ -69,6 +69,33 @@ export async function render(root: HTMLElement): Promise<void> {
   const sttKey = h("input", { type: "password", autocomplete: "off", placeholder: state.stt_key_configured ? saved : "gsk_…", ariaLabel: t("assistant.sttKey") });
   const ttsKey = h("input", { type: "password", autocomplete: "off", placeholder: state.tts_key_configured ? saved : t("assistant.ttsKeyHint"), ariaLabel: t("assistant.ttsKey") });
   const st = state.status;
+
+  // ---- quick start: one free Groq key does speech recognition and the AI model
+  const groqKey = h("input", { type: "password", autocomplete: "off", placeholder: "gsk_…", ariaLabel: t("assistant.groqKey") });
+  const groqReady = state.llm_key_configured && state.stt_key_configured;
+  root.append(h("details", { open: !groqReady },
+    h("summary", {}, t("assistant.groqTitle")),
+    card(t("assistant.groqTitle"),
+      note(t("assistant.groqHelp")),
+      h("form", {
+        onsubmit: async (ev: Event) => {
+          ev.preventDefault();
+          const key = groqKey.value.trim();
+          if (!key) return;
+          await guard(async () => {
+            // Providers first: changing a provider's address drops its stored key, so the key goes in after.
+            await api("PUT", "/api/assistant", {
+              ...s,
+              llm_base_url: "https://api.groq.com/openai/v1", llm_model: "openai/gpt-oss-20b",
+              stt_engine: "cloud", stt_base_url: "https://api.groq.com/openai/v1", stt_model: "whisper-large-v3-turbo",
+            });
+            await api("PUT", "/api/assistant/keys", { llm_api_key: key, stt_api_key: key, tts_api_key: "" });
+            await api("PUT", "/api/features/assistant", { enabled: true });
+            await refresh();
+          }, "assistant.groqDone");
+        },
+      }, fields(field(t("assistant.groqKeyLabel"), groqKey), submit(t("assistant.groqUse")))))));
+
   root.append(card(t("assistant.title"),
     h("p", {}, !st.enabled ? badge(t("common.featureOff"), true) : st.running ? badge(t("common.running")) : badge(t("common.notRunning"), true), " ",
       st.enabled ? null : h("span", { class: "muted" }, t("assistant.turnOn")),
