@@ -240,7 +240,7 @@ func (s *Spotify) procLoop(ctx context.Context, bin, dir string) {
 }
 
 func (s *Spotify) runProcess(ctx context.Context, bin, dir string) error {
-	cmd := exec.CommandContext(ctx, bin, "-config_dir", dir)
+	cmd := exec.CommandContext(ctx, bin, "--config_dir", dir) // GNU-style: "-config_dir" is parsed as -c onfig_dir
 	cmd.Dir = dir
 	// A clean environment: the receiver needs nothing from Milo's (no keys, no paths).
 	cmd.Env = []string{"HOME=" + dir, "PATH=/usr/bin:/bin"}
