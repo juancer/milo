@@ -77,11 +77,33 @@ func (b backends) TTS(ctx context.Context, s store.GPTSettings) (speech.TTS, err
 			bin = "piper"
 		}
 	}
-	p, err := speech.NewPiper(bin, s.TTSModelPath)
+	byLanguage := b.a.VoiceChoices(ctx)
+	if len(byLanguage) == 0 {
+		p, err := speech.NewPiper(bin, s.TTSModelPath)
+		if err != nil {
+			return nil, err
+		}
+		return p.WithOptions(opts), nil
+	}
+	// One voice per language: Piper speaks the voice of the language the answer is in.
+	p, err := speech.NewPiperVoices(bin, byLanguage, s.TTSModelPath)
 	if err != nil {
 		return nil, err
 	}
 	return p.WithOptions(opts), nil
+}
+
+// VoiceChoices returns the Piper voice chosen for each language, as language family -> model path.
+// Only voices that are still on the device count.
+func (a *App) VoiceChoices(ctx context.Context) map[string]string {
+	choices := map[string]string{}
+	for _, key := range a.Voices.InstalledKeys() {
+		family := voices.Family(key)
+		if choice := a.Setting(ctx, voices.SettingKey(family), ""); choice != "" && choice == a.Voices.ModelPath(key) {
+			choices[family] = choice
+		}
+	}
+	return choices
 }
 
 func (a *App) initAssistant() {

@@ -53,7 +53,36 @@ before downloading. Choosing **Download and use** makes Milo fetch Piper (once, 
 voice, check them against their checksums, keep them under `/var/lib/milo` and switch the assistant
 to that voice. Nothing is bundled in Milo's binary: Piper and the voices have their own licences.
 On a Raspberry Pi 3B only the *x_low* and *low* qualities speak in about real time; a *medium* voice
-took 11 s to say a 3 s phrase.
+took 11 s to say a 3 s phrase, so slower voices are hidden from the picker.
+
+#### One voice per language
+
+A Piper voice speaks one language: a Spanish voice reading English sounds wrong. So you choose **one
+voice per language** (for example a Spanish and an English one), and Milo speaks each answer with the
+voice of the language it is in. The choice is stored in the setting `tts.voice.<language>` (for example
+`tts.voice.es`); the voice in the assistant settings (the Piper voice file) is the fallback for
+languages that have no voice of their own, and is replaced by a voice you choose in the same language
+(a voice file of your own, outside the catalog, is kept).
+
+Which language an answer is in:
+
+1. If the **voice language** or the **assistant language** is fixed, that one is used.
+2. With the assistant language on *Automatic*, Milo detects it from the answer text with a small
+   word-list count (Spanish, English, Portuguese, French, Italian, German, Catalan and Dutch), among
+   the languages that have a voice. It is cheap and deterministic, but it is a heuristic: very short
+   answers, names, numbers and mixed-language sentences are "unsure" and use the fallback voice, and
+   close languages (Spanish and Catalan, Spanish and Portuguese) can be confused in a short sentence.
+
+#### Suggest a similar voice
+
+When you add a language, **Suggest a voice like …** lists voices in the new language whose *pitch* is
+closest to the voice you already use (a young woman's voice in English gives a similarly high voice in
+Spanish, not a deep man's). The catalog has no gender or age, so Milo measures instead: it downloads the
+voices' short demos (about 190 KB each; at most 12 per request, the fastest qualities first, and only
+when you ask), estimates each voice's median fundamental frequency, and ranks by the difference. This
+matches **pitch only**: it cannot know age, accent or character, so listen to each suggestion with the
+play button before choosing. Only the fast voices are suggested. Measurements are kept in memory until
+Milo restarts.
 
 ### Provider models
 
