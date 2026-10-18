@@ -1,5 +1,5 @@
 import { actions, badge, button, card, checkbox, emptyState, field, fields, formCard, list, note, row, select, submit, toggle } from "../../components/ui";
-import { t, tOr } from "../../i18n";
+import { getLocale, t, tOr } from "../../i18n";
 import { api } from "../api";
 import { clear, h, when } from "../dom";
 import { AUTO, loadLocales } from "../locales";
@@ -82,13 +82,25 @@ function showOnly(blocks: Record<string, HTMLElement[]>, current: string): void 
 /** Voice picker: the Piper catalog for a language, a demo of each voice, and download on choosing. */
 function voicesCard(initialLanguage?: string): HTMLElement {
   const body = h("div", {});
-  let player: HTMLAudioElement | null = null;
-  const demo = (key: string) => {
-    player?.pause();
-    player = new Audio(`/api/voices/${encodeURIComponent(key)}/sample`);
-    player.play().catch(() => toast(t("voices.demoFailed"), true));
+  // One demo plays at a time. The same button plays and pauses it; starting another stops this one.
+  let current: { key: string; audio: HTMLAudioElement; btn: HTMLButtonElement } | null = null;
+  const setLabel = (btn: HTMLButtonElement, on: boolean) => { btn.textContent = on ? t("voices.pause") : t("voices.play"); };
+  const stopDemo = () => { current?.audio.pause(); current = null; };
+  const toggleDemo = (key: string, btn: HTMLButtonElement) => {
+    if (current?.key === key) {
+      if (current.audio.paused) void current.audio.play(); else current.audio.pause();
+      return;
+    }
+    stopDemo();
+    const audio = new Audio(`/api/voices/${encodeURIComponent(key)}/sample`);
+    current = { key, audio, btn };
+    audio.addEventListener("play", () => setLabel(btn, true));
+    audio.addEventListener("pause", () => setLabel(btn, false));
+    audio.addEventListener("ended", () => setLabel(btn, false));
+    audio.play().catch(() => { toast(t("voices.demoFailed"), true); setLabel(btn, false); });
   };
   const load = async (language?: string): Promise<void> => {
+    stopDemo();
     let data: VoiceList;
     try {
       data = await api<VoiceList>("GET", `/api/voices${language ? `?lang=${encodeURIComponent(language)}` : ""}`);
@@ -105,10 +117,15 @@ function voicesCard(initialLanguage?: string): HTMLElement {
     };
     showProgress(data.job);
     const langSelect = select(t("voices.language"), data.languages.map((l): [string, string] => [l.code, l.name]), data.language, { onchange: () => void load(langSelect.value) });
+    const demoButton = (key: string): HTMLButtonElement => {
+      const btn = button(t("voices.play"), { variant: "secondary" });
+      btn.addEventListener("click", () => toggleDemo(key, btn));
+      return btn;
+    };
     const rows = data.voices.map((v) => row(
       h("span", {}, `${v.name} · ${v.country}`, " ", badge(v.quality), " ", v.fast ? badge(t("voices.fast")) : badge(t("voices.slow"), true),
         h("span", { class: "muted" }, ` ${mb(v.size_bytes)} MB${v.speakers > 1 ? " · " + t("voices.speakers", { n: v.speakers }) : ""}`)),
-      button(t("voices.demo"), { variant: "secondary", onclick: () => demo(v.key) }),
+      demoButton(v.key),
       v.key === data.current ? badge(t("voices.inUse"))
         : v.installed ? actions(
           button(t("voices.use"), { onclick: async () => { if (await guard(() => api("POST", `/api/voices/${v.key}/use`), "voices.nowUsing")) await load(data.language); } }),
@@ -195,7 +212,7 @@ export async function render(root: HTMLElement): Promise<void> {
       },
     }, fields(field(t("assistant.llmKeyLabel"), llmKey), field(t("assistant.sttKeyLabel"), sttKey), field(t("assistant.ttsKeyLabel"), ttsKey), submit(t("assistant.saveKeys"))))));
 
-  root.append(voicesCard());
+  root.append(voicesCard((s.language && s.language !== AUTO ? s.language : getLocale()).split(/[-_]/)[0]));
 
   // ---- language options: locales, "auto" (assistant only) and any legacy free-text value already saved
   const localeOptions = locales.map((l): [string, string] => [l.code, l.name]);
