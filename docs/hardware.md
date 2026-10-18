@@ -69,3 +69,12 @@ Run `milo test-buttons` on the Pi to see presses as Milo recognises them.
 
 Milo uses the Linux GPIO character device (`/dev/gpiochip0`), not `/dev/mem`. The `milo`
 service user must be able to open it: `sudo usermod -aG gpio,audio milo` (the installer does this).
+
+## Volume
+
+Milo sets the volume through the ALSA mixer named in **System → Sound** (default: card
+`wm8960soundcard`, control `Speaker`). If that fails (another card, Ubuntu's different control
+names, PipeWire or PulseAudio owning the card), it looks for an ALSA card with a `Speaker`, `Master`,
+`PCM`, `Headphone` or similar control, then tries PipeWire (`wpctl`) and PulseAudio (`pactl`), and
+remembers the first one that works. The unit lists `DeviceAllow=char-alsa` and `char-gpiochip`
+because `ProtectClock=true` otherwise hides the sound card and the buttons from the service.

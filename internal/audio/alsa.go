@@ -65,8 +65,9 @@ type ALSA struct {
 	streamCancel  context.CancelFunc
 	pending       atomic.Int32 // non-stream playbacks running or waiting
 
-	volMu  sync.Mutex
-	volume int
+	volBackend atomic.Value // name of the volume backend that worked last
+	volMu      sync.Mutex
+	volume     int
 }
 
 // NewALSA validates cfg and returns an ALSA audio backend.
@@ -284,15 +285,11 @@ func (a *ALSA) Stop() {
 	}
 }
 
-// SetVolume implements Audio using `amixer sset`.
+// SetVolume implements Audio. See volume.go for the backends it falls back to.
 func (a *ALSA) SetVolume(ctx context.Context, percent int) error {
 	percent = max(0, min(100, percent))
-	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(cctx, "amixer", "-q", "-c", a.cfg.MixerCard,
-		"sset", a.cfg.MixerControl, fmt.Sprintf("%d%%", percent)).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("audio: amixer failed: %s", strings.TrimSpace(string(out)))
+	if _, err := a.setVolume(ctx, percent); err != nil {
+		return err
 	}
 	a.volMu.Lock()
 	a.volume = percent
