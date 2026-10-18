@@ -25,6 +25,11 @@ type Prefilter struct {
 	noise  [preBins]float64
 	gain   [preBins]float64
 	frames int
+
+	smooth [preBins]float64                // smoothed power per bin
+	mins   [preSubWindows][preBins]float64 // smallest smooth power seen in each sub-window
+	cur    int                             // sub-window being filled
+	inSub  int                             // frames in it so far
 }
 
 const (
@@ -33,9 +38,23 @@ const (
 	preBins        = preN/2 + 1
 	prefilterDelay = preHop
 
-	preAlpha  = 2.2  // how much of the noise estimate is subtracted
-	preFloor  = 0.12 // lowest gain: -18 dB, so nothing is ever cut to silence
-	preWarmup = 40   // frames in which the noise estimate follows the signal both ways
+	// Noise is estimated as the smallest smoothed power each bin reached in the last
+	// preSubWindows*preSubFrames frames (about 1.5 s), scaled by preBias because the minimum of a
+	// noisy power underestimates its mean. Speech comes and goes within that window, so it never
+	// becomes "noise"; a change of background is followed within a second or two.
+	preSubFrames  = 32
+	preSubWindows = 3
+	preBias       = 1.8
+	preSmooth     = 0.9
+)
+
+var (
+	preAlpha = 1.5 // how much of the noise estimate is subtracted
+	preFloor = 0.2 // lowest gain: -14 dB, so nothing is ever cut to silence
+	// preMakeup brings the cleaned signal back to about the level of the raw one (noise reduction
+	// and the high-pass take the overall level down), because the segmenter that follows works with
+	// absolute speech levels. Loud peaks are clipped at full scale.
+	preMakeup = 4.0
 )
 
 var (
@@ -129,7 +148,7 @@ func (p *Prefilter) frame(out []byte) []byte {
 		p.acc[i] += real(spec[i]) / preN * preWindow[i]
 	}
 	for i := 0; i < preHop; i++ {
-		v := math.Max(-32768, math.Min(32767, math.Round(p.acc[i])))
+		v := math.Max(-32768, math.Min(32767, math.Round(p.acc[i]*preMakeup)))
 		out = binary.LittleEndian.AppendUint16(out, uint16(int16(v)))
 	}
 	copy(p.acc[:], p.acc[preHop:])
@@ -137,24 +156,45 @@ func (p *Prefilter) frame(out []byte) []byte {
 		p.acc[i] = 0
 	}
 	p.in = p.in[preHop:]
+	p.endFrame()
 	p.frames++
 	return out
 }
 
-// track updates the noise estimate of one bin. Bins close to the estimate pull it towards the
-// mean noise power; a bin far above it (speech) barely moves it, and only upwards, so speech does
-// not become "noise" but a change of background still wins within a few seconds.
+// track updates the noise estimate of one bin (minimum statistics, see the constants).
 func (p *Prefilter) track(k int, pow float64) {
 	switch {
 	case p.frames < 1: // the first frame is half silence
+		return
 	case p.frames == 1:
-		p.noise[k] = pow
-	case p.frames < preWarmup:
-		p.noise[k] = 0.9*p.noise[k] + 0.1*pow
-	case pow < 4*p.noise[k]:
-		p.noise[k] = 0.97*p.noise[k] + 0.03*pow
+		p.smooth[k] = pow
+		for w := range p.mins {
+			p.mins[w][k] = pow
+		}
 	default:
-		p.noise[k] *= 1.002
+		p.smooth[k] = preSmooth*p.smooth[k] + (1-preSmooth)*pow
+		if p.smooth[k] < p.mins[p.cur][k] {
+			p.mins[p.cur][k] = p.smooth[k]
+		}
+	}
+	low := p.mins[0][k]
+	for w := 1; w < preSubWindows; w++ {
+		low = math.Min(low, p.mins[w][k])
+	}
+	p.noise[k] = preBias * low
+}
+
+// endFrame moves to the next sub-window when the current one is full, forgetting the oldest.
+func (p *Prefilter) endFrame() {
+	if p.frames < 2 {
+		return
+	}
+	if p.inSub++; p.inSub >= preSubFrames {
+		p.inSub = 0
+		p.cur = (p.cur + 1) % preSubWindows
+		for k := range p.mins[p.cur] {
+			p.mins[p.cur][k] = p.smooth[k]
+		}
 	}
 }
 

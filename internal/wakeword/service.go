@@ -24,7 +24,7 @@ const (
 	SettingPhrase       = "wakeword.phrase"        // label shown in the UI; the sound comes from the samples
 	SettingSensitivity  = "wakeword.sensitivity"   // 1-10
 	SettingExternalPath = "wakeword.external_path" // helper for the "external" engine
-	SettingPrefilter    = "wakeword.prefilter"     // "1" (default) cleans the microphone audio first; "0" turns it off
+	SettingPrefilter    = "wakeword.prefilter"     // "1" cleans the microphone audio first (noise reduction); off by default
 	MaxTemplates        = 5
 )
 
@@ -133,7 +133,7 @@ func (s *Service) buildDetector(ctx context.Context) (Detector, string, error) {
 // prefilterOn tells whether the microphone audio is cleaned before detection. Samples recorded
 // with one setting do not match audio heard with the other: record them again after changing it.
 func (s *Service) prefilterOn(ctx context.Context) bool {
-	return s.setting(ctx, SettingPrefilter, "1") != "0"
+	return s.setting(ctx, SettingPrefilter, "0") == "1"
 }
 
 func (s *Service) recordScore(dist float64) {
