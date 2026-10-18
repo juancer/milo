@@ -249,6 +249,7 @@
   "voices.title": "Voices",
   "voices.help": "Pick one voice per language: Milo speaks with the voice of the language its answer is in, so a child who switches between languages hears the right one. Listen to a demo first; Milo downloads the voice (and the Piper speech engine, once) only when you choose it. Voices run on the device, so nothing you say or hear leaves it.",
   "voices.inUseSummary": "In use: {list}",
+  "voices.onlySlow": "This language has no fast voices. These medium ones work, but each answer will take several seconds to start on a Raspberry Pi 3.",
   "voices.noneFast": "No fast voices for this language. {n} slower ones are hidden.",
   "voices.suggest": "Suggest a voice like {name} in {language}",
   "voices.suggesting": "Comparing pitch: downloading up to {n} demos (about 190 KB each)…",

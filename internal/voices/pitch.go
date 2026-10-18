@@ -178,20 +178,27 @@ type Similarity struct {
 	Slower     int     `json:"slower"`     // voices left out because they are slow on a Raspberry Pi 3
 }
 
-// pickCandidates chooses which voices to measure: only the fast qualities (x_low and low, which a
-// Pi 3 speaks in about real time; the slower ones are hidden everywhere in the picker, so they are
-// never suggested), x_low first, never the source itself, at most max of them. slower counts the
-// voices left out because they are slow.
+// pickCandidates chooses which voices to measure: the fast qualities (x_low and low, which a Pi 3
+// speaks in about real time), x_low first, never the source itself, at most max of them. Only when
+// a language has no fast voice at all are its medium voices used instead (they are slow, but better
+// than no suggestion); high voices never are. slower counts the voices left out because they are slow.
 func pickCandidates(vs []Voice, source string, max int) (picked []Voice, capped bool, slower int) {
+	var medium []Voice
 	for _, v := range vs {
 		switch {
 		case v.Key == source:
-		case !v.Fast:
-			slower++
-		default:
+		case v.Fast:
 			picked = append(picked, v)
+		case v.Quality == "medium":
+			medium = append(medium, v)
+		default:
+			slower++
 		}
 	}
+	if len(picked) == 0 {
+		picked, medium = medium, nil
+	}
+	slower += len(medium)
 	sort.SliceStable(picked, func(i, j int) bool {
 		a, b := picked[i], picked[j]
 		if qa, qb := qualityOrder[a.Quality], qualityOrder[b.Quality]; qa != qb {

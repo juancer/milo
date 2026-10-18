@@ -142,8 +142,12 @@ func TestPickCandidatesTakesOnlyFastVoicesAndCaps(t *testing.T) {
 	if _, capped, _ := pickCandidates(vs[11:15], "src", 12); capped {
 		t.Error("capped without reaching the cap")
 	}
-	if got, _, slower := pickCandidates(vs[:11], "src", 12); len(got) != 0 || slower != 11 {
-		t.Errorf("only slow voices: picked %d, slower %d", len(got), slower)
+	// A language with no fast voice falls back to its medium voices, never to high ones.
+	if got, _, slower := pickCandidates(vs[:11], "src", 12); len(got) != 10 || slower != 1 {
+		t.Errorf("only slow voices: picked %d, slower %d, want the 10 medium ones and 1 high left out", len(got), slower)
+	}
+	if got, _, slower := pickCandidates(vs[10:11], "src", 12); len(got) != 0 || slower != 1 {
+		t.Errorf("only a high voice: picked %d, slower %d", len(got), slower)
 	}
 }
 

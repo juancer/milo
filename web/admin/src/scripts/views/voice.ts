@@ -84,8 +84,12 @@ function voicesCard(initialLanguage?: string): HTMLElement {
         h("div", { class: "voice-play" }, demoButton(v.key)),
         h("div", { class: "voice-choice" }, choice));
     };
-    // Only voices that speak fast enough on a Raspberry Pi 3 are offered, plus any already installed or in use.
-    const usable = data.voices.filter((v) => v.fast || v.installed || inUseKeys.has(v.key));
+    // Fast voices only. Medium ones (slow on a Raspberry Pi 3) appear only for a language that has no
+    // fast voice at all; installed and in-use voices always stay.
+    const fast = data.voices.filter((v) => v.fast);
+    const offered = fast.length > 0 ? fast : data.voices.filter((v) => v.quality === "medium");
+    const onlySlow = fast.length === 0 && offered.length > 0;
+    const usable = data.voices.filter((v) => offered.includes(v) || v.installed || inUseKeys.has(v.key));
     const hidden = data.voices.length - usable.length;
     const rows = usable.map((v) => renderRow(v));
 
@@ -118,7 +122,7 @@ function voicesCard(initialLanguage?: string): HTMLElement {
     const summary = data.in_use.map((u) => `${langName(u.language)}: ${voiceName(u.key)}`).join(" · ");
     clear(body);
     body.append(field(t("voices.language"), langSelect), ...(summary ? [note(t("voices.inUseSummary", { list: summary }))] : []),
-      ...(data.piper_installed ? [] : [note(t("voices.piperMissing"))]), progress,
+      ...(data.piper_installed ? [] : [note(t("voices.piperMissing"))]), ...(onlySlow ? [note(t("voices.onlySlow"))] : []), progress,
       rows.length > 0 ? list(...rows) : emptyState(hidden > 0 ? t("voices.noneFast", { n: hidden }) : t("voices.none")),
       ...(suggestButtons.length > 0 ? [actions(...suggestButtons), suggestions] : []));
     if (busy) {
