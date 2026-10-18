@@ -334,3 +334,33 @@ func TestMockDetector(t *testing.T) {
 		t.Fatal("trigger must fire exactly once")
 	}
 }
+
+// A phrase much longer or shorter than the samples is refused without being compared.
+func TestLengthGateRefusesPhrasesOfTheWrongLength(t *testing.T) {
+	d, _ := enrolled(t, 10) // the most sensitive setting: only the gate can refuse
+	var judged []float64
+	d.OnCandidate = func(dist float64, ms int) { judged = append(judged, dist) }
+	rng := rand.New(rand.NewSource(11))
+	d.cooldown = 0
+	if feedAll(d, stream(speak(heyMilo, 125, 3.0, 1, 30, rng), rng), 1600) { // three times too slow
+		t.Error("a phrase three times too long triggered the wake word")
+	}
+	if len(judged) == 0 || !math.IsInf(judged[len(judged)-1], 1) {
+		t.Errorf("the long phrase should have been refused for its length, got %v", judged)
+	}
+	d.cooldown = 0
+	if !feedAll(d, stream(speak(heyMilo, 128, 1.05, 1, 30, rng), rng), 1600) {
+		t.Error("the normal phrase was refused")
+	}
+}
+
+func TestLengthRange(t *testing.T) {
+	mk := func(n int) [][]float64 { return make([][]float64, n) }
+	lo, hi := lengthRange([][][]float64{mk(80), mk(102)})
+	if lo != 52 || hi != 164 {
+		t.Errorf("range = %d..%d, want 52..164", lo, hi)
+	}
+	if lo, hi := lengthRange(nil); lo != 0 || hi < 1<<30 {
+		t.Errorf("no samples: %d..%d", lo, hi)
+	}
+}

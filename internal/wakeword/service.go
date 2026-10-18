@@ -123,6 +123,9 @@ func (s *Service) buildDetector(ctx context.Context) (Detector, string, error) {
 			d.WithPrefilter()
 		}
 		d.OnScore = s.recordScore
+		d.OnCandidate = func(dist float64, ms int) { // no audio, only how close it was and how long
+			s.Log.Info("wake word candidate", "distance", math.Round(dist*100)/100, "threshold", math.Round(s.thresh*100)/100, "ms", ms)
+		}
 		return d, "template", nil
 	}
 }
@@ -134,7 +137,6 @@ func (s *Service) prefilterOn(ctx context.Context) bool {
 }
 
 func (s *Service) recordScore(dist float64) {
-	s.Log.Info("wake word candidate", "distance", math.Round(dist*100)/100, "threshold", math.Round(s.thresh*100)/100) // no audio, only how close it was
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.scores = append(s.scores, Score{At: s.now(), Distance: dist})
