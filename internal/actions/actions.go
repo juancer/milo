@@ -88,6 +88,10 @@ type Call struct {
 type Result struct {
 	Message string         `json:"message"`
 	Data    map[string]any `json:"data,omitempty"`
+	// Refused marks an answer that is a reason it could not be done ("Spotify is not connected", "there
+	// is no music") rather than the thing done. Callers that act without the language model use it to
+	// hand the request to the model, which explains it properly.
+	Refused bool `json:"refused,omitempty"`
 }
 
 // Action is a registered capability.

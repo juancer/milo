@@ -339,7 +339,7 @@ var ErrNoMusic = errors.New("there is no music in the music folder yet")
 type AudioSource interface {
 	// PlayAnything handles "play some music" when this source is the preferred one; handled is false
 	// when it is not and the local music should play instead.
-	PlayAnything(ctx context.Context, actor actions.Actor, query string) (msg string, handled bool, err error)
+	PlayAnything(ctx context.Context, actor actions.Actor, query string) (res actions.Result, handled bool, err error)
 	Active() bool
 	Pause(ctx context.Context) error
 	Skip(ctx context.Context, actor actions.Actor) (string, error)
@@ -711,14 +711,14 @@ func (m *Music) RegisterActions(e *actions.Engine) {
 		Params: []actions.Param{{Name: "query", Description: "Words from the song or folder name, for example frozen", Type: actions.String, MaxLen: 100}},
 		Handler: func(ctx context.Context, c actions.Call) (actions.Result, error) {
 			if m.Other != nil {
-				if msg, handled, err := m.Other.PlayAnything(ctx, c.Actor, c.Args.String("query")); handled {
-					return actions.Result{Message: msg}, err
+				if res, handled, err := m.Other.PlayAnything(ctx, c.Actor, c.Args.String("query")); handled {
+					return res, err
 				}
 			}
 			title, err := m.Play(ctx, c.Args.String("query"))
 			if errors.Is(err, ErrNoMusic) {
 				// Said as it is, so the assistant tells the child the truth instead of guessing.
-				return actions.Result{Message: "There is no music on the device yet: a parent needs to connect Spotify or add songs."}, nil
+				return actions.Result{Message: "There is no music on the device yet: a parent needs to connect Spotify or add songs.", Refused: true}, nil
 			}
 			if err != nil {
 				return actions.Result{}, err

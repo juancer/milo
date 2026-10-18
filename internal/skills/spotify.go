@@ -59,17 +59,23 @@ type Spotify struct {
 	// APIBase replaces the receiver's local address and PollEvery the status polling (tests).
 	APIBase   string
 	PollEvery time.Duration
+	// HungAfter is how long the receiver may run without answering its status before Milo restarts it
+	// (default 30 s). go-librespot can wedge with its process alive and its port open.
+	HungAfter time.Duration
+	// WebAPIBase is Spotify's Web API address used to search for artists (tests replace it).
+	WebAPIBase string
 
-	mu      sync.Mutex
-	procRun runner
-	pollRun runner
-	playRun runner
-	client  *spotifyClient
-	fifo    *os.File
-	snap    spotifySnap
-	pump    context.CancelFunc
-	wake    chan struct{}
-	lastErr string
+	mu       sync.Mutex
+	killProc context.CancelFunc // stops the receiver process; procLoop then starts a new one
+	procRun  runner
+	pollRun  runner
+	playRun  runner
+	client   *spotifyClient
+	fifo     *os.File
+	snap     spotifySnap
+	pump     context.CancelFunc
+	wake     chan struct{}
+	lastErr  string
 }
 
 type spotifySnap struct {
@@ -246,6 +252,16 @@ func (s *Spotify) procLoop(ctx context.Context, bin, dir string) {
 }
 
 func (s *Spotify) runProcess(ctx context.Context, bin, dir string) error {
+	ctx, kill := context.WithCancel(ctx)
+	defer kill()
+	s.mu.Lock()
+	s.killProc = kill
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.killProc = nil
+		s.mu.Unlock()
+	}()
 	cmd := exec.CommandContext(ctx, bin, "--config_dir", dir) // GNU-style: "-config_dir" is parsed as -c onfig_dir
 	cmd.Dir = dir
 	// A clean environment: the receiver needs nothing from Milo's (no keys, no paths).
@@ -286,6 +302,11 @@ func (s *Spotify) pollLoop(ctx context.Context) {
 	if every <= 0 {
 		every = time.Second
 	}
+	hung := s.HungAfter
+	if hung <= 0 {
+		hung = 30 * time.Second
+	}
+	var failingSince time.Time
 	for ctx.Err() == nil {
 		s.mu.Lock()
 		c := s.client
@@ -295,10 +316,32 @@ func (s *Spotify) pollLoop(ctx context.Context) {
 			st, err := c.Status(rctx)
 			cancel()
 			s.apply(st, err)
+			// "Not signed in" is an answer; a timeout or an error status is a receiver that is stuck.
+			if err != nil && !errors.Is(err, errSpotifyNoSession) {
+				if failingSince.IsZero() {
+					failingSince = time.Now()
+				} else if time.Since(failingSince) > hung {
+					s.restartReceiver()
+					failingSince = time.Time{}
+				}
+			} else {
+				failingSince = time.Time{}
+			}
 		}
 		if !sleepCtx(ctx, every) {
 			return
 		}
+	}
+}
+
+// restartReceiver stops a receiver that has stopped answering; procLoop starts a fresh one.
+func (s *Spotify) restartReceiver() {
+	s.mu.Lock()
+	kill := s.killProc
+	s.mu.Unlock()
+	if kill != nil {
+		s.Log.Warn("spotify: the receiver is not answering, restarting it")
+		kill()
 	}
 }
 
@@ -529,22 +572,22 @@ func (s *Spotify) Skip(ctx context.Context, actor actions.Actor) (string, error)
 // Spotify is not the right place to play (switched to local, not running, not paired), so the local
 // music takes over. Otherwise it plays: a playlist whose name matches the words, else whatever was
 // paused, else the default or first playlist. When it cannot, it says why instead of failing.
-func (s *Spotify) PlayAnything(ctx context.Context, actor actions.Actor, query string) (string, bool, error) {
+func (s *Spotify) PlayAnything(ctx context.Context, actor actions.Actor, query string) (actions.Result, bool, error) {
 	if s.setting(ctx, SettingMusicSource, "spotify") == "local" {
-		return "", false, nil
+		return actions.Result{}, false, nil
 	}
 	s.mu.Lock()
 	up, signedIn, loaded := s.snap.up, s.snap.signedIn, s.snap.st.Track != nil
 	s.mu.Unlock()
 	if !up || !signedIn {
-		return "", false, nil
+		return actions.Result{}, false, nil
 	}
 	if msg := s.blocked(ctx, actor); msg != "" {
-		return msg, true, nil
+		return actions.Result{Message: msg, Refused: true}, true, nil
 	}
 	c, err := s.api()
 	if err != nil {
-		return err.Error(), true, nil
+		return actions.Result{Message: err.Error(), Refused: true}, true, nil
 	}
 	play := func(uri string) error {
 		if s.OnPlay != nil {
@@ -554,7 +597,7 @@ func (s *Spotify) PlayAnything(ctx context.Context, actor actions.Actor, query s
 	}
 	lists, err := c.Playlists(ctx)
 	if err != nil {
-		return "", true, err
+		return actions.Result{}, true, err
 	}
 	names := make([]string, len(lists))
 	for i, l := range lists {
@@ -562,29 +605,51 @@ func (s *Spotify) PlayAnything(ctx context.Context, actor actions.Actor, query s
 	}
 	if i, ok := bestWordMatch(names, query); ok {
 		if err := play(lists[i].URI); err != nil {
-			return "", true, err
+			return actions.Result{}, true, err
 		}
-		return "Playing " + lists[i].Name + ".", true, nil
+		return actions.Result{Message: "Playing " + lists[i].Name + ".", Data: map[string]any{"playlist": lists[i].Name}}, true, nil
+	}
+	// Words that are not a playlist are an artist ("música de Belinda"): search for them.
+	if len(words(query)) > 0 {
+		base := s.WebAPIBase
+		if base == "" {
+			base = "https://api.spotify.com"
+		}
+		sctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		name, uri, err := c.searchArtist(sctx, base, strings.Join(words(query), " "))
+		cancel()
+		switch {
+		case err == nil:
+			if err := play(uri); err != nil {
+				return actions.Result{}, true, err
+			}
+			return actions.Result{Message: "Playing music by " + name + ".", Data: map[string]any{"artist": name}}, true, nil
+		case errors.Is(err, errSpotifyNoArtist):
+			return actions.Result{Message: fmt.Sprintf("I could not find %q on Spotify.", query), Refused: true}, true, nil
+		default:
+			s.Log.Info("spotify: artist search failed", "error", err)
+			return actions.Result{Message: fmt.Sprintf("I could not look up %q on Spotify right now; asking for one of the family's playlists by name works.", query), Refused: true}, true, nil
+		}
 	}
 	if loaded {
 		if s.OnPlay != nil {
 			s.OnPlay()
 		}
 		if err := c.Resume(ctx); err == nil {
-			return "Playing.", true, nil
+			return actions.Result{Message: "Playing."}, true, nil
 		}
 	}
 	if len(lists) == 0 {
-		return "I could not find any playlist on the paired Spotify account. Make one in the Spotify app first.", true, nil
+		return actions.Result{Message: "I could not find any playlist on the paired Spotify account. Make one in the Spotify app first.", Refused: true}, true, nil
 	}
 	pick := 0
 	if i, ok := bestWordMatch(names, s.setting(ctx, SettingSpotifyDefaultPlaylist, "")); ok {
 		pick = i
 	}
 	if err := play(lists[pick].URI); err != nil {
-		return "", true, err
+		return actions.Result{}, true, err
 	}
-	return "Playing " + lists[pick].Name + ".", true, nil
+	return actions.Result{Message: "Playing " + lists[pick].Name + ".", Data: map[string]any{"playlist": lists[pick].Name}}, true, nil
 }
 
 // YieldToLocal pauses Spotify because the local music is about to play.
@@ -658,11 +723,11 @@ func (s *Spotify) RegisterActions(e *actions.Engine) {
 			Name: name, Description: desc, Feature: "spotify", Exposure: both,
 			Handler: func(ctx context.Context, call actions.Call) (actions.Result, error) {
 				if msg := s.blocked(ctx, call.Actor); msg != "" {
-					return actions.Result{Message: msg}, nil
+					return actions.Result{Message: msg, Refused: true}, nil
 				}
 				c, err := s.api()
 				if err != nil {
-					return actions.Result{Message: err.Error()}, nil
+					return actions.Result{Message: err.Error(), Refused: true}, nil
 				}
 				if err := do(ctx, c); err != nil {
 					return actions.Result{}, err
@@ -694,11 +759,11 @@ func (s *Spotify) RegisterActions(e *actions.Engine) {
 		Params: []actions.Param{{Name: "name", Description: "Words from the playlist's name", Type: actions.String, MaxLen: 100, Required: true}},
 		Handler: func(ctx context.Context, call actions.Call) (actions.Result, error) {
 			if msg := s.blocked(ctx, call.Actor); msg != "" {
-				return actions.Result{Message: msg}, nil
+				return actions.Result{Message: msg, Refused: true}, nil
 			}
 			c, err := s.api()
 			if err != nil {
-				return actions.Result{Message: err.Error()}, nil
+				return actions.Result{Message: err.Error(), Refused: true}, nil
 			}
 			lists, err := c.Playlists(ctx)
 			if err != nil {
@@ -710,7 +775,7 @@ func (s *Spotify) RegisterActions(e *actions.Engine) {
 			}
 			i, ok := bestWordMatch(names, call.Args.String("name"))
 			if !ok {
-				return actions.Result{Message: fmt.Sprintf("I could not find a playlist called %q.", call.Args.String("name"))}, nil
+				return actions.Result{Message: fmt.Sprintf("I could not find a playlist called %q.", call.Args.String("name")), Refused: true}, nil
 			}
 			if s.OnPlay != nil {
 				s.OnPlay() // the local music gives way
