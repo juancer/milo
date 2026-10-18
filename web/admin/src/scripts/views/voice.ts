@@ -19,7 +19,11 @@ const MAX_SUGGESTION_DEMOS = 12;
 const mb = (bytes: number): string => (bytes / 1048576).toFixed(bytes < 10485760 ? 1 : 0);
 
 /** Voice picker: the Piper catalog for a language, a demo of each voice, and download on choosing. */
-function voicesCard(initialLanguage?: string): HTMLElement {
+/** The language the voice list was last showing, so re-drawing the sheet does not jump back to the default. */
+let shownLanguage: string | undefined;
+
+/** `onChange` redraws the whole sheet: the status line above the list must follow the voice that was chosen. */
+function voicesCard(initialLanguage: string | undefined, onChange: () => Promise<void>): HTMLElement {
   const body = h("div", {});
   // One demo plays at a time. The same button plays and pauses it; starting another stops this one.
   let current: { key: string; audio: HTMLAudioElement; btn: HTMLButtonElement } | null = null;
@@ -39,6 +43,7 @@ function voicesCard(initialLanguage?: string): HTMLElement {
     audio.play().catch(() => { toast(t("voices.demoFailed"), true); setLabel(btn, false); });
   };
   const load = async (language?: string): Promise<void> => {
+    shownLanguage = language ?? shownLanguage;
     stopDemo();
     let data: VoiceList;
     try {
@@ -68,8 +73,8 @@ function voicesCard(initialLanguage?: string): HTMLElement {
     const renderRow = (v: VoiceRow, extra?: string): HTMLElement => {
       const choice = inUseKeys.has(v.key) ? badge(t("voices.inUse"))
         : v.installed ? h("div", { class: "voice-action" },
-          button(t("voices.use"), { onclick: async () => { if (await guard(() => api("POST", `/api/voices/${v.key}/use`), "voices.nowUsing")) await load(data.language); } }),
-          button(t("voices.remove"), { variant: "danger", onclick: async () => { if (await guard(() => api("DELETE", `/api/voices/${v.key}`))) await load(data.language); } }))
+          button(t("voices.use"), { onclick: async () => { if (await guard(() => api("POST", `/api/voices/${v.key}/use`), "voices.nowUsing")) await onChange(); } }),
+          button(t("voices.remove"), { variant: "danger", onclick: async () => { if (await guard(() => api("DELETE", `/api/voices/${v.key}`))) await onChange(); } }))
           : h("div", { class: "voice-action" }, button(t("voices.download"), {
             disabled: busy,
             onclick: async () => {
@@ -133,7 +138,7 @@ function voicesCard(initialLanguage?: string): HTMLElement {
         showProgress(j);
         if (j.running) { window.setTimeout(() => void tick(), 1000); return; }
         if (j.error) toast(t("voices.failed", { error: j.error }), true); else toast(t("voices.ready"));
-        await load(data.language);
+        await onChange();
       };
       window.setTimeout(() => void tick(), 1000);
     }
@@ -153,7 +158,7 @@ export async function render(root: HTMLElement): Promise<void> {
     h("p", {}, ready ? badge(t("voice.ready")) : badge(s.tts_engine === "none" ? t("voice.off") : t("voice.pick"), true)),
     note(t("voice.help"))));
 
-  root.append(voicesCard((s.language && s.language !== AUTO ? s.language : getLocale()).split(/[-_]/)[0]));
+  root.append(voicesCard(shownLanguage ?? (s.language && s.language !== AUTO ? s.language : getLocale()).split(/[-_]/)[0], refresh));
 
   const ttsLangs: [string, string][] = [["", t("assistant.ttsLanguageFollow")], ...locales.map((l): [string, string] => [l.code, l.name])];
   if (s.tts_language && !ttsLangs.some(([v]) => v === s.tts_language)) ttsLangs.push([s.tts_language, s.tts_language]);
