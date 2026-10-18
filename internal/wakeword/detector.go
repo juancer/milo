@@ -130,7 +130,8 @@ type TemplateDetector struct {
 	templates [][][]float64
 	threshold float64
 	seg       *segmenter
-	clock     int64 // samples processed, so cooldowns need no wall clock
+	pre       *Prefilter // nil: the audio goes to the detector as it is
+	clock     int64      // samples processed, so cooldowns need no wall clock
 	cooldown  int64
 	// OnScore, if set, is called with the best distance of every candidate phrase.
 	OnScore func(distance float64)
@@ -141,11 +142,21 @@ func NewTemplateDetector(templates [][][]float64, threshold float64) *TemplateDe
 	return &TemplateDetector{templates: templates, threshold: threshold, seg: newSegmenter()}
 }
 
+// WithPrefilter makes the detector clean the audio first (see Prefilter). The samples it was
+// enrolled from must have been cleaned the same way.
+func (d *TemplateDetector) WithPrefilter() *TemplateDetector {
+	d.pre = NewPrefilter()
+	return d
+}
+
 // Process implements Detector.
 func (d *TemplateDetector) Process(pcm []byte) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.clock += int64(len(pcm) / 2)
+	if d.pre != nil {
+		pcm = d.pre.Process(pcm)
+	}
 	detected := false
 	for _, phrase := range d.seg.feed(pcm) {
 		if ms := durationMS(phrase); ms < minPhraseMS || ms > maxPhraseMS {
