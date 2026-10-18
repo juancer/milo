@@ -196,7 +196,10 @@ func (m *memSessionDB) GetSession(_ context.Context, h string, now time.Time) (i
 	}
 	return r.userID, r.fingerprint, true, nil
 }
-func (m *memSessionDB) DeleteSession(_ context.Context, h string) error { delete(m.rows, h); return nil }
+func (m *memSessionDB) DeleteSession(_ context.Context, h string) error {
+	delete(m.rows, h)
+	return nil
+}
 func (m *memSessionDB) PurgeSessions(_ context.Context, now time.Time) error {
 	for h, r := range m.rows {
 		if now.After(r.expires) {
