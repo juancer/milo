@@ -105,7 +105,7 @@ func New(ctx context.Context, cfg system.Config, log *slog.Logger, st *store.Sto
 	if a.Cfg.Hardware == "mock" {
 		a.Wifi = wifi.NewMock()
 	} else {
-		a.Wifi = wifi.NMCLI{}
+		a.Wifi = wifi.Detect(a.Cfg.DataDir)
 	}
 	a.initAssistant()
 	if err := a.initTelegram(runCtx); err != nil {

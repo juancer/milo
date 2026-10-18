@@ -5,7 +5,8 @@ like your Milo (the device name), and the music plays through Milo's speaker. It
 off by default, and works only with **Spotify Premium** (Spotify's own rule).
 
 Milo does this by running [go-librespot](https://github.com/devgianlu/go-librespot), a separate
-program you install yourself. Milo does not ship it (it is GPL-3.0 software), and it talks to no
+program. It is GPL-3.0 software, so Milo does not embed it: `milo install` downloads a pinned
+upstream release, checks its SHA-256 and puts it at `/usr/local/bin/go-librespot`. It talks to no
 Spotify developer API and needs no developer app.
 
 ## Read this first: the risks
@@ -19,15 +20,15 @@ Spotify developer API and needs no developer app.
   content to an AI model. Milo sends Spotify content to no AI model except the **name of a
   playlist** when someone asks for it, but you should judge whether this fits your use.
 
-## Install go-librespot on the Pi
+## go-librespot on the Pi
 
-1. Download the latest `go-librespot_linux_arm64.tar.gz` (64-bit Raspberry Pi OS; the
-   `armv6` build is for 32-bit) from
-   <https://github.com/devgianlu/go-librespot/releases>.
-2. Unpack it and copy the `go-librespot` file to `/usr/local/bin/`, then
-   `sudo chmod 755 /usr/local/bin/go-librespot`. Another path works: set it in the Spotify sheet.
-3. Turn the **Spotify** switch on (Home → Spotify). Until step 2 is done the tile says *Needs
-   setup*.
+`sudo milo install` (and every automatic update) installs go-librespot if it is missing. It needs
+Internet once. If the download fails, the install still succeeds and prints a warning; run
+`sudo milo install` again later. A copy you placed yourself is never replaced. Another path works:
+set it in the Spotify sheet.
+
+Then turn the **Spotify** switch on (Home → Spotify). Until go-librespot is present the tile
+says *Needs setup*.
 
 Milo starts go-librespot as a child of its own service: it runs as the same unprivileged user,
 inside the same systemd sandbox, with a clean environment. You do not write a systemd unit for
@@ -80,7 +81,7 @@ when it plays and on Spotify otherwise.
 
 | Symptom | Try |
 |---|---|
-| Tile says *Install go-librespot* | The file is missing or not executable at the path shown in the sheet. |
+| Tile says *Install go-librespot* | The file is missing or not executable at the path shown in the sheet. Run `sudo milo install`. |
 | No pairing code | Wait a few seconds; check `journalctl -u milo` (the receiver's output is at debug level: `MILO_LOG_LEVEL=debug`). |
 | Milo does not appear in the Spotify app | Only the paired account sees it; both must be online. Try signing out and pairing again. |
 | Errors like "audio key" | A known go-librespot/librespot problem with some accounts; update go-librespot. |

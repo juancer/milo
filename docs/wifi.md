@@ -8,12 +8,17 @@ connection still needs Internet on the Pi: set that up with Raspberry Pi Imager 
 - Each network has a **priority**; higher is preferred. Disabled networks are ignored.
 - Passwords are stored encrypted in Milo's database, never returned by the API, and never
   logged.
-- Milo applies the list to **NetworkManager** (`nmcli`), the default on Raspberry Pi OS
-  Bookworm and later. It creates profiles named `milo-…` and only ever touches those; your own
-  profiles are left alone. Removing a network removes its profile.
+- Milo picks the backend at start-up. With **NetworkManager** running (the default on Raspberry Pi
+  OS Bookworm and later) it uses `nmcli` and creates profiles named `milo-…`. Otherwise, with
+  **dhcpcd and wpa_supplicant** (Bullseye and earlier), it talks to wpa_supplicant's control socket directly. Either way it only
+  touches its own networks (`milo-…`): your existing Wi-Fi, a fixed IP address in `dhcpcd.conf`
+  and the current connection are left alone. Removing a network removes only Milo's entry.
+- With wpa_supplicant, Milo does not rewrite `wpa_supplicant.conf` (no `save_config`): it applies
+  its list again every time it starts. It sends wpa_supplicant the derived WPA key, never the
+  password. Priorities compete with your own network, which has priority 0.
 - The service user needs permission to manage connections: the installer adds it to the
-  `netdev` group. If your system uses `dhcpcd`/`wpa_supplicant` instead of NetworkManager, the
-  the Wi-Fi sheet says so and you configure Wi-Fi the usual way.
+  `netdev` group, which owns wpa_supplicant's control socket on Raspberry Pi OS.
+- If neither is available, the Wi-Fi sheet says so and you configure Wi-Fi the usual way.
 
 Security note: `nmcli` receives the password as a command-line argument, so another local user
 on the Pi could see it in the process list for a moment. A Raspberry Pi running Milo has no other

@@ -1,5 +1,5 @@
 // Package wifi manages the Wi-Fi networks the device may join. Networks live in
-// SQLite (passwords encrypted); this package applies them to NetworkManager,
+// SQLite (passwords encrypted); this package applies them to NetworkManager or wpa_supplicant,
 // which then connects to the best available one by priority.
 package wifi
 
