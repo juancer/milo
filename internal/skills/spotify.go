@@ -689,7 +689,7 @@ func (s *Spotify) RegisterActions(e *actions.Engine) {
 	control("spotify_previous", "Go back to the previous Spotify song.", func(ctx context.Context, c *spotifyClient) error { return c.Prev(ctx) }, "Previous song.")
 	e.MustRegister(actions.Action{
 		Name:        "spotify_play_playlist",
-		Description: "Play one of the family's Spotify playlists by name. Only the family's own playlists can be played: searching for any song or artist on Spotify is not possible.",
+		Description: "Play one specific Spotify playlist by name, when the person asks for that playlist. For a plain request to play music use play_music instead. Only the family's own playlists can be played: searching for any song or artist on Spotify is not possible.",
 		Feature:     "spotify", Exposure: both,
 		Params: []actions.Param{{Name: "name", Description: "Words from the playlist's name", Type: actions.String, MaxLen: 100, Required: true}},
 		Handler: func(ctx context.Context, call actions.Call) (actions.Result, error) {

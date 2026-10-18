@@ -706,7 +706,7 @@ func (m *Music) Next() (string, error) {
 func (m *Music) RegisterActions(e *actions.Engine) {
 	both := actions.ExposeDevice | actions.ExposeAssistant
 	e.MustRegister(actions.Action{
-		Name: "play_music", Description: "Play a song from the family's music folder. Give words from its name, or nothing for a surprise. Continues with other songs until stopped.",
+		Name: "play_music", Description: "Play some music. This is the tool for any request to play music, a song or a playlist. It plays Spotify when that is connected (a playlist whose name matches the words, otherwise whatever was paused, otherwise a default playlist), and the family's music folder when it is not. Give words from the song or playlist name, or nothing for a surprise. It keeps playing until stopped.",
 		Feature: "music", Exposure: both,
 		Params: []actions.Param{{Name: "query", Description: "Words from the song or folder name, for example frozen", Type: actions.String, MaxLen: 100}},
 		Handler: func(ctx context.Context, c actions.Call) (actions.Result, error) {
