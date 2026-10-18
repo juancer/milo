@@ -219,7 +219,7 @@ func TestSpotifyStartsTheReceiverWithAPrivateConfigAndStopsIt(t *testing.T) {
 	waitFor(t, "the receiver to start", func() bool { _, err := os.Stat(filepath.Join(sr.dir, "pid")); return err == nil })
 
 	args, _ := os.ReadFile(filepath.Join(sr.dir, "args"))
-	if !strings.Contains(string(args), "-config_dir\n"+cfgDir) {
+	if !strings.Contains(string(args), "--config_dir\n"+cfgDir) {
 		t.Fatalf("args = %q", args)
 	}
 	if fi, err := os.Stat(cfgDir); err != nil || fi.Mode().Perm() != 0o700 {
@@ -247,7 +247,7 @@ func TestSpotifyRestartsAReceiverThatExits(t *testing.T) {
 	sr.start(t)
 	waitFor(t, "a second start", func() bool {
 		b, _ := os.ReadFile(filepath.Join(sr.dir, "args"))
-		return strings.Count(string(b), "-config_dir") >= 2
+		return strings.Count(string(b), "--config_dir") >= 2
 	})
 	waitFor(t, "the reason to be kept", func() bool { return strings.Contains(sr.sp.Info(context.Background()).Error, "go-librespot") })
 }

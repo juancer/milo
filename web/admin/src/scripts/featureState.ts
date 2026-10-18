@@ -23,7 +23,7 @@ const KNOWN_ERRORS: [RegExp, string][] = [
   [/API key/i, "needs.assistantKey"],
   [/wake-word samples/i, "needs.wakeSamples"],
   [/no place is set/i, "needs.weatherPlace"],
-  [/go-librespot/i, "needs.spotifyBinary"],
+  [/go-librespot is not installed/i, "needs.spotifyBinary"],
 ];
 
 /** Translation key of the friendly explanation for a known "not set up yet" error, if it is one. */
