@@ -20,7 +20,7 @@ interface Data {
   chats: unknown[] | null;
   buttons: unknown[] | null;
   admins: unknown[] | null;
-  assistant: { llm_key_configured: boolean } | null;
+  assistant: { llm_key_configured: boolean; stt_key_configured: boolean; tts_key_configured: boolean; settings: { tts_engine: string; tts_model_path: string } } | null;
   wifi: { status: { available: boolean; connected: boolean; ssid?: string }; networks: unknown[] } | null;
   backup: { settings: { last_at?: string; last_error?: string } } | null;
   audit: AuditRow[] | null;
@@ -58,6 +58,18 @@ function infoFor(s: Section, d: Data): Info {
       if (!d.telegram.enabled) return { summary: t("tile.off"), status: "off" };
       if (d.telegram.poll_error) return { summary: t("tile.telegram.attention"), status: "attention", hint: d.telegram.poll_error };
       return d.telegram.running ? { summary: d.telegram.bot_username ? `@${d.telegram.bot_username}` : t("tile.telegram.ready"), status: "ready" } : { summary: t("tile.off"), status: "off" };
+    }
+    case "ai": {
+      const a = d.assistant;
+      if (!a) return { summary: t("tile.off") };
+      return a.llm_key_configured && a.stt_key_configured ? { summary: t("tile.ai.ready"), status: "ready" } : { summary: t("needs.assistantKey"), status: "setup" };
+    }
+    case "voice": {
+      const a = d.assistant;
+      if (!a) return { summary: t("tile.off") };
+      if (a.settings.tts_engine === "none") return { summary: t("tile.voice.tones"), status: "off" };
+      const ready = a.settings.tts_engine === "cloud" ? a.tts_key_configured : a.settings.tts_model_path !== "";
+      return ready ? { summary: t("tile.voice.ready"), status: "ready" } : { summary: t("tile.voice.pick"), status: "setup" };
     }
     case "assistant": {
       const f = feature("assistant");

@@ -1,5 +1,10 @@
 # The assistant
 
+The admin has three sheets for it, under **Assistant & voice**: **AI connection** (the keys, the quick start
+with Groq, the AI model and the speech-to-text engine), **Voice** (the voice picker, the text-to-speech engine,
+speed and volume) and **Assistant** (the switch, personality, safety, blocked phrases and conversations). Each
+one starts with a line saying whether that part is ready.
+
 Press the GPT button (or say the wake word, see [wakeword.md](wakeword.md)) and talk. Milo records until you stop
 talking, turns the recording into text, asks a language model, and speaks the answer.
 
