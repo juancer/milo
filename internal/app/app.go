@@ -27,6 +27,7 @@ import (
 	"github.com/juancer/milo/internal/store"
 	"github.com/juancer/milo/internal/system"
 	"github.com/juancer/milo/internal/telegram"
+	"github.com/juancer/milo/internal/voices"
 	"github.com/juancer/milo/internal/wakeword"
 	"github.com/juancer/milo/internal/wifi"
 )
@@ -59,6 +60,7 @@ type App struct {
 	Music     *skills.Music
 	Spotify   *skills.Spotify
 	Weather   *skills.Weather
+	Voices    *voices.Manager // downloads Piper and its voices (see internal/voices)
 	Calendar  *skills.Calendar
 
 	// WifiMu serialises every change to the Wi-Fi list together with the sync that

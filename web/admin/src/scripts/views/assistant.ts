@@ -3,7 +3,7 @@ import { t, tOr } from "../../i18n";
 import { api } from "../api";
 import { clear, h, when } from "../dom";
 import { AUTO, loadLocales } from "../locales";
-import { confirmDialog, guard } from "../ui";
+import { confirmDialog, guard, toast } from "../ui";
 
 interface Settings {
   child_name: string;
@@ -50,6 +50,93 @@ interface Conversation {
   started_at: string;
   source: string;
   lines: { role: string; content: string; tool?: string; at: string }[];
+}
+
+interface VoiceRow { key: string; name: string; quality: string; language: string; country: string; speakers: number; size_bytes: number; installed: boolean; fast: boolean }
+interface VoiceJob { key: string; running: boolean; stage: string; done: number; total: number; error?: string }
+interface VoiceList { language: string; languages: { code: string; name: string }[]; voices: VoiceRow[]; current: string; piper_installed: boolean; job: VoiceJob }
+
+const mb = (bytes: number): string => (bytes / 1048576).toFixed(bytes < 10485760 ? 1 : 0);
+
+/** A text field for a model name with a button that asks the provider which models it has. */
+function modelField(kind: "llm" | "stt" | "tts", input: HTMLInputElement): HTMLElement {
+  const options = h("datalist", { id: `models-${kind}` });
+  input.setAttribute("list", options.id);
+  input.autocomplete = "off";
+  const load = button(t("assistant.listModels"), {
+    variant: "secondary",
+    onclick: () => guard(async () => {
+      const ids = await api<string[]>("GET", `/api/assistant/models?kind=${kind}`);
+      options.replaceChildren(...ids.map((id) => h("option", { value: id })));
+      toast(t("assistant.modelsLoaded", { n: ids.length }));
+    }),
+  });
+  return h("div", { class: "inline" }, input, options, load);
+}
+
+/** Shows the fields of the chosen engine and hides the ones that do not apply to it. */
+function showOnly(blocks: Record<string, HTMLElement[]>, current: string): void {
+  for (const [engine, els] of Object.entries(blocks)) for (const el of els) el.style.display = engine === current ? "" : "none";
+}
+
+/** Voice picker: the Piper catalog for a language, a demo of each voice, and download on choosing. */
+function voicesCard(initialLanguage?: string): HTMLElement {
+  const body = h("div", {});
+  let player: HTMLAudioElement | null = null;
+  const demo = (key: string) => {
+    player?.pause();
+    player = new Audio(`/api/voices/${encodeURIComponent(key)}/sample`);
+    player.play().catch(() => toast(t("voices.demoFailed"), true));
+  };
+  const load = async (language?: string): Promise<void> => {
+    let data: VoiceList;
+    try {
+      data = await api<VoiceList>("GET", `/api/voices${language ? `?lang=${encodeURIComponent(language)}` : ""}`);
+    } catch (e) {
+      clear(body);
+      body.append(h("p", { class: "error" }, e instanceof Error ? e.message : t("voices.catalogError")));
+      return;
+    }
+    const busy = data.job.running;
+    const progress = h("p", { class: "muted", role: "status" });
+    const showProgress = (j: VoiceJob) => {
+      const stage = j.stage === "piper" ? t("voices.downloadingPiper") : t("voices.downloadingVoice");
+      progress.textContent = j.running ? `${stage} ${j.total > 0 ? t("voices.progress", { done: mb(j.done), total: mb(j.total) }) : mb(j.done) + " MB"}` : "";
+    };
+    showProgress(data.job);
+    const langSelect = select(t("voices.language"), data.languages.map((l): [string, string] => [l.code, l.name]), data.language, { onchange: () => void load(langSelect.value) });
+    const rows = data.voices.map((v) => row(
+      h("span", {}, `${v.name} · ${v.country}`, " ", badge(v.quality), " ", v.fast ? badge(t("voices.fast")) : badge(t("voices.slow"), true),
+        h("span", { class: "muted" }, ` ${mb(v.size_bytes)} MB${v.speakers > 1 ? " · " + t("voices.speakers", { n: v.speakers }) : ""}`)),
+      button(t("voices.demo"), { variant: "secondary", onclick: () => demo(v.key) }),
+      v.key === data.current ? badge(t("voices.inUse"))
+        : v.installed ? actions(
+          button(t("voices.use"), { onclick: async () => { if (await guard(() => api("POST", `/api/voices/${v.key}/use`), "voices.nowUsing")) await load(data.language); } }),
+          button(t("voices.remove"), { variant: "danger", onclick: async () => { if (await guard(() => api("DELETE", `/api/voices/${v.key}`))) await load(data.language); } }))
+          : button(t("voices.download"), {
+            disabled: busy,
+            onclick: async () => {
+              if (await guard(() => api("POST", `/api/voices/${v.key}/install`, { use: true }))) await load(data.language);
+            },
+          })));
+    clear(body);
+    body.append(field(t("voices.language"), langSelect), ...(data.piper_installed ? [] : [note(t("voices.piperMissing"))]), progress,
+      rows.length > 0 ? list(...rows) : emptyState(t("voices.none")));
+    if (busy) {
+      const tick = async (): Promise<void> => {
+        if (!body.isConnected) return;
+        const j = await api<VoiceJob>("GET", "/api/voices/status").catch(() => null);
+        if (!j) return;
+        showProgress(j);
+        if (j.running) { window.setTimeout(() => void tick(), 1000); return; }
+        if (j.error) toast(t("voices.failed", { error: j.error }), true); else toast(t("voices.ready"));
+        await load(data.language);
+      };
+      window.setTimeout(() => void tick(), 1000);
+    }
+  };
+  void load(initialLanguage);
+  return card(t("voices.title"), note(t("voices.help")), body);
 }
 
 export async function render(root: HTMLElement): Promise<void> {
@@ -108,6 +195,8 @@ export async function render(root: HTMLElement): Promise<void> {
       },
     }, fields(field(t("assistant.llmKeyLabel"), llmKey), field(t("assistant.sttKeyLabel"), sttKey), field(t("assistant.ttsKeyLabel"), ttsKey), submit(t("assistant.saveKeys"))))));
 
+  root.append(voicesCard());
+
   // ---- language options: locales, "auto" (assistant only) and any legacy free-text value already saved
   const localeOptions = locales.map((l): [string, string] => [l.code, l.name]);
   const assistantLangs: [string, string][] = [[AUTO, t("lang.auto")], ...localeOptions];
@@ -144,6 +233,19 @@ export async function render(root: HTMLElement): Promise<void> {
     ttsSpeed: h("input", { type: "number", value: String(s.tts_speed ?? 1), min: "0.5", max: "2", step: "0.1", ariaLabel: t("assistant.ttsSpeed") }),
     ttsVolume: h("input", { type: "number", value: String(s.tts_volume ?? 100), min: "0", max: "100", ariaLabel: t("assistant.ttsVolume") }),
   };
+  // Only the fields of the chosen engine are shown: the rest would just be noise.
+  const sttCloud = fields(field(t("assistant.sttUrl"), f.sttUrl), field(t("assistant.sttModel"), modelField("stt", f.sttModel)));
+  const sttLocal = fields(field(t("assistant.sttPath"), f.sttPath));
+  const ttsPiper = h("div", {}, fields(field(t("assistant.piperFile"), f.voice)), note(t("assistant.piperPickHint")));
+  const ttsCloud = fields(field(t("assistant.ttsUrl"), f.ttsUrl), field(t("assistant.ttsModel"), modelField("tts", f.ttsModel)), field(t("assistant.ttsVoice"), f.ttsVoice));
+  const ttsTuning = fields(field(t("assistant.ttsLanguage"), f.ttsLanguage), field(t("assistant.ttsSpeed"), f.ttsSpeed), field(t("assistant.ttsVolume"), f.ttsVolume));
+  const syncEngines = () => {
+    showOnly({ cloud: [sttCloud], whispercpp: [sttLocal] }, f.sttEngine.value);
+    showOnly({ piper: [ttsPiper, ttsTuning], cloud: [ttsCloud, ttsTuning], none: [] }, f.tts.value);
+  };
+  f.sttEngine.addEventListener("change", syncEngines);
+  f.tts.addEventListener("change", syncEngines);
+  syncEngines();
   root.append(formCard(async (ev) => {
     ev.preventDefault();
     await guard(async () => {
@@ -172,12 +274,13 @@ export async function render(root: HTMLElement): Promise<void> {
     fields(field(t("assistant.historyLabel"), f.retention), field(t("assistant.turnsLabel"), f.turns)),
     h("h2", {}, t("assistant.providers")),
     note(t("assistant.providersHelp")),
-    fields(field(t("assistant.llmUrl"), f.llmUrl), field(t("assistant.llmModel"), f.llmModel), field(t("assistant.sttUrl"), f.sttUrl), field(t("assistant.sttModel"), f.sttModel)),
-    fields(field(t("assistant.sttEngine"), f.sttEngine), field(t("assistant.sttPath"), f.sttPath)),
+    fields(field(t("assistant.llmUrl"), f.llmUrl), field(t("assistant.llmModel"), modelField("llm", f.llmModel))),
+    note(t("assistant.modelsHelp")),
+    fields(field(t("assistant.sttEngine"), f.sttEngine)),
+    sttCloud, sttLocal,
     h("h2", {}, t("assistant.voice")),
-    fields(field(t("assistant.ttsEngineLabel"), f.tts), field(t("assistant.piperFile"), f.voice)),
-    fields(field(t("assistant.ttsUrl"), f.ttsUrl), field(t("assistant.ttsModel"), f.ttsModel), field(t("assistant.ttsVoice"), f.ttsVoice)),
-    fields(field(t("assistant.ttsLanguage"), f.ttsLanguage), field(t("assistant.ttsSpeed"), f.ttsSpeed), field(t("assistant.ttsVolume"), f.ttsVolume)),
+    fields(field(t("assistant.ttsEngineLabel"), f.tts)),
+    ttsPiper, ttsCloud, ttsTuning,
     actions(submit(t("assistant.save")))));
 
   // ---- blocked phrases

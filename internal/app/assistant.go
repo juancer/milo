@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/juancer/milo/internal/voices"
 	"time"
 
 	"github.com/juancer/milo/internal/assistant"
@@ -69,7 +70,14 @@ func (b backends) TTS(ctx context.Context, s store.GPTSettings) (speech.TTS, err
 		}
 		return speech.NewOpenAICompatTTS(s.TTSBaseURL, key, s.TTSModel, s.TTSVoice).WithOptions(opts), nil
 	}
-	p, err := speech.NewPiper(b.a.Setting(ctx, "tts.piper_binary", "piper"), s.TTSModelPath)
+	// An explicit setting wins, then the Piper Milo downloaded, then whatever "piper" is on the PATH.
+	bin := b.a.Setting(ctx, "tts.piper_binary", "")
+	if bin == "" {
+		if bin = b.a.Voices.PiperBinary(); bin == "" {
+			bin = "piper"
+		}
+	}
+	p, err := speech.NewPiper(bin, s.TTSModelPath)
 	if err != nil {
 		return nil, err
 	}
@@ -77,6 +85,7 @@ func (b backends) TTS(ctx context.Context, s store.GPTSettings) (speech.TTS, err
 }
 
 func (a *App) initAssistant() {
+	a.Voices = &voices.Manager{Dir: a.Cfg.DataDir}
 	a.Notifier = notifications.New(a.Audio, a.Store)
 	a.Assistant = assistant.NewEngine(a.Store, a.Actions, backends{a}, a.Log)
 	a.Assistant.Audio, a.Assistant.Notify = a.Audio, a.Notifier

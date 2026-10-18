@@ -21,10 +21,12 @@ import (
 var modelRe = regexp.MustCompile(`^[A-Za-z0-9._:/@+-]{1,100}$`)
 
 func (s *server) assistantRoutes(mux *http.ServeMux) {
+	s.voiceRoutes(mux)
 	mux.Handle("GET /api/assistant", s.requireAuth(s.getAssistant))
 	mux.Handle("PUT /api/assistant", s.requireAuth(s.putAssistant))
 	mux.Handle("PUT /api/assistant/keys", s.requireAuth(s.putKeys))
 	mux.Handle("DELETE /api/assistant/keys/{which}", s.requireAuth(s.deleteKey))
+	mux.Handle("GET /api/assistant/models", s.requireAuth(s.listProviderModels))
 	mux.Handle("GET /api/moderation-rules", s.requireAuth(s.listRules))
 	mux.Handle("POST /api/moderation-rules", s.requireAuth(s.createRule))
 	mux.Handle("DELETE /api/moderation-rules/{id}", s.requireAuth(s.deleteRule))
