@@ -27,18 +27,17 @@ Raspberry Pi 3B has little CPU to spare. So Milo ships a small pure-Go detector 
 plug for the neural ones. Porcupine is proprietary and needs a licence key, so it is only
 available through the helper plug.
 
-### Built-in engine: noise prefilter
+### Built-in engine: noise prefilter (optional)
 
-Before the detector listens, Milo cleans the microphone audio: a 100 Hz high-pass removes rumble and
-hum, and spectral noise reduction turns down steady background noise (the hiss of an open
-microphone with a lot of gain). It runs on the device, on the same audio the detector already
-had, and it is on by default (`wakeword.prefilter` = `1`). Without it, noise above a few percent of
-full scale hides the phrase from the detector altogether (it only looks at stretches louder than three
-times the noise).
+A prefilter can clean the microphone audio before the detector listens: a 100 Hz high-pass and spectral
+noise reduction (minimum-statistics noise estimate, then a make-up gain). It is **off by default**
+(`wakeword.prefilter` = `0`): on a quiet room it showed no clear gain, and it can cost quiet voices.
+Turn it on (`1`) for a room with steady hiss or hum.
 
-Samples recorded with the prefilter on do not match audio heard with it off, and the other way
-round: **record the samples again after changing this setting** (or after upgrading to a version
-that has it).
+Whether it is on or off, the detector separates speech from the background by comparing each 20 ms block
+with the quietest fifth of the last three seconds, so it follows a noisy room without being told.
+Samples recorded with the prefilter on do not match audio heard with it off, and the other way round:
+**record the samples again after changing this setting**.
 
 ### Built-in engine: recording samples
 

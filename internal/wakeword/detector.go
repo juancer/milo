@@ -13,6 +13,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"math"
+	"sort"
 	"sync"
 )
 
@@ -32,7 +33,13 @@ const (
 	maxPhraseMS    = 2500
 	discardAfterMS = 3500
 	cooldownMS     = 3000
-	minSpeechRMS   = 300.0
+	minSpeechRMS   = 150.0
+	// The noise floor is a low percentile of the last noiseWindowBlocks blocks (3 s), whether or not
+	// they held speech: learning it only from "quiet" blocks never worked when the room was louder
+	// than the starting guess, because everything then counted as speech.
+	noiseWindowBlocks = 150
+	noisePercentile   = 0.2
+	speechOverNoise   = 2.5
 )
 
 // ThresholdFor maps the 1 (strict) - 10 (sensitive) sensitivity setting to a
@@ -49,6 +56,7 @@ func ThresholdFor(sensitivity int) float64 {
 type segmenter struct {
 	carry    []byte
 	noise    float64
+	recent   []float64 // RMS of the last blocks, oldest first
 	pre      [][]int16
 	seg      []int16
 	inSpeech bool
@@ -72,16 +80,17 @@ func (s *segmenter) feed(pcm []byte) [][]int16 {
 			sum += float64(v) * float64(v)
 		}
 		rms := math.Sqrt(sum / blockSamples)
-		threshold := math.Max(minSpeechRMS, s.noise*3)
-		speech := rms > threshold
-
-		if !speech { // track the noise floor: fall fast, rise slowly
-			if rms < s.noise {
-				s.noise = 0.9*s.noise + 0.1*rms
-			} else {
-				s.noise = 0.995*s.noise + 0.005*rms
-			}
+		s.recent = append(s.recent, rms)
+		if len(s.recent) > noiseWindowBlocks {
+			s.recent = s.recent[1:]
 		}
+		if len(s.recent) >= 25 { // 0.5 s: enough to tell the background from a word
+			sorted := append([]float64(nil), s.recent...)
+			sort.Float64s(sorted)
+			s.noise = sorted[int(float64(len(sorted)-1)*noisePercentile)]
+		}
+		threshold := math.Max(minSpeechRMS, s.noise*speechOverNoise)
+		speech := rms > threshold
 		switch {
 		case !s.inSpeech && speech:
 			s.inSpeech, s.quiet = true, 0

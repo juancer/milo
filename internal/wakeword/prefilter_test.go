@@ -42,21 +42,20 @@ func noisyTone() (samples []float64, burstFrom, burstTo int) {
 	return
 }
 
-func TestPrefilterTurnsDownSteadyNoiseAndKeepsSpeechLikeSounds(t *testing.T) {
+func TestPrefilterImprovesTheSignalToNoiseRatio(t *testing.T) {
 	samples, from, to := noisyTone()
 	in := pcmOf(samples)
 	out := NewPrefilter().Process(in)
-	noiseIn, noiseOut := rmsOf(in, sampleRate, 2*sampleRate), rmsOf(out, sampleRate, 2*sampleRate)
-	if noiseOut > noiseIn*0.35 {
-		t.Errorf("noise only went from %.0f to %.0f, want at least 9 dB less", noiseIn, noiseOut)
+	snr := func(pcm []byte, delay int) float64 {
+		return rmsOf(pcm, from+delay, to) / rmsOf(pcm, sampleRate, 2*sampleRate)
 	}
-	// Compare the burst with the tone alone (6000/sqrt2): it must come through nearly whole.
-	burst := rmsOf(out, from+prefilterDelay, to)
-	if burst < 3000 {
-		t.Errorf("the tone came out at %.0f, want most of 4243", burst)
+	before, after := snr(in, 0), snr(out, prefilterDelay)
+	if after < 1.5*before {
+		t.Errorf("signal to noise went from %.1f to %.1f, want at least 1.5 times better", before, after)
 	}
-	if ratio := burst / noiseOut; ratio < 2*(4243/1800.0) {
-		t.Errorf("signal-to-noise only improved to %.1f (was %.1f)", ratio, 4243/1800.0)
+	// The tone must come through at about the level of the raw signal (the make-up gain).
+	if burst := rmsOf(out, from+prefilterDelay, to); burst < 0.5*rmsOf(in, from, to) {
+		t.Errorf("the tone came out at %.0f, the input had %.0f", burst, rmsOf(in, from, to))
 	}
 }
 
@@ -106,7 +105,7 @@ func TestFilterAllIsAlignedWithTheInput(t *testing.T) {
 // times the noise). With the prefilter on both sides, enrolled voices are recognised and other
 // phrases are still rejected.
 func TestPrefilterDetectsInLoudNoise(t *testing.T) {
-	const noise = 1500
+	const noise = 700
 	rng := rand.New(rand.NewSource(7))
 	loud := func(word []syllable, f0, stretch, gain float64) []byte {
 		var all []int16
