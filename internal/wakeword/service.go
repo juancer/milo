@@ -23,6 +23,7 @@ const (
 	SettingPhrase       = "wakeword.phrase"        // label shown in the UI; the sound comes from the samples
 	SettingSensitivity  = "wakeword.sensitivity"   // 1-10
 	SettingExternalPath = "wakeword.external_path" // helper for the "external" engine
+	SettingPrefilter    = "wakeword.prefilter"     // "1" (default) cleans the microphone audio first; "0" turns it off
 	MaxTemplates        = 5
 )
 
@@ -117,9 +118,18 @@ func (s *Service) buildDetector(ctx context.Context) (Detector, string, error) {
 			return nil, "", errors.New("no wake-word samples yet: record the phrase a few times under Wake word in the admin")
 		}
 		d := NewTemplateDetector(templates, s.thresh)
+		if s.prefilterOn(ctx) {
+			d.WithPrefilter()
+		}
 		d.OnScore = s.recordScore
 		return d, "template", nil
 	}
+}
+
+// prefilterOn tells whether the microphone audio is cleaned before detection. Samples recorded
+// with one setting do not match audio heard with the other: record them again after changing it.
+func (s *Service) prefilterOn(ctx context.Context) bool {
+	return s.setting(ctx, SettingPrefilter, "1") != "0"
 }
 
 func (s *Service) recordScore(dist float64) {
@@ -316,6 +326,9 @@ func (s *Service) Enroll(ctx context.Context) error {
 	pcm, _, err := audio.DecodeWAV(wav)
 	if err != nil {
 		return err
+	}
+	if s.prefilterOn(ctx) {
+		pcm = FilterAll(pcm)
 	}
 	feats, err := Enroll(pcm)
 	if err != nil {
