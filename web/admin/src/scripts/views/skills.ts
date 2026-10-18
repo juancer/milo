@@ -71,19 +71,48 @@ export async function render(root: HTMLElement): Promise<void> {
     h("details", {}, h("summary", {}, t("skills.songs")), list(...s.music.tracks.map((tr) => row(tr))))));
 
   // ---- weather
-  const place = h("input", { type: "text", maxLength: 80, placeholder: s.weather.place || t("skills.yourTown"), ariaLabel: t("skills.town") });
+  // Suggestions: nearby towns (by internet address) first, anywhere else after a short wait.
+  // A suggestion that is picked is saved with its coordinates, so a shared name is not guessed.
+  interface PlaceOption { label: string; name: string; latitude: number; longitude: number }
+  const options = h("datalist", { id: "weather-places" });
+  let suggestions: PlaceOption[] = [];
+  let typing: number | undefined;
+  let searchSeq = 0;
+  const place = h("input", {
+    type: "text", maxLength: 80, autocomplete: "off", list: "weather-places",
+    placeholder: s.weather.place || t("skills.yourTown"), ariaLabel: t("skills.town"),
+    oninput: () => {
+      window.clearTimeout(typing);
+      const text = place.value.trim();
+      if (text.length < 2) return;
+      typing = window.setTimeout(async () => {
+        const seq = ++searchSeq;
+        try {
+          const found = await api<PlaceOption[]>("GET", `/api/weather/places?q=${encodeURIComponent(text)}`);
+          if (seq !== searchSeq) return; // a newer keystroke already asked again
+          suggestions = found;
+          options.replaceChildren(...found.map((p) => h("option", { value: p.label })));
+        } catch { /* the field still works by typing the town and saving */ }
+      }, 250);
+    },
+  });
+  const chosenPlace = () => {
+    const p = suggestions.find((o) => o.label === place.value.trim());
+    return p ? { label: p.label, latitude: p.latitude, longitude: p.longitude } : { place: place.value.trim() };
+  };
   const units = h("select", { ariaLabel: t("skills.units") },
     h("option", { value: "celsius", selected: s.weather.units === "celsius" }, t("skills.celsius")),
     h("option", { value: "fahrenheit", selected: s.weather.units === "fahrenheit" }, t("skills.fahrenheit")));
   root.append(card(t("skills.weather"),
     note(t("skills.weatherHelp")),
     h("p", {}, s.weather.configured ? badge(s.weather.place) : badge(t("skills.noTown"), true)),
-    h("form", { class: "inline", onsubmit: (ev: Event) => { ev.preventDefault(); void run(() => api("PUT", "/api/weather", { place: place.value.trim(), units: units.value }), "common.saved"); } },
-      place, units, h("button", { type: "submit" }, t("common.save"))),
+    h("form", { class: "inline", onsubmit: (ev: Event) => { ev.preventDefault(); void run(() => api("PUT", "/api/weather", { ...chosenPlace(), units: units.value }), "common.saved"); } },
+      place, options, units, h("button", { type: "submit" }, t("common.save"))),
     actions(
       button(t("skills.detect"), { onclick: () => run(() => api("POST", "/api/weather/detect"), "skills.detected") }),
       button(t("skills.tryIt"), { variant: "secondary", onclick: tryIt("/api/weather/test") })),
-    note(t("skills.detectPrivacy"))));
+    note(t("skills.detectPrivacy")),
+    note(t("skills.placeSearchPrivacy"))));
 
   // ---- calendar
   const url = h("input", { type: "password", autocomplete: "off", placeholder: s.calendar_configured ? t("skills.calendarSaved") : "https://…/basic.ics", ariaLabel: t("skills.calendarAddress") });

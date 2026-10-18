@@ -644,6 +644,7 @@
   "audit.volume.changed": "Volumen cambiado",
   "audit.telegram.alerts": "Avisos del dispositivo cambiados",
   "audit.telegram.forward": "Copias de mensajes cambiadas",
+  "skills.placeSearchPrivacy": "Mientras escribes, el texto se envía al buscador de lugares de Open-Meteo, y tu dirección de internet se consulta una vez cada pocas horas para mostrar primero los lugares de tu país. También salen lugares de otros países, así que una VPN no estorba.",
   "skills.detect": "Detectar mi ubicación",
   "skills.detected": "Ubicación detectada",
   "skills.detectPrivacy": "Usa tu dirección de internet una sola vez para encontrar tu zona; solo se guarda el lugar. Es aproximada: escribe tu ciudad para corregirla.",

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/juancer/milo/internal/actions"
@@ -51,6 +52,10 @@ type Place struct {
 type Weather struct {
 	Common
 	Client *http.Client
+
+	homeMu sync.Mutex // guards home and homeAt: the cached country of the internet address
+	home   string
+	homeAt time.Time
 }
 
 // Name implements features.Feature.
