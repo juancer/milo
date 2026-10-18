@@ -31,6 +31,9 @@ RestrictNamespaces=true
 ProtectKernelModules=true
 ProtectKernelLogs=true
 ProtectClock=true
+# ProtectClock closes the device list, so the sound card and the button chip must be allowed again.
+DeviceAllow=char-alsa rw
+DeviceAllow=char-gpiochip rw
 SystemCallArchitectures=native
 
 [Install]
