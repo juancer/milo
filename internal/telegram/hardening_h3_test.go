@@ -33,7 +33,6 @@ func TestPendingMessagesHaveAGlobalCeiling(t *testing.T) {
 // An outage must not let the outbound queue grow without bound.
 func TestOutboundQueueIsCapped(t *testing.T) {
 	h := newHarness(t, true)
-	h.enable()
 
 	mk := func(name string, tg int64) int64 {
 		id, err := h.app.Store.CreateChat(h.ctx, store.Chat{Name: name, Kind: "group", TelegramChatID: tg, Enabled: true})
