@@ -124,6 +124,8 @@ type Manager struct {
 	Client      *http.Client
 
 	mu      sync.Mutex
+	pitch   map[string]float64                                     // median F0 of each analysed demo, by voice key
+	pitchOf func(ctx context.Context, key string) (float64, error) // replaces the demo analysis in tests
 	cat     map[string]entry
 	catAt   time.Time
 	job     Job
@@ -294,6 +296,32 @@ func (m *Manager) List(ctx context.Context, family string) ([]Voice, error) {
 // ---------------------------------------------------------------- what is installed
 
 func (m *Manager) voicesDir() string { return filepath.Join(m.Dir, "voices") }
+
+// Family is the language family of a voice key: "es" for es_ES-davefx-medium.
+func Family(key string) string {
+	loc, _, _ := strings.Cut(key, "-")
+	fam, _, _ := strings.Cut(loc, "_")
+	return strings.ToLower(fam)
+}
+
+// SettingKey is the system setting that holds the model path of the voice chosen for a language.
+func SettingKey(family string) string { return "tts.voice." + family }
+
+// InstalledKeys lists the voices that are on the device, sorted.
+func (m *Manager) InstalledKeys() []string {
+	entries, err := os.ReadDir(m.voicesDir())
+	if err != nil {
+		return nil
+	}
+	var keys []string
+	for _, e := range entries {
+		if key, ok := strings.CutSuffix(e.Name(), ".onnx"); ok && m.Installed(key) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
 
 // ModelPath is where the voice's model lives (whether or not it is installed yet).
 func (m *Manager) ModelPath(key string) string { return filepath.Join(m.voicesDir(), key+".onnx") }
