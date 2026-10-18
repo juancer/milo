@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"strconv"
 	"strings"
 	"sync"
@@ -178,5 +179,54 @@ func TestLimiterMapIsCapped(t *testing.T) {
 	}
 	if len(l.fails) > maxKeys {
 		t.Fatalf("fails map grew to %d, cap %d", len(l.fails), maxKeys)
+	}
+}
+
+// memSessionDB is a SessionDB held in a map, standing in for the database.
+type memSessionDB struct{ rows map[string]session }
+
+func (m *memSessionDB) PutSession(_ context.Context, h string, uid int64, fp string, exp time.Time) error {
+	m.rows[h] = session{expires: exp, userID: uid, fingerprint: fp}
+	return nil
+}
+func (m *memSessionDB) GetSession(_ context.Context, h string, now time.Time) (int64, string, bool, error) {
+	r, ok := m.rows[h]
+	if !ok || now.After(r.expires) {
+		return 0, "", false, nil
+	}
+	return r.userID, r.fingerprint, true, nil
+}
+func (m *memSessionDB) DeleteSession(_ context.Context, h string) error { delete(m.rows, h); return nil }
+func (m *memSessionDB) PurgeSessions(_ context.Context, now time.Time) error {
+	for h, r := range m.rows {
+		if now.After(r.expires) {
+			delete(m.rows, h)
+		}
+	}
+	return nil
+}
+
+func TestPersistentSessionsSurviveARestart(t *testing.T) {
+	db := &memSessionDB{rows: map[string]session{}}
+	first := NewPersistentSessions(db, 7*24*time.Hour)
+	tok, err := first.Create(7, Fingerprint("hash-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, stored := db.rows[tok]; stored {
+		t.Fatal("the raw token was stored")
+	}
+	restarted := NewPersistentSessions(db, 7*24*time.Hour) // a new process has no memory of its own
+	if uid, _, ok := restarted.Lookup(tok); !ok || uid != 7 {
+		t.Fatalf("session lost across restart: %d %v", uid, ok)
+	}
+	restarted.now = func() time.Time { return time.Now().Add(8 * 24 * time.Hour) }
+	if _, _, ok := restarted.Lookup(tok); ok {
+		t.Fatal("expired session accepted")
+	}
+	restarted.now = time.Now
+	restarted.Delete(tok)
+	if _, _, ok := restarted.Lookup(tok); ok {
+		t.Fatal("deleted session accepted")
 	}
 }

@@ -26,7 +26,7 @@ const (
 	cookieName        = "milo_session"
 	clientHeader      = "X-Requested-With"
 	clientHeaderValue = "milo-admin"
-	sessionTTL        = 12 * time.Hour
+	sessionTTL        = 7 * 24 * time.Hour
 	maxBody           = 4 << 10
 )
 
@@ -64,7 +64,7 @@ func newServer(a *app.App, version string) *server {
 		app:      a,
 		version:  version,
 		accounts: auth.NewAccounts(a.Store),
-		sessions: auth.NewSessions(sessionTTL),
+		sessions: auth.NewPersistentSessions(a.Store, sessionTTL),
 		limiter:  auth.NewLimiter(5, 15*time.Minute),
 
 		pwLimiter:      auth.NewLimiter(5, 15*time.Minute),

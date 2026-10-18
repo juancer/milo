@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -16,18 +17,39 @@ type session struct {
 	fingerprint string
 }
 
-// Sessions is an in-memory session store. Restarting Milo signs everyone out,
-// which is acceptable for a single-admin local device.
+// SessionDB keeps sessions across restarts. It only ever sees the SHA-256 of a token.
+type SessionDB interface {
+	PutSession(ctx context.Context, tokenHash string, userID int64, fingerprint string, expires time.Time) error
+	GetSession(ctx context.Context, tokenHash string, now time.Time) (userID int64, fingerprint string, ok bool, err error)
+	DeleteSession(ctx context.Context, tokenHash string) error
+	PurgeSessions(ctx context.Context, now time.Time) error
+}
+
+// Sessions issues and checks sign-in tokens. Without a SessionDB they live in memory and a
+// restart of Milo signs everyone out; with one they survive restarts until they expire.
 type Sessions struct {
 	mu  sync.Mutex
 	m   map[string]session
+	db  SessionDB
 	ttl time.Duration
 	now func() time.Time
 }
 
-// NewSessions returns a store whose sessions expire after ttl.
+// NewSessions returns an in-memory store whose sessions expire after ttl.
 func NewSessions(ttl time.Duration) *Sessions {
 	return &Sessions{m: map[string]session{}, ttl: ttl, now: time.Now}
+}
+
+// NewPersistentSessions returns a store that keeps sessions in db.
+func NewPersistentSessions(db SessionDB, ttl time.Duration) *Sessions {
+	s := NewSessions(ttl)
+	s.db = db
+	return s
+}
+
+func hashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
 
 // Fingerprint derives a value from the stored password hash. A session is only
@@ -44,6 +66,15 @@ func (s *Sessions) Create(userID int64, fingerprint string) (string, error) {
 		return "", err
 	}
 	token := base64.RawURLEncoding.EncodeToString(b)
+	if s.db != nil {
+		ctx := context.Background()
+		now := s.now()
+		s.db.PurgeSessions(ctx, now) //nolint:errcheck // housekeeping; expired rows are refused on lookup anyway
+		if err := s.db.PutSession(ctx, hashToken(token), userID, fingerprint, now.Add(s.ttl)); err != nil {
+			return "", err
+		}
+		return token, nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now()
@@ -62,6 +93,13 @@ func (s *Sessions) Create(userID int64, fingerprint string) (string, error) {
 func (s *Sessions) Lookup(token string) (userID int64, fingerprint string, ok bool) {
 	if token == "" {
 		return 0, "", false
+	}
+	if s.db != nil {
+		userID, fingerprint, ok, err := s.db.GetSession(context.Background(), hashToken(token), s.now())
+		if err != nil || !ok {
+			return 0, "", false
+		}
+		return userID, fingerprint, true
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -83,6 +121,10 @@ func Matches(fp, passwordHash string) bool {
 
 // Delete ends a session.
 func (s *Sessions) Delete(token string) {
+	if s.db != nil {
+		s.db.DeleteSession(context.Background(), hashToken(token)) //nolint:errcheck // the cookie is cleared either way
+		return
+	}
 	s.mu.Lock()
 	delete(s.m, token)
 	s.mu.Unlock()
