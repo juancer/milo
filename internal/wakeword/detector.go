@@ -135,6 +135,30 @@ type TemplateDetector struct {
 	cooldown  int64
 	// OnScore, if set, is called with the best distance of every candidate phrase.
 	OnScore func(distance float64)
+	// OnCandidate, if set, is called for every phrase the detector looked at, with its length and
+	// how it was judged: the distance to the closest sample (+Inf when it was refused for its
+	// length without comparing).
+	OnCandidate func(distance float64, ms int)
+}
+
+// Length gate. A phrase far shorter or longer than the enrolled samples is not the wake phrase,
+// whatever the distance says: chatter and background noise are the main cause of false wake-ups.
+const (
+	minLengthRatio = 0.65
+	maxLengthRatio = 1.6
+)
+
+// lengthRange is the range of feature-frame counts a phrase may have: from the shortest sample
+// times minLengthRatio to the longest times maxLengthRatio.
+func lengthRange(templates [][][]float64) (lo, hi int) {
+	if len(templates) == 0 {
+		return 0, math.MaxInt
+	}
+	lo, hi = math.MaxInt, 0
+	for _, t := range templates {
+		lo, hi = min(lo, len(t)), max(hi, len(t))
+	}
+	return int(float64(lo) * minLengthRatio), int(math.Ceil(float64(hi) * maxLengthRatio))
 }
 
 // NewTemplateDetector builds a detector from enrolled templates.
@@ -163,12 +187,22 @@ func (d *TemplateDetector) Process(pcm []byte) bool {
 			continue
 		}
 		feats := Features(phrase)
+		lo, hi := lengthRange(d.templates)
+		if len(feats) < lo || len(feats) > hi {
+			if d.OnCandidate != nil {
+				d.OnCandidate(math.Inf(1), durationMS(phrase))
+			}
+			continue
+		}
 		best := math.Inf(1)
 		for _, t := range d.templates {
 			best = math.Min(best, Distance(feats, t))
 		}
 		if d.OnScore != nil {
 			d.OnScore(best)
+		}
+		if d.OnCandidate != nil {
+			d.OnCandidate(best, durationMS(phrase))
 		}
 		if best <= d.threshold && d.clock >= d.cooldown {
 			detected = true
