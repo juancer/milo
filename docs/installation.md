@@ -20,7 +20,7 @@ See [hardware.md](hardware.md) for the sound card and button wiring.
    person ([telegram.md](telegram.md)); add an AI key and Wi-Fi if you want them. Add the other
    people who will manage the device under the **Admins** tile.
 
-`install` creates the `milo` system user, `/var/lib/milo` (database), `/etc/milo/master.key`
+`install` creates the `milo` system user, `/var/lib/milo` (database, and `music/` for your audio files), `/etc/milo/master.key`
 (root-only), `/usr/local/bin/milo`, and the `milo.service` unit, then enables and (re)starts it.
 
 It is idempotent. Re-running it upgrades the binary and unit and never deletes the database,
