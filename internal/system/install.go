@@ -65,6 +65,10 @@ func Install(ctx context.Context, out io.Writer) error {
 	if err := os.MkdirAll(DefaultDataDir, 0o750); err != nil {
 		return err
 	}
+	// Where parents drop .mp3/.wav files for the Music skill; chownTree below hands it to the service.
+	if err := os.MkdirAll(filepath.Join(DefaultDataDir, "music"), 0o750); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		return err
 	}
