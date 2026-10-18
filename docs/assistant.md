@@ -24,6 +24,14 @@ question limit (default 60) protects free-tier quotas.
 
 API keys are stored encrypted (see [security.md](security.md)) and are never shown again. If you change a provider address to a different host, its stored key is removed and you must enter it again.
 
+### Quick start with Groq
+
+Groq's free plan covers two of the three jobs with **one key**: speech recognition (Whisper) and the
+language model (`openai/gpt-oss-20b`). On the Assistant tile, **Quick start with Groq** takes that key
+(create it at console.groq.com/keys), sets both providers to Groq, stores the key for both and turns
+the assistant on. It leaves the voice alone, so answers are spoken only after you set up Piper or a
+cloud voice below. Free plans have usage limits.
+
 ### Choosing engines
 
 - **Speech-to-text:** *Cloud* sends only the recording to an OpenAI-compatible service (Groq by
