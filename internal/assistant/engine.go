@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/juancer/milo/internal/actions"
@@ -65,12 +66,17 @@ type Engine struct {
 	Audio  audio.Audio
 	Notify *notifications.Notifier
 
+	// Backlog is called once per conversation, after Milo has answered what was asked, so something
+	// waiting (unheard Telegram messages) can be offered ("por cierto..."). May be nil.
+	Backlog func(ctx context.Context)
+
 	// AlertParents is called when the child said something that may need a
 	// trusted adult. It must not block for long. May be nil.
 	AlertParents func(ctx context.Context, quote string)
 
 	mu        sync.Mutex
-	turns     []time.Time // recent turns, for the hourly limit
+	holds     atomic.Int32 // things that keep the assistant busy without a conversation (see Hold)
+	turns     []time.Time  // recent turns, for the hourly limit
 	running   bool
 	runCtx    context.Context
 	cancel    context.CancelFunc // set while a voice session is active
@@ -102,6 +108,8 @@ type Session struct {
 	// ends the conversation (for example music started), so Milo does not keep
 	// a microphone open over the song.
 	finished bool
+	// backlogOffered is set once the waiting messages were offered in this conversation.
+	backlogOffered bool
 }
 
 // NewSession starts a conversation using the current settings.

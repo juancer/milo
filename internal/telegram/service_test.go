@@ -88,6 +88,7 @@ func newHarness(t *testing.T, withToken bool) *harness {
 	t.Cleanup(a.Close)
 	a.Telegram.SetRetryBase(20 * time.Millisecond)
 	a.Telegram.SetStrangerCooldown(time.Millisecond)
+	a.Telegram.SetAnnounceTiming(30*time.Millisecond, 10*time.Millisecond)
 	h.app, h.logs, h.ctx = a, logs, ctx
 	return h
 }
