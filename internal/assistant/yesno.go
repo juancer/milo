@@ -79,9 +79,11 @@ func (e *Engine) AskYesNo(ctx context.Context, prompt string) (yes, heard bool, 
 	}
 	release := e.Hold()
 	defer release()
+	started := time.Now()
 	if err := e.say(ctx, prompt); err != nil {
 		return false, false, err
 	}
+	e.log.Info("asked a yes/no question", "prompt", prompt, "speak_ms", time.Since(started).Milliseconds())
 	e.note(ctx, audio.NotifyRecordStart)
 	wav, err := e.Audio.Record(ctx, audio.RecordOptions{MaxDuration: 8 * time.Second, StopOnSilence: true, NoSpeechFor: 5 * time.Second})
 	e.note(ctx, audio.NotifyRecordStop)
@@ -89,12 +91,15 @@ func (e *Engine) AskYesNo(ctx context.Context, prompt string) (yes, heard bool, 
 		return false, false, err
 	}
 	if hs, ok := e.Audio.(interface{ HasSpeech(wav []byte) bool }); ok && !hs.HasSpeech(wav) {
+		e.log.Info("no answer to the yes/no question (nobody spoke)")
 		return false, false, nil // only the noise of the room: nobody is there
 	}
 	text, err := stt.Transcribe(ctx, wav)
 	if err != nil {
+		e.log.Info("could not understand the answer", "error", err)
 		return false, false, nil
 	}
+	e.log.Info("answer to the yes/no question", "text", text)
 	switch MatchAnswer(text) {
 	case AnswerYes:
 		return true, true, nil

@@ -44,7 +44,7 @@ func TestVolumeUsesConfiguredMixerFirst(t *testing.T) {
 	if err := a.SetVolume(context.Background(), 40); err != nil {
 		t.Fatal(err)
 	}
-	if got := readLog(log); !strings.Contains(got, "-c wm8960soundcard sset Speaker 40%") || strings.Count(got, "\n") != 1 {
+	if got := readLog(log); !strings.Contains(got, "-c wm8960soundcard -- sset Speaker -27dB") || strings.Count(got, "\n") != 1 {
 		t.Errorf("calls:\n%s", got)
 	}
 }
@@ -63,14 +63,15 @@ exit 0`})
 	if err := a.SetVolume(context.Background(), 55); err != nil {
 		t.Fatal(err)
 	}
-	if got := readLog(log); !strings.Contains(got, "-q -c 1 sset PCM 55%") {
+	if got := readLog(log); !strings.Contains(got, "-q -c 1 -- sset PCM -20dB") {
 		t.Errorf("calls:\n%s", got)
 	}
 	// The next call goes straight to the backend that worked.
+	tried := strings.Count(readLog(log), "wm8960soundcard")
 	if err := a.SetVolume(context.Background(), 60); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(readLog(log), "wm8960soundcard") != 1 {
+	if strings.Count(readLog(log), "wm8960soundcard") != tried {
 		t.Errorf("the failing backend was tried again:\n%s", readLog(log))
 	}
 }
