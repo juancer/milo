@@ -99,7 +99,10 @@ func (a *App) registerCoreActions() {
 		Exposure:    all,
 		Handler: func(ctx context.Context, c actions.Call) (actions.Result, error) {
 			now := time.Now().In(a.Schedules.Location(ctx))
-			return actions.Result{Message: "It is " + now.Format("Monday, 15:04") + ".", Data: map[string]any{"time": now.Format(time.RFC3339)}}, nil
+			return actions.Result{Message: "It is " + now.Format("Monday, 15:04") + ".", Data: map[string]any{
+				"time": now.Format(time.RFC3339), "hour": now.Hour(), "minute": now.Minute(),
+				"weekday": int(now.Weekday()), "day": now.Day(), "month": int(now.Month()), "year": now.Year(),
+			}}, nil
 		},
 	})
 }

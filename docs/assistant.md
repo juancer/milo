@@ -51,6 +51,16 @@ cloud voice below. Free plans have usage limits.
 Press the GPT button once and speak; it stops listening when you fall silent. Press it again
 while it is listening to finish early. Press it while Milo is thinking or speaking to interrupt.
 
+### Answers without the model
+
+Short questions are answered on the device, with no round trip to the language model, in the language
+they were asked in (Spanish or English): **the time** ("¿qué hora es?"), **the date** ("¿qué día es hoy?"),
+**the weather** ("dime el clima", "¿va a llover mañana?", from Open-Meteo, for the town set under Skills)
+and **sums** ("¿cuánto es 4 por 2?", "what is thirty five plus seven"). Plain commands ("pon algo de
+música", "pausa", "siguiente", "sube el volumen") work the same way. Anything the rules do not recognise,
+or an action that is refused (the weather skill is off, Spotify is not connected), goes to the model as
+usual. The rules live in `internal/assistant/intents.go` and the wording in `answers.go`.
+
 ### Choosing a voice
 
 The **Voices** card lists the official Piper voices for a language, each with a demo you can listen to

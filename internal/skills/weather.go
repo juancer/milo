@@ -212,11 +212,27 @@ type forecast struct {
 	} `json:"daily"`
 }
 
-// Describe returns a spoken forecast for "today" or "tomorrow".
-func (w *Weather) Describe(ctx context.Context, day string) (string, error) {
+// WeatherReport is the forecast for one day, as numbers and a WMO code, so a caller can word it in
+// any language.
+type WeatherReport struct {
+	Place   string  `json:"place"`
+	Day     string  `json:"day"` // "today" or "tomorrow"
+	Unit    string  `json:"unit"`
+	NowTemp int     `json:"now_temp"`
+	NowCode int     `json:"now_code"`
+	Code    int     `json:"code"`
+	High    int     `json:"high"`
+	Low     int     `json:"low"`
+	RainPct int     `json:"rain_pct"`
+	Lat     float64 `json:"-"`
+	Lon     float64 `json:"-"`
+}
+
+// Forecast fetches the forecast for "today" or "tomorrow" for the configured town.
+func (w *Weather) Forecast(ctx context.Context, day string) (WeatherReport, error) {
 	lat, lon, place, err := w.location(ctx)
 	if err != nil {
-		return "", err
+		return WeatherReport{}, err
 	}
 	unit := "celsius"
 	if w.get(ctx, SettingWeatherUnits, "celsius") == "fahrenheit" {
@@ -229,24 +245,46 @@ func (w *Weather) Describe(ctx context.Context, day string) (string, error) {
 	}
 	var f forecast
 	if err := w.fetchJSON(ctx, w.get(ctx, settingWeatherAPI, defaultForecastAPI), "/v1/forecast", q, &f); err != nil {
-		return "", err
+		return WeatherReport{}, err
 	}
 	i := 0
 	if day == "tomorrow" {
 		i = 1
 	}
 	if len(f.Daily.Code) <= i || len(f.Daily.Max) <= i || len(f.Daily.Min) <= i {
-		return "", errors.New("the weather service sent an incomplete forecast")
+		return WeatherReport{}, errors.New("the weather service sent an incomplete forecast")
 	}
-	rain := ""
-	if len(f.Daily.Precip) > i && f.Daily.Precip[i] > 0 {
-		rain = fmt.Sprintf(", with a %d percent chance of rain", int(f.Daily.Precip[i]+0.5))
-	}
-	daily := fmt.Sprintf("%s, a high of %d and a low of %d%s", WeatherWords(f.Daily.Code[i]), round(f.Daily.Max[i]), round(f.Daily.Min[i]), rain)
+	r := WeatherReport{Place: place, Day: "today", Unit: unit, NowTemp: round(f.Current.Temp), NowCode: f.Current.Code,
+		Code: f.Daily.Code[i], High: round(f.Daily.Max[i]), Low: round(f.Daily.Min[i]), Lat: lat, Lon: lon}
 	if i == 1 {
-		return fmt.Sprintf("Tomorrow in %s: %s.", place, daily), nil
+		r.Day = "tomorrow"
 	}
-	return fmt.Sprintf("In %s it is %d degrees and %s. Today: %s.", place, round(f.Current.Temp), WeatherWords(f.Current.Code), daily), nil
+	if len(f.Daily.Precip) > i {
+		r.RainPct = int(f.Daily.Precip[i] + 0.5)
+	}
+	return r, nil
+}
+
+// English words the report as one spoken English sentence.
+func (r WeatherReport) English() string {
+	rain := ""
+	if r.RainPct > 0 {
+		rain = fmt.Sprintf(", with a %d percent chance of rain", r.RainPct)
+	}
+	daily := fmt.Sprintf("%s, a high of %d and a low of %d%s", WeatherWords(r.Code), r.High, r.Low, rain)
+	if r.Day == "tomorrow" {
+		return fmt.Sprintf("Tomorrow in %s: %s.", r.Place, daily)
+	}
+	return fmt.Sprintf("In %s it is %d degrees and %s. Today: %s.", r.Place, r.NowTemp, WeatherWords(r.NowCode), daily)
+}
+
+// Describe returns a spoken forecast for "today" or "tomorrow".
+func (w *Weather) Describe(ctx context.Context, day string) (string, error) {
+	r, err := w.Forecast(ctx, day)
+	if err != nil {
+		return "", err
+	}
+	return r.English(), nil
 }
 
 func round(v float64) int {
@@ -290,11 +328,12 @@ func (w *Weather) RegisterActions(e *actions.Engine) {
 		Feature: "weather", Exposure: actions.ExposeDevice | actions.ExposeAssistant,
 		Params: []actions.Param{{Name: "day", Description: "today or tomorrow", Type: actions.String, Enum: []string{"today", "tomorrow"}}},
 		Handler: func(ctx context.Context, c actions.Call) (actions.Result, error) {
-			msg, err := w.Describe(ctx, c.Args.String("day"))
+			r, err := w.Forecast(ctx, c.Args.String("day"))
 			if err != nil {
 				return actions.Result{}, err
 			}
-			return actions.Result{Message: msg}, nil
+			// The numbers go along with the sentence so a caller can word them in its own language.
+			return actions.Result{Message: r.English(), Data: map[string]any{"report": r}}, nil
 		},
 	})
 }
