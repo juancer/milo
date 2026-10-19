@@ -53,6 +53,7 @@
   "voice.help": "Cómo habla Milo. Elige una de las voces que funcionan en el dispositivo, o usa una voz en la nube. Hasta que elijas una voz, Milo escucha y piensa pero responde con tonos.",
   "assistant.behaviourHelp": "Cómo es el asistente y qué puede decir. La conexión con la IA está en Conexión IA, y cómo suena en Voz.",
   "assistant.needAiFirst": "La IA aún no está conectada: abre Conexión IA y añade primero las claves.",
+  "wakeword.musicHint": "Con la música alta el micrófono oye más la música que a ti: por encima del 75 % de volumen no se oye el wake word. Usa el botón para llamar a Milo con la música alta.",
   "nav.assistant": "Asistente",
   "nav.wakeword": "Palabra de activación",
   "nav.skills": "Habilidades",

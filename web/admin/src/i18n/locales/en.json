@@ -53,6 +53,7 @@
   "voice.help": "How Milo speaks its answers. Pick one of the voices that run on the device, or use a cloud voice. Until a voice is chosen, Milo can listen and think but answers with tones.",
   "assistant.behaviourHelp": "What the assistant is like and what it may say. How it connects to the AI is under AI connection, and how it sounds under Voice.",
   "assistant.needAiFirst": "The AI is not connected yet: open AI connection and add the keys first.",
+  "wakeword.musicHint": "Over loud music the microphone hears more of the music than of you: above about 75 % volume the wake word is not heard. Use the button to call Milo over loud music.",
   "nav.assistant": "Assistant",
   "nav.wakeword": "Wake word",
   "nav.skills": "Skills",

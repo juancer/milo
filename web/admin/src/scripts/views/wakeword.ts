@@ -38,6 +38,7 @@ export async function render(root: HTMLElement): Promise<void> {
       st.feature.enabled ? null : h("span", { class: "muted" }, t("wakeword.turnOn")),
       st.feature.last_error ? h("span", { class: "error" }, ` ${st.feature.last_error}`) : null),
     note(t("wakeword.intro")),
+    note(t("wakeword.musicHint")),
     st.simulated ? note(t("wakeword.simulated")) : null));
 
   root.append(formCard(async (ev) => {

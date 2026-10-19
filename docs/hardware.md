@@ -78,3 +78,28 @@ names, PipeWire or PulseAudio owning the card), it looks for an ALSA card with a
 `PCM`, `Headphone` or similar control, then tries PipeWire (`wpctl`) and PulseAudio (`pactl`), and
 remembers the first one that works. The unit lists `DeviceAllow=char-alsa` and `char-gpiochip`
 because `ProtectClock=true` otherwise hides the sound card and the buttons from the service.
+
+## Music and the wake word
+
+The microphone sits a few centimetres from the speaker, so while music plays it hears the music much louder
+than a person across the room. Measured on a Raspberry Pi 3 with the WM8960 HAT (music at a normal level, the
+microphone at its default gain), the level the microphone receives from the speaker alone is:
+
+| Milo volume | Speaker | Microphone hears (RMS) |
+|---|---|---|
+| 70 % | −32 dB | 556 |
+| 75 % | −26 dB | 954 |
+| 80 % | −19 dB | 2217 |
+| 85 % | −13 dB | 4459 |
+| 90 % | −7 dB | 8451 |
+| 95 % and up | 0 dB | 18000, saturated |
+
+A voice from a few metres away arrives at about 1000 to 3000. **Above about 75 % volume, the microphone hears
+more music than voice**, so the wake word cannot be heard and a recording is mostly music. Use the button to call
+Milo over loud music, or keep the volume below 75 %.
+
+Echo cancellation was tried and is not used. An adaptive filter that subtracts the music Milo plays from what
+the microphone hears (a frequency-domain partitioned filter, one block of 16 ms per partition) removed only 7
+to 12 dB on real recordings: the small speaker distorts, the echo path is partly non-linear, and from about
+90 % the microphone clips, which no linear filter can undo. That moves the usable limit by only a few
+percent of volume. A microphone placed away from the speaker, or a USB microphone, is the real fix.
