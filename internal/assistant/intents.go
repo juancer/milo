@@ -353,6 +353,11 @@ func (e *Engine) tryIntent(ctx context.Context, sess *Session, text string) bool
 	case it.tool != "set_volume": // set_volume already beeps
 		e.note(ctx, audio.NotifyOK)
 	}
+	// Something was asked and answered: mention what is waiting, once. Silent endings (goodbye, "para")
+	// and music starting do not.
+	if !it.silent && !it.music && (answer != "" || it.tool != "") {
+		e.offerBacklog(ctx, sess)
+	}
 	// A command or a short answer is the end of the exchange: do not keep the microphone open for
 	// another question (the person says the wake word again if there is one).
 	sess.finished = true

@@ -60,14 +60,36 @@ for the child's messages to be sent to that person.
 Parent to child:
 
 ```
-Relative → bot → authorized? → stored in SQLite as pending → short "piii" → child presses LISTEN
+Relative → bot → authorized? → stored in SQLite as pending → Milo says who it is from and asks
+"do you want me to read it?" → yes: it is read (or the voice note played)
 ```
 
-- Messages are never read aloud automatically and the sender is not announced (unless you turn on
-  **System → Say who a message is from before playing it**, `telegram.announce_sender`).
-- The notification is only a sound, so it reveals nothing.
-- Outside usage hours messages are stored silently and announced when hours begin
-  ([schedules.md](schedules.md)).
+- A new message is announced by voice, without the language model, in the language Milo speaks:
+  *"Hay un mensaje nuevo de Mamá. ¿Quieres que lo lea?"* / *"There is a new message from Mum. Do you
+  want me to read it?"*. Whatever is playing (music, a story) pauses and resumes afterwards, and Milo
+  listens for about five seconds for the answer.
+  - **Yes** ("sí", "claro", "vale", "yes", "go ahead"…): a text is read aloud, a voice note is played, and the
+    message is marked delivered.
+  - **No** ("no", "ahora no", "luego", "not now"…): it stays queued and Milo says nothing more.
+  - **No answer** (nobody is in the room): it stays queued, silently.
+- Only the sender's name is spoken before the answer, never the content. Several messages that arrive
+  together become one announcement: *"Hay 3 mensajes nuevos, de Mamá y Papá. ¿Quieres que los lea?"*
+- A message that arrives while somebody is talking to Milo, or while a message is being played,
+  waits until Milo is free. Only one announcement is made at a time.
+- A message that was not heard stays queued. The next time anyone says the wake word and Milo has
+  answered what they asked, Milo adds *"Por cierto, tienes 1 mensaje por escuchar. ¿Quieres que lo
+  lea?"* (or *"N mensajes"*) and reads it on a yes. This happens once per conversation, never
+  interrupts the answer, and not after commands that end silently (goodbye, "para", "apaga",
+  "silencio"). A message the person answered **no** to is not offered again by itself; it is still
+  there for LISTEN / "lee los mensajes".
+- **Outside usage hours nothing is ever announced** (so no message starts talking at 2 am). Messages are
+  stored silently and announced when hours begin ([schedules.md](schedules.md)).
+- If the device cannot listen (no speech-to-text configured) or speak, or you switch it off with the
+  `telegram.announce_by_voice` setting (`0`), a new message gets the short "piii" instead, and the
+  sender is not announced (unless you turn on **System → Say who a message is from before
+  playing it**, `telegram.announce_sender`, which names the sender when a message is played with LISTEN).
+- Voice notes are decoded with `opusdec` (package `opus-tools`, see [hardware.md](hardware.md)); without it a voice note cannot be
+  played and is marked failed after three tries.
 - Urgent alerts: see [emergency.md](emergency.md).
 
 Child to parent:

@@ -160,6 +160,25 @@ func (s *Store) UnnotifiedPending(ctx context.Context) ([]Message, error) {
 	return out, rows.Err()
 }
 
+// PendingIncoming lists the unplayed incoming messages, oldest first (emergencies are included: the
+// caller decides what to do with them).
+func (s *Store) PendingIncoming(ctx context.Context) ([]Message, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+msgCols+` FROM messages WHERE direction = 'in' AND status = 'pending' ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("store: pending incoming: %w", err)
+	}
+	defer rows.Close()
+	var out []Message
+	for rows.Next() {
+		m, err := scanMessage(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 // PendingCounts returns the number of unplayed incoming messages: total and emergencies.
 func (s *Store) PendingCounts(ctx context.Context) (total, emergency int, err error) {
 	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(type = 'emergency'), 0) FROM messages

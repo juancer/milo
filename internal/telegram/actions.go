@@ -190,6 +190,10 @@ func (s *Service) announce(ctx context.Context, id int64, emergency bool) bool {
 	if !emergency && !s.scheduleOpen(ctx) {
 		return false
 	}
+	if !emergency && s.voiceAnnounceOn(ctx) { // Milo says who it is from and asks, once nothing else is going on
+		s.requestAnnounce()
+		return true
+	}
 	kind := audio.NotifyMessage
 	if emergency {
 		kind = audio.NotifyEmergency
