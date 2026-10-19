@@ -6,7 +6,7 @@ require (
 	github.com/arran4/golang-ical v0.3.6
 	github.com/hajimehoshi/go-mp3 v0.3.4
 	github.com/teambition/rrule-go v1.8.2
-	github.com/warthog618/go-gpiocdev v0.9.1
+	github.com/warthog618/go-gpiocdev v0.10.0
 	golang.org/x/crypto v0.57.0
 	golang.org/x/term v0.46.0
 	modernc.org/sqlite v1.60.1
