@@ -90,6 +90,8 @@
   "web.err.save_the_provider_key_first": "save the provider key first",
   "web.err.the_provider_did_not_list_its_models": "the provider did not list its models; type the model name instead",
   "web.err.could_not_compare_the_voices": "could not compare the voices; check the Internet connection",
+  "web.err.spotify_search_credentials_refused": "Spotify did not accept that Client ID and Secret; copy them again from your app's page",
+  "web.err.spotify_search_unreachable": "could not reach Spotify to check the credentials; try again",
   "web.err.internal_error": "internal error",
   "web.err.invalid_action_name_for_an_event": "invalid action name for an event",
   "web.err.invalid_id": "invalid id",

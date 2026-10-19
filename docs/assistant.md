@@ -64,7 +64,10 @@ usual. The rules live in `internal/assistant/intents.go` and the wording in `ans
 The exchange ends there: after a command or a short answer Milo stays silent and does not open the
 microphone again (say the wake word for the next one). **Goodbyes and "be quiet"** ("adiós", "hasta luego",
 "gracias", "cállate", "silencio", "shut up", "bye") end it with no answer at all. Also without the model:
-**timers** ("pon un temporizador de cinco minutos", "set a timer for two minutes", "cancela el temporizador"),
+**stop everything** ("apaga", "para", "stop": music, Spotify and whatever is playing, with no answer),
+**what is playing**, **the volume** ("¿qué volumen tengo?", "volumen al máximo", "silencia"), **messages**
+("¿tengo mensajes?", "léeme los mensajes"), **the uptime and the address** (only for the person at the device),
+**"repite"** (the last answer again, from the phrase cache), and **timers** ("pon un temporizador de cinco minutos", "set a timer for two minutes", "cancela el temporizador"),
 **a die, a coin or a number** ("tira un dado", "cara o cruz", "dime un número del 1 al 10").
 
 ### Why a spoken answer can take a few seconds

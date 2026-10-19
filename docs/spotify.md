@@ -69,12 +69,20 @@ when it plays and on Spotify otherwise.
 
 ## "Play some music" means Spotify
 
-When Spotify is connected and running, "play some music" (by voice, through the assistant) plays
-Spotify, not the local music folder: a playlist whose name matches the words, else whatever was paused,
-else the playlist set in `spotify.default_playlist` (words from its name), else the account's first
-playlist. It needs **voice control** switched on, and says so when it is off. Set `music.source` to
-`local` to keep "play some music" on the local folder. When Spotify is not connected, the local music
-plays; with an empty folder, Milo says there is no music yet instead of pretending.
+When Spotify is connected and running, a request to play music (by voice, through the assistant) plays
+Spotify, not the local music folder:
+
+- **"Pon algo de música"** (nothing in particular) starts something **new**, shuffled and aimed at your
+  taste: one of the playlists Spotify makes for you from what you play ("Daily Mix", "Descubrimiento semanal",
+  "Radar de novedades", "On Repeat"...) if the account has any, otherwise one of your playlists at random. It
+  never just carries on what was playing before.
+- **"Sigue" / "continúa"** carries on what was paused.
+- **"Pon la playlist de dormir"** plays the playlist whose name matches the words.
+- **"Pon música de Belinda"**, **"pon Camilo"** play that artist (see below).
+
+It needs **voice control** switched on, and says so when it is off. Set `music.source` to `local` to keep
+it on the local folder. When Spotify is not connected, the local music plays; with an empty folder, Milo says
+there is no music yet instead of pretending.
 
 ## Commands that skip the model, and artists
 
@@ -85,10 +93,14 @@ so Spotify voice control, the switches and the schedules apply as for the model.
 not recognise, or that is refused ("Spotify is not connected"), goes to the model as usual, which
 explains it in the child's language.
 
-For "música de <artist>" Milo first looks for a playlist of yours with those words, then searches Spotify
-for the artist with the receiver's own sign-in (no developer app) and plays it. Spotify rate-limits that
-shared access (HTTP 429) and may refuse at times: Milo then says it could not look the artist up, instead
-of playing something else.
+For "música de <artist>" and a bare name ("pon Camilo", only for names that cannot be anything else: "pon la
+mesa" is not one) Milo first looks for a playlist of yours with those words, then searches Spotify for the
+artist and plays it, but only if what Spotify found really is that artist (Spotify always returns something).
+Without setup the search uses the receiver's own access, which Spotify rate-limits for everyone who uses it
+(HTTP 429): it often works and sometimes fails, and Milo then says it could not look the artist up instead of
+playing something else. For a reliable search, give Milo the **Client ID and Client secret of a free Spotify
+developer app** (the Spotify sheet has the steps): the app gets its own limit and can only search the public
+catalogue. Both values are stored encrypted, and Spotify checks them when you save.
 
 ## What is stored and sent
 

@@ -15,6 +15,7 @@ interface Info {
   track?: string;
   pairing?: { url: string; code: string; expires_at: string };
   voice_control: boolean;
+  search_configured: boolean;
   error?: string;
 }
 
@@ -89,4 +90,27 @@ export async function render(root: HTMLElement): Promise<void> {
     toggle(t("spotify.voiceControl"), voice),
     alert(t("spotify.voiceWarning"), "info"),
     actions(submit(t("common.save")))));
+
+  // ---- artist search (optional): the credentials of a free Spotify developer app make "pon Camilo" reliable
+  const clientId = h("input", { type: "text", autocomplete: "off", maxLength: 64, placeholder: info.search_configured ? t("spotify.searchSaved") : "", ariaLabel: t("spotify.clientId") });
+  const clientSecret = h("input", { type: "password", autocomplete: "off", maxLength: 64, placeholder: info.search_configured ? t("spotify.searchSaved") : "", ariaLabel: t("spotify.clientSecret") });
+  root.append(formCard((ev) => {
+    ev.preventDefault();
+    void guard(() => api("PUT", "/api/spotify/search", { client_id: clientId.value.trim(), client_secret: clientSecret.value.trim() }), "spotify.searchStored").then((ok) => (ok ? render(root) : undefined));
+  },
+    h("h3", {}, t("spotify.searchTitle")),
+    h("p", {}, info.search_configured ? badge(t("spotify.searchOn")) : badge(t("spotify.searchOff"), true)),
+    note(t("spotify.searchHelp")),
+    h("ol", { class: "muted" },
+      h("li", {}, t("spotify.searchStep1"), " ", h("a", { href: "https://developer.spotify.com/dashboard", target: "_blank", rel: "noopener noreferrer" }, "developer.spotify.com/dashboard")),
+      h("li", {}, t("spotify.searchStep2")),
+      h("li", {}, t("spotify.searchStep3"))),
+    fields(field(t("spotify.clientId"), clientId), field(t("spotify.clientSecret"), clientSecret)),
+    actions(submit(t("common.save")), ...(info.search_configured ? [h("button", {
+      type: "button", class: "secondary",
+      onclick: async () => {
+        if (!(await confirmDialog(t("spotify.searchRemoveConfirm"), t("spotify.searchRemove")))) return;
+        if (await guard(() => api("DELETE", "/api/spotify/search"), "spotify.searchRemoved")) await render(root);
+      },
+    }, t("spotify.searchRemove"))] : []))));
 }

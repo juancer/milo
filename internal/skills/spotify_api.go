@@ -117,6 +117,13 @@ func (c *spotifyClient) Next(ctx context.Context) error {
 func (c *spotifyClient) Prev(ctx context.Context) error {
 	return c.do(ctx, http.MethodPost, "/player/prev", nil, nil)
 }
+
+// ShuffleContext turns shuffle on or off for what is played next: with it on, a playlist starts at a
+// random song.
+func (c *spotifyClient) ShuffleContext(ctx context.Context, on bool) error {
+	return c.do(ctx, http.MethodPost, "/player/shuffle_context", map[string]any{"shuffle_context": on}, nil)
+}
+
 func (c *spotifyClient) Play(ctx context.Context, uri string) error {
 	return c.do(ctx, http.MethodPost, "/player/play", map[string]any{"uri": uri}, nil)
 }
@@ -136,21 +143,26 @@ func (c *spotifyClient) Playlists(ctx context.Context) ([]spotifyPlaylist, error
 // shared with everyone who uses go-librespot, and Spotify rate-limits it).
 var errSpotifySearchBusy = errors.New("spotify: artist search is busy right now")
 
-// searchArtist looks up an artist on Spotify's Web API with the signed-in receiver's own token, so no
-// developer app is needed. webBase is the API address (https://api.spotify.com by default).
-func (c *spotifyClient) searchArtist(ctx context.Context, webBase, query string) (name, uri string, err error) {
+// librespotToken asks the receiver for a Web API token for its own signed-in session.
+func (c *spotifyClient) librespotToken(ctx context.Context) (string, error) {
 	var tok struct {
 		Token string `json:"token"`
 	}
 	if err := c.do(ctx, http.MethodPost, "/token", nil, &tok); err != nil || tok.Token == "" {
-		return "", "", fmt.Errorf("spotify: no token for the search: %w", err)
+		return "", fmt.Errorf("spotify: no token for the search: %w", err)
 	}
+	return tok.Token, nil
+}
+
+// searchArtist looks up an artist on Spotify's Web API (webBase is https://api.spotify.com by default)
+// with a token from searchToken.
+func (c *spotifyClient) searchArtist(ctx context.Context, webBase, token, query string) (name, uri string, err error) {
 	u := strings.TrimRight(webBase, "/") + "/v1/search?" + url.Values{"q": {query}, "type": {"artist"}, "limit": {"1"}}.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return "", "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+tok.Token)
+	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return "", "", errSpotifySearchBusy
