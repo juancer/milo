@@ -1,14 +1,29 @@
 # Milo
 
-A screenless voice assistant and family messenger for the Raspberry Pi. Say **"Hey Milo"** to ask
-for the time, the weather, music or a timer. Relatives send voice notes through their own Telegram
-bot, Milo reads or plays them, and the person at home answers with a button or their voice. Parents
-set everything up from a local web page.
+**The parent-controlled alternative to Alexa, Google Assistant and Siri, for kids.**
+A voice assistant and family messenger with **no screen**, built for a child's room and for
+grandparents who live far away. Open it up, build it on a Raspberry Pi, and you decide what it says,
+who can talk to it and when.
 
-One Go binary, no cloud account of ours: your data stays in a SQLite file on your Pi.
+> *"Hey Milo, ¿quién me ha escrito?"* — *"Hay un mensaje nuevo de la abuela. ¿Quieres que lo lea?"*
 
-> Milo is the name of the software. Nothing about any family, Telegram account or bot is built in;
-> every installation is configured by its owner.
+## Why Milo
+
+- **Family in, strangers out.** Only people you approve can send messages. A child hears Grandma's
+  voice note and answers with a button or their voice. No phone, no tablet, no feed to scroll.
+- **You own it.** It runs on a $35 Raspberry Pi in your home. Settings, messages and history live in
+  one SQLite file on that Pi, not in a company's account. Nothing is hardcoded to any family or service.
+- **Built for kids.** Allowed hours (nothing is announced at 2 am), an emergency channel, an audit
+  log and a language model that can only call a short list of actions you can see. It never runs commands.
+- **Fast on cheap hardware.** The wake word runs on the device, and time, date, sums, timers and
+  volume are answered locally in about a second. Only open questions go to the AI model you pick.
+- **You choose the AI.** Groq's free plan, or run speech recognition on the Pi itself. No
+  subscription, no lock-in.
+- **Speaks your language.** English and Spanish today; every language is a separate setting for the
+  interface, notifications, assistant and voice. Adding another is a JSON file.
+- **Hackable and open to read.** One Go binary, no CGO, full test suite, every action in one place.
+
+It is not affiliated with Amazon, Google or Apple, and does not use their services.
 
 ## What it does
 
