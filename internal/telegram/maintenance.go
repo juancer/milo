@@ -49,6 +49,10 @@ func (s *Service) announceBacklog(ctx context.Context) {
 	if !cfg.NotifyPendingAfter {
 		return
 	}
+	if s.voiceAnnounceOn(ctx) { // hours just opened: announce them by voice, as a message that just arrived
+		s.requestAnnounce()
+		return
+	}
 	if err := s.Notify.Notify(ctx, audio.NotifyMessage); err != nil {
 		s.Log.Warn("backlog notification failed", "error", err)
 	}

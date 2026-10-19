@@ -89,7 +89,17 @@ func (e *Engine) RegisterActions(a *actions.Engine) {
 func (e *Engine) Busy() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.cancel != nil
+	return e.cancel != nil || e.holds.Load() > 0
+}
+
+// offerBacklog lets the rest of Milo mention what is waiting, once per conversation, right after an
+// answer has been spoken.
+func (e *Engine) offerBacklog(ctx context.Context, sess *Session) {
+	if e.Backlog == nil || sess.backlogOffered || ctx.Err() != nil {
+		return
+	}
+	sess.backlogOffered = true
+	e.Backlog(ctx)
 }
 
 // Listening reports whether the microphone is currently open for the child.
@@ -254,6 +264,7 @@ func (e *Engine) RunVoice(ctx context.Context, source string) error {
 			return err
 		}
 		e.log.Info("voice turn answered", "reply_ms", replyMS, "speak_ms", time.Since(t3).Milliseconds())
+		e.offerBacklog(ctx, sess)
 		if !sess.settings.FollowUp || sess.finished {
 			return nil
 		}
