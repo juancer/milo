@@ -94,9 +94,9 @@ microphone at its default gain), the level the microphone receives from the spea
 | 90 % | −7 dB | 8451 |
 | 95 % and up | 0 dB | 18000, saturated |
 
-A voice from a few metres away arrives at about 1000 to 3000. **Above about 75 % volume, the microphone hears
+A voice from a few metres away arrives at about 1000 to 3000. **Above about 55 % volume (volume is spread over decibels: 100 % is 0 dB, 50 % is −22 dB; the table below is in the old raw percent of the Speaker control), the microphone hears
 more music than voice**, so the wake word cannot be heard and a recording is mostly music. Use the button to call
-Milo over loud music, or keep the volume below 75 %.
+Milo over loud music, or keep the volume below 55 %.
 
 Echo cancellation was tried and is not used. An adaptive filter that subtracts the music Milo plays from what
 the microphone hears (a frequency-domain partitioned filter, one block of 16 ms per partition) removed only 7

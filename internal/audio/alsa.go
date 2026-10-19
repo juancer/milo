@@ -355,8 +355,29 @@ func (a *ALSA) PlayStream(ctx context.Context, s Stream) error {
 	return nil
 }
 
+// wakeChirpVolume is the volume (percent) the wake chirp is played at when the usual one is lower.
+const wakeChirpVolume = 90
+
 // PlayNotification implements Audio.
 func (a *ALSA) PlayNotification(ctx context.Context, n Notification, volume int) error {
+	if n == NotifyWake {
+		// The chirp must be heard whatever the volume is: the mixer goes to wakeChirpVolume for it and back.
+		a.volMu.Lock()
+		before := a.volume
+		a.volMu.Unlock()
+		if before >= 0 && before < wakeChirpVolume {
+			if _, err := a.setVolume(ctx, wakeChirpVolume); err == nil {
+				defer func() {
+					a.volMu.Lock()
+					now := a.volume
+					a.volMu.Unlock()
+					if now == before { // somebody changing the volume meanwhile wins
+						a.setVolume(context.WithoutCancel(ctx), before) //nolint:errcheck
+					}
+				}()
+			}
+		}
+	}
 	return a.Play(ctx, Scale(NotificationWAV(n), volume))
 }
 

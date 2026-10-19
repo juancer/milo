@@ -210,6 +210,7 @@ func (s *Service) offer(ctx context.Context, msgs []store.Message, prompt string
 		s.ann.asked[m.ID] = true
 		s.Store.MarkNotified(ctx, m.ID, s.now()) //nolint:errcheck
 	}
+	s.Log.Info("telegram: announcing new messages by voice", "messages", len(msgs), "prompt", prompt)
 	yes, heard, err := s.Ask(ctx, prompt)
 	switch {
 	case err != nil:

@@ -46,6 +46,25 @@ func parseControls(scontrols string) []string {
 	return out
 }
 
+// quietestDB is the level of 1% on the volume scale. Many codecs (the WM8960 of the Pi hat: 127 steps
+// from -121 dB to +6 dB) are inaudible over the whole lower half when the percent is the raw step, so
+// 50% was -57 dB and not even the wake chirp was heard. Percent is spread over this range of decibels
+// instead, which is how loudness is heard: 100% is 0 dB, 50% is -22 dB.
+const quietestDB = 45.0
+
+// setMixer sets an ALSA control to percent of the audible range. Controls without a decibel scale
+// refuse a value in dB, and then the raw percent is used. The "--" is needed or amixer reads "-22dB" as an option.
+func setMixer(ctx context.Context, card, control string, percent int) error {
+	if percent > 0 {
+		db := -quietestDB * (1 - float64(percent)/100)
+		if _, err := runTool(ctx, "amixer", "-q", "-c", card, "--", "sset", control, fmt.Sprintf("%.0fdB", db)); err == nil {
+			return nil
+		}
+	}
+	_, err := runTool(ctx, "amixer", "-q", "-c", card, "sset", control, fmt.Sprintf("%d%%", percent))
+	return err
+}
+
 // autoALSA finds a card with a known playback control and sets it.
 func autoALSA(ctx context.Context, percent int) error {
 	for card := 0; card < 8; card++ {
@@ -60,8 +79,7 @@ func autoALSA(ctx context.Context, percent int) error {
 		}
 		for _, want := range preferredControls {
 			if have[want] {
-				_, err := runTool(ctx, "amixer", "-q", "-c", id, "sset", want, fmt.Sprintf("%d%%", percent))
-				return err
+				return setMixer(ctx, id, want, percent)
 			}
 		}
 	}
@@ -71,8 +89,7 @@ func autoALSA(ctx context.Context, percent int) error {
 func (a *ALSA) backends() []volumeBackend {
 	return []volumeBackend{
 		{"alsa", func(ctx context.Context, p int) error {
-			_, err := runTool(ctx, "amixer", "-q", "-c", a.cfg.MixerCard, "sset", a.cfg.MixerControl, fmt.Sprintf("%d%%", p))
-			return err
+			return setMixer(ctx, a.cfg.MixerCard, a.cfg.MixerControl, p)
 		}},
 		{"alsa-auto", autoALSA},
 		{"pipewire", func(ctx context.Context, p int) error {
