@@ -15,6 +15,41 @@ func (s *server) spotifyRoutes(mux *http.ServeMux) {
 	// The Client ID and Secret are credentials, so only the owner may set or remove them.
 	mux.Handle("PUT /api/spotify/search", s.requireOwner(s.putSpotifySearch))
 	mux.Handle("DELETE /api/spotify/search", s.requireOwner(s.deleteSpotifySearch))
+	// What the family listens to most, kept on the device: shown to every admin, forgotten by the owner.
+	mux.Handle("GET /api/spotify/listening", s.requireAuth(s.getSpotifyListening))
+	mux.Handle("DELETE /api/spotify/listening", s.requireOwner(s.deleteSpotifyListening))
+}
+
+type listenRow struct {
+	Name  string `json:"name"`
+	Plays int    `json:"plays"`
+}
+
+func (s *server) getSpotifyListening(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	artists, err1 := s.app.Store.TopArtists(ctx, 10, 1)
+	contexts, err2 := s.app.Store.TopContexts(ctx, 10, 1)
+	if err1 != nil || err2 != nil {
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
+		return
+	}
+	out := map[string][]listenRow{"artists": {}, "contexts": {}}
+	for _, a := range artists {
+		out["artists"] = append(out["artists"], listenRow{a.Name, a.Plays})
+	}
+	for _, c := range contexts {
+		out["contexts"] = append(out["contexts"], listenRow{c.Name, c.Plays})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *server) deleteSpotifyListening(w http.ResponseWriter, r *http.Request) {
+	if err := s.app.Store.ClearListening(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
+		return
+	}
+	s.audit(r, "spotify.listening_cleared", "", nil)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // putSpotifySearch stores the credentials of a Spotify developer app, after Spotify accepts them.

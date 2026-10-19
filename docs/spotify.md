@@ -102,6 +102,24 @@ playing something else. For a reliable search, give Milo the **Client ID and Cli
 developer app** (the Spotify sheet has the steps): the app gets its own limit and can only search the public
 catalogue. Both values are stored encrypted, and Spotify checks them when you save.
 
+## What you listen to most, and artists you ask for
+
+Milo remembers, **on the device only**, the artists and the playlists, albums or artist pages that were
+playing for at least 30 seconds, and how many times (the Spotify sheet shows the top ones and a button to
+forget them). It is filled from Spotify's own playback information, whatever starts the music, your phone
+included. Three things use it:
+
+- **"Pon lo que más escucho"** (also "pon mis favoritos", "pon lo de siempre") starts one of them at random,
+  in proportion to how often it was listened to. Something heard only once does not count.
+- **"Pon algo de música"** draws on it two times out of three, and the third time takes one of the
+  playlists Spotify makes for you, so the music does not become the same few things.
+- **An artist asked for by name** ("pon Camilo") that was already heard, or found before, is played from this
+  memory with no search at all. A new artist is searched for once and remembered.
+
+When Spotify refuses a search (HTTP 429: the receiver's access is shared and rate-limited), Milo says "voy a
+buscar a X, puede tardar un poco", waits as long as Spotify asks and tries again, up to three times, and starts
+the artist by itself when it works (or says it could not). "Para" and "apaga" cancel a search that is waiting.
+
 ## What is stored and sent
 
 - go-librespot keeps its sign-in (`state.json`) in `<data dir>/spotify`, mode 0700. **It is not
@@ -109,7 +127,8 @@ catalogue. Both values are stored encrypted, and Spotify checks them when you sa
 - Its control interface listens on `127.0.0.1` only, on a random port, with no password. Other
   programs on the Pi running as the same user could use it.
 - Nothing Spotify-related goes to the assistant's AI except playlist names when asked for.
-- Audit entries: `spotify.settings_updated`, `spotify.signed_out`.
+- The listening memory (artists and playlists with counts) is in the database; forget it from the Spotify sheet.
+- Audit entries: `spotify.settings_updated`, `spotify.signed_out`, `spotify.search_credentials_set`, `spotify.listening_cleared`.
 
 ## Troubleshooting
 

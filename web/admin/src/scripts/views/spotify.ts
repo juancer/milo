@@ -1,4 +1,4 @@
-import { actions, alert, badge, card, checkbox, field, fields, formCard, note, submit, toggle } from "../../components/ui";
+import { actions, alert, badge, card, checkbox, emptyState, field, fields, formCard, list, note, row, submit, toggle } from "../../components/ui";
 import { t } from "../../i18n";
 import { api } from "../api";
 import { clear, h } from "../dom";
@@ -90,6 +90,24 @@ export async function render(root: HTMLElement): Promise<void> {
     toggle(t("spotify.voiceControl"), voice),
     alert(t("spotify.voiceWarning"), "info"),
     actions(submit(t("common.save")))));
+
+  // ---- what is listened to most (kept on the device)
+  const heard = await api<{ artists: { name: string; plays: number }[]; contexts: { name: string; plays: number }[] }>("GET", "/api/spotify/listening").catch(() => null);
+  if (heard) {
+    const rows = (items: { name: string; plays: number }[]) => items.map((i) => row(h("span", {}, i.name || t("spotify.unnamed")), h("span", { class: "muted" }, t("spotify.plays", { n: i.plays }))));
+    const total = heard.artists.length + heard.contexts.length;
+    root.append(card(t("spotify.heardTitle"), note(t("spotify.heardHelp")),
+      total === 0 ? emptyState(t("spotify.heardNone")) : null,
+      ...(heard.artists.length ? [h("h3", {}, t("spotify.heardArtists")), list(...rows(heard.artists))] : []),
+      ...(heard.contexts.length ? [h("h3", {}, t("spotify.heardLists")), list(...rows(heard.contexts))] : []),
+      total > 0 ? actions(h("button", {
+        type: "button", class: "danger",
+        onclick: async () => {
+          if (!(await confirmDialog(t("spotify.heardClearConfirm"), t("spotify.heardClear")))) return;
+          if (await guard(() => api("DELETE", "/api/spotify/listening"), "spotify.heardCleared")) await render(root);
+        },
+      }, t("spotify.heardClear"))) : null));
+  }
 
   // ---- artist search (optional): the credentials of a free Spotify developer app make "pon Camilo" reliable
   const clientId = h("input", { type: "text", autocomplete: "off", maxLength: 64, placeholder: info.search_configured ? t("spotify.searchSaved") : "", ariaLabel: t("spotify.clientId") });

@@ -184,6 +184,11 @@ var intentRules = []intent{
 	{re: regexp.MustCompile(`^(?:flip a coin|toss a coin|heads or tails)$`), args: noArgs, lang: langEN, local: flipCoin},
 	{re: regexp.MustCompile(`^(?:dime|elige|piensa)(?: un)? numero (?:del|de|entre) (?P<a>[0-9]+) (?:al|a|y) (?P<b>[0-9]+)$`), args: noArgs, lang: langES, local: pickNumber},
 	{re: regexp.MustCompile(`^(?:pick|choose|say)(?: me)?(?: a| me a)? number (?:from|between) (?P<a>[0-9]+) (?:to|and) (?P<b>[0-9]+)$`), args: noArgs, lang: langEN, local: pickNumber},
+	// What is listened to most.
+	{re: regexp.MustCompile(`^(?:pon|ponme|reproduce|quiero escuchar)(?: algo de)? (?:lo que mas escucho|lo que mas escuchamos|mi musica|mis favoritos|mis favoritas|lo de siempre|mis artistas favoritos|lo que suelo escuchar|mi musica favorita|lo que mas oigo)$`),
+		tool: "play_music", args: func([]string) map[string]any { return map[string]any{"favorites": true} }, lang: langES, music: true},
+	{re: regexp.MustCompile(`^(?:play|put on)(?: some of)? (?:my favorites|my favourites|my favorite music|my favourite music|the usual|what i listen to most|my usual music|my music)$`),
+		tool: "play_music", args: func([]string) map[string]any { return map[string]any{"favorites": true} }, lang: langEN, music: true},
 	{re: regexp.MustCompile(`^(?:cuanto es|cuanto son|cuanto da|cuanto suman|cuanto sale|cuanto vale|calcula|dime cuanto es|dime cuanto son)(?: la suma de| el resultado de)? (?P<e>.+)$`),
 		args: exprArgs, lang: langES, local: answerCalc},
 	{re: regexp.MustCompile(`^(?:how much is|what is|what s|calculate|tell me how much is|whats) (?P<e>.+)$`),
@@ -545,6 +550,9 @@ func (e *Engine) tryIntent(ctx context.Context, sess *Session, text string) bool
 		if err != nil || res.Refused {
 			e.log.Info("assistant: command left to the model", "tool", it.tool, "refused", res.Refused, "error", err)
 			return false
+		}
+		if pending, _ := res.Data["pending"].(string); pending == "artist_search" {
+			answer = sayPendingSearch(it.lang, res.Data) // the music starts by itself when Spotify allows the search
 		}
 		if it.say != nil {
 			var ok bool

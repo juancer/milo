@@ -112,6 +112,9 @@ func (s *Spotify) clientToken(ctx context.Context, id, secret string) (token str
 	if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized {
 		return "", 0, ErrSpotifyCredentials
 	}
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return "", 0, busyError{retryAfter(resp.Header)}
+	}
 	if resp.StatusCode != http.StatusOK {
 		return "", 0, errSpotifySearchBusy
 	}

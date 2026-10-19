@@ -73,15 +73,18 @@ type Spotify struct {
 
 	webToken    string // an app-only search token and when it runs out
 	webTokenExp time.Time
-	procRun     runner
-	pollRun     runner
-	playRun     runner
-	client      *spotifyClient
-	fifo        *os.File
-	snap        spotifySnap
-	pump        context.CancelFunc
-	wake        chan struct{}
-	lastErr     string
+
+	listen   listenTracker // the song being heard, to count a listen
+	searches searches      // artist searches waiting for Spotify's rate limit
+	procRun  runner
+	pollRun  runner
+	playRun  runner
+	client   *spotifyClient
+	fifo     *os.File
+	snap     spotifySnap
+	pump     context.CancelFunc
+	wake     chan struct{}
+	lastErr  string
 }
 
 type spotifySnap struct {
@@ -168,6 +171,7 @@ func (s *Spotify) Start(ctx context.Context) error {
 
 // Stop implements features.Feature.
 func (s *Spotify) Stop(ctx context.Context) error {
+	s.CancelSearches()
 	s.cancelPump()
 	s.playRun.stop(ctx)
 	s.pollRun.stop(ctx)
@@ -354,6 +358,7 @@ func (s *Spotify) restartReceiver() {
 // apply records a status answer and reacts to the receiver starting or stopping playback.
 func (s *Spotify) apply(st SpotifyStatus, err error) {
 	s.mu.Lock()
+	counted := err == nil && s.listen.observe(st, st.playing(), time.Now())
 	wasPlaying := s.snap.signedIn && s.snap.st.playing()
 	s.snap = spotifySnap{up: err == nil || errors.Is(err, errSpotifyNoSession), signedIn: err == nil, st: st}
 	playing := s.snap.signedIn && st.playing()
@@ -364,6 +369,9 @@ func (s *Spotify) apply(st SpotifyStatus, err error) {
 	}
 	wake := s.wake
 	s.mu.Unlock()
+	if counted {
+		s.recordListen(st)
+	}
 	if cancel != nil {
 		cancel()
 	}
@@ -712,31 +720,45 @@ func (s *Spotify) PlayAnything(ctx context.Context, actor actions.Actor, query s
 		}
 		return actions.Result{Message: "Playing " + lists[i].Name + ".", Data: map[string]any{"playlist": lists[i].Name}}, true, nil
 	}
-	// Words that are not a playlist are an artist ("música de Belinda", "Camilo"): search for them.
+	// Words that are not a playlist are an artist ("música de Belinda", "Camilo"). One already heard or
+	// found before is known without any search.
 	if len(words(query)) > 0 {
-		base := s.WebAPIBase
-		if base == "" {
-			base = "https://api.spotify.com"
-		}
-		sctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		token, err := s.searchToken(sctx, c)
-		var name, uri string
-		if err == nil {
-			name, uri, err = c.searchArtist(sctx, base, token, strings.Join(words(query), " "))
-		}
-		cancel()
-		switch {
-		case err == nil && artistMatches(query, name):
+		if name, uri, ok := s.knownArtist(ctx, query); ok {
 			if err := play(uri, false); err != nil {
 				return actions.Result{}, true, err
 			}
 			return actions.Result{Message: "Playing music by " + name + ".", Data: map[string]any{"artist": name}}, true, nil
-		case err == nil, errors.Is(err, errSpotifyNoArtist):
+		}
+		name, uri, err := s.searchOnce(ctx, c, query)
+		var busy busyError
+		switch {
+		case err == nil:
+			if err := play(uri, false); err != nil {
+				return actions.Result{}, true, err
+			}
+			return actions.Result{Message: "Playing music by " + name + ".", Data: map[string]any{"artist": name}}, true, nil
+		case errors.Is(err, errSpotifyNoArtist):
 			return actions.Result{Message: fmt.Sprintf("I could not find %q on Spotify.", query), Refused: true, Data: map[string]any{"reason": "artist_not_found", "query": query}}, true, nil
+		case errors.As(err, &busy):
+			// Spotify's shared limit: ask again when it allows, and tell the person it will take a moment.
+			s.Log.Info("spotify: artist search is rate-limited; trying again later", "wait", busy.after.String())
+			if s.searchLater(c, query, busy.after) {
+				return actions.Result{Message: fmt.Sprintf("Looking for %s; it may take a moment.", query), Data: map[string]any{"pending": "artist_search", "query": query}}, true, nil
+			}
+			return actions.Result{Message: fmt.Sprintf("Still looking for %s.", query), Data: map[string]any{"pending": "artist_search", "query": query}}, true, nil
 		default:
 			s.Log.Info("spotify: artist search failed", "error", err)
-			return actions.Result{Message: fmt.Sprintf("I could not look up %q on Spotify right now; asking for one of the family's playlists by name works.", query), Refused: true, Data: map[string]any{"reason": "search_unavailable", "query": query}}, true, nil
+			return actions.Result{Message: fmt.Sprintf("I could not look up %q on Spotify right now.", query), Refused: true, Data: map[string]any{"reason": "search_unavailable", "query": query}}, true, nil
 		}
+	}
+	// Nothing in particular: something you listen to a lot most of the time, and now and then something
+	// Spotify picks for you, so the music does not become the same few things.
+	if favs := s.favorites(ctx); len(favs) > 0 && pickRandom(3) != 0 {
+		f := pickFavorite(favs)
+		if err := play(f.uri, true); err != nil {
+			return actions.Result{}, true, err
+		}
+		return actions.Result{Message: "Playing " + f.name + ".", Data: map[string]any{"favorite": f.name}}, true, nil
 	}
 	if len(lists) == 0 {
 		return actions.Result{Message: "I could not find any playlist on the paired Spotify account. Make one in the Spotify app first.", Refused: true, Data: map[string]any{"reason": "no_playlists"}}, true, nil
