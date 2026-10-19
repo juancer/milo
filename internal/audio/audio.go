@@ -43,7 +43,8 @@ type RecordOptions struct {
 	MaxDuration   time.Duration // hard limit; 0 means 60s
 	StopOnSilence bool          // end after SilenceFor of quiet following speech
 	SilenceFor    time.Duration // default 1500ms
-	Threshold     int           // RMS level counted as speech; default 600
+	Threshold     int           // RMS level counted as speech in a quiet room; default 600
+	NoSpeechFor   time.Duration // give up when nobody speaks for this long; default 8 s
 }
 
 // Status describes the audio subsystem.
