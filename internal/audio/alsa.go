@@ -5,8 +5,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -110,29 +112,111 @@ func (a *ALSA) Record(ctx context.Context, opts RecordOptions) ([]byte, error) {
 
 const chunkDuration = 100 * time.Millisecond
 
+// speechTracker decides, chunk by chunk, whether someone is speaking and when they have finished.
+// A fixed level does not work in a real room: with a noise floor of 350 and bursts of 1000 from the
+// street or a fan, "quiet" (below 600) never lasted 1.5 s, and every recording ran to its 20 s limit.
+// So the threshold follows the room (about twice the quiet fifth of what has been heard, between 250
+// and one and a half times the configured level), speech needs a few loud chunks close together, and
+// the end is a mostly quiet stretch that a stray burst does not restart.
+type speechTracker struct {
+	base      float64   // configured threshold
+	levels    []float64 // RMS of every chunk so far
+	flags     []bool    // speech-like flags of the last few chunks
+	window    []bool    // speech-like flags of the last silentChunks chunks
+	silentFor int       // chunks of mostly-quiet that end a phrase
+	heard     bool
+}
+
+const (
+	speechRun  = 6 // chunks looked at to decide that speech began...
+	speechNeed = 3 // ...of which this many must be loud
+)
+
+func newSpeechTracker(base, silentChunks int) *speechTracker {
+	return &speechTracker{base: float64(base), silentFor: max(silentChunks, 1)}
+}
+
+// threshold is the level a chunk must reach to count as speech.
+func (t *speechTracker) threshold() float64 {
+	if len(t.levels) < 10 {
+		return t.base
+	}
+	sorted := append([]float64(nil), t.levels...)
+	sort.Float64s(sorted)
+	floor := sorted[int(float64(len(sorted)-1)*0.2)]
+	return math.Max(250, math.Min(floor*2.2, t.base*1.5))
+}
+
+// add takes the level of the next chunk and reports whether the phrase has ended.
+func (t *speechTracker) add(level float64) (ended bool) {
+	loud := level >= t.threshold()
+	t.levels = append(t.levels, level)
+	t.flags = append(t.flags, loud)
+	if len(t.flags) > speechRun {
+		t.flags = t.flags[1:]
+	}
+	if !t.heard {
+		n := 0
+		for _, f := range t.flags {
+			if f {
+				n++
+			}
+		}
+		t.heard = n >= speechNeed
+	}
+	t.window = append(t.window, loud)
+	if len(t.window) > t.silentFor {
+		t.window = t.window[1:]
+	}
+	if !t.heard || len(t.window) < t.silentFor || loud {
+		return false
+	}
+	n := 0
+	for _, f := range t.window {
+		if f {
+			n++
+		}
+	}
+	return n <= t.silentFor/6
+}
+
+// speechIn reports whether PCM holds speech by the same rules, for recordings that are already made.
+func speechIn(pcm []byte, base int) bool {
+	t := newSpeechTracker(base, 1<<30)
+	chunk := int(chunkDuration.Seconds()*SampleRate) * 2
+	for i := 0; i+chunk <= len(pcm); i += chunk {
+		t.add(rms(pcm[i : i+chunk]))
+	}
+	return t.heard
+}
+
+// HasSpeech reports whether a recording (a WAV) holds speech and not only the noise of the room.
+func (a *ALSA) HasSpeech(wav []byte) bool {
+	pcm, _, err := DecodeWAV(wav)
+	return err != nil || speechIn(pcm, RecordOptions{}.withDefaults().Threshold)
+}
+
 // recordFrom reads 16 kHz mono PCM from r. It returns when r ends, ctx ends, the
 // maximum length is reached or (if enabled) silence follows speech. stop is
 // called to terminate the source. stopped reports whether we ended it ourselves.
 func recordFrom(ctx context.Context, r io.Reader, opts RecordOptions, stop func()) (pcm []byte, stopped bool) {
 	chunkBytes := int(chunkDuration.Seconds()*SampleRate) * 2
 	maxBytes := int(opts.MaxDuration.Seconds()*SampleRate) * 2
-	silentChunks := int(opts.SilenceFor / chunkDuration)
-	const noSpeechGiveUp = 80 // 8 s of nothing but quiet
+	tr := newSpeechTracker(opts.Threshold, int(opts.SilenceFor/chunkDuration))
+	noSpeechGiveUp := int(opts.NoSpeechFor / chunkDuration)
+	if noSpeechGiveUp <= 0 {
+		noSpeechGiveUp = 80 // 8 s of nothing but quiet
+	}
 
 	buf := make([]byte, chunkBytes)
-	var quiet int
-	var heard bool
+	chunks := 0
 	for ctx.Err() == nil {
 		n, err := io.ReadFull(r, buf)
 		if n > 0 {
 			pcm = append(pcm, buf[:n]...)
 			if opts.StopOnSilence && n == chunkBytes {
-				if rms(buf[:n]) >= float64(opts.Threshold) {
-					heard, quiet = true, 0
-				} else {
-					quiet++
-				}
-				if (heard && quiet >= silentChunks) || (!heard && quiet >= noSpeechGiveUp) {
+				chunks++
+				if tr.add(rms(buf[:n])) || (!tr.heard && chunks >= noSpeechGiveUp) {
 					stop()
 					return pcm, true
 				}

@@ -188,7 +188,13 @@ func (e *Engine) RunVoice(ctx context.Context, source string) error {
 		e.mu.Lock()
 		e.listening = finish
 		e.mu.Unlock()
-		wav, err := e.Audio.Record(recCtx, audio.RecordOptions{MaxDuration: maxListen, StopOnSilence: true})
+		giveUp := 8 * time.Second
+		if turn > 0 {
+			giveUp = 4 * time.Second // a follow-up that nobody answers should not keep the microphone open
+		}
+		t0 := time.Now()
+		wav, err := e.Audio.Record(recCtx, audio.RecordOptions{MaxDuration: maxListen, StopOnSilence: true, NoSpeechFor: giveUp})
+		recordMS := time.Since(t0).Milliseconds()
 		e.mu.Lock()
 		e.listening = nil
 		e.mu.Unlock()
@@ -202,7 +208,17 @@ func (e *Engine) RunVoice(ctx context.Context, source string) error {
 			return fmt.Errorf("recording: %w", err)
 		}
 
+		// Only the room's noise: skip the speech service, which would invent words from it.
+		if hs, ok := e.Audio.(interface{ HasSpeech(wav []byte) bool }); ok && !hs.HasSpeech(wav) {
+			e.log.Info("voice turn: no speech heard", "record_ms", recordMS)
+			if turn == 0 {
+				e.note(ctx, audio.NotifyNone)
+			}
+			return nil
+		}
+		t1 := time.Now()
 		text, err := stt.Transcribe(ctx, wav)
+		sttMS := time.Since(t1).Milliseconds()
 		if err != nil {
 			e.note(ctx, audio.NotifyError)
 			return fmt.Errorf("transcription: %w", err)
@@ -214,13 +230,16 @@ func (e *Engine) RunVoice(ctx context.Context, source string) error {
 			return nil
 		}
 
+		e.log.Info("voice turn", "record_ms", recordMS, "stt_ms", sttMS, "chars", len(text))
 		if e.tryIntent(ctx, sess, text) { // a plain command: no round trip to the model
 			if sess.finished || !sess.settings.FollowUp {
 				return nil
 			}
 			continue
 		}
+		t2 := time.Now()
 		reply, err := e.Converse(ctx, sess, text)
+		replyMS := time.Since(t2).Milliseconds()
 		switch {
 		case errors.Is(err, ErrUnavailable):
 			e.log.Warn("assistant unavailable", "error", err)
@@ -230,9 +249,11 @@ func (e *Engine) RunVoice(ctx context.Context, source string) error {
 			e.note(ctx, audio.NotifyError)
 			return err
 		}
+		t3 := time.Now()
 		if err := e.say(ctx, reply); err != nil {
 			return err
 		}
+		e.log.Info("voice turn answered", "reply_ms", replyMS, "speak_ms", time.Since(t3).Milliseconds())
 		if !sess.settings.FollowUp || sess.finished {
 			return nil
 		}

@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"io"
 	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -297,5 +298,63 @@ func TestWakeChirpIsLouderThanOtherNotifications(t *testing.T) {
 	}
 	if wake, other := peak(NotifyWake), peak(NotifyMessage); wake < 2*other-1000 {
 		t.Errorf("wake chirp peak %d, other notification %d: want about twice as loud", wake, other)
+	}
+}
+
+// noisyRoom is background noise at the given RMS with a short loud burst every so often (a door, a
+// fan, a car): the kind of room in which a fixed "quiet" level never lasts long enough.
+func noisyRoom(d time.Duration, floor float64, seed int64) []byte {
+	r := rand.New(rand.NewSource(seed))
+	n := int(d.Seconds() * SampleRate)
+	out := make([]byte, n*2)
+	for i := 0; i < n; i++ {
+		v := r.NormFloat64() * floor
+		if (i/(SampleRate/10))%11 == 5 { // one 100 ms chunk in eleven is 4 times as loud
+			v *= 4
+		}
+		binary.LittleEndian.PutUint16(out[i*2:], uint16(int16(math.Max(-32000, math.Min(32000, v)))))
+	}
+	return out
+}
+
+func speechLike(d time.Duration, level float64, seed int64) []byte {
+	r := rand.New(rand.NewSource(seed))
+	n := int(d.Seconds() * SampleRate)
+	out := make([]byte, n*2)
+	for i := 0; i < n; i++ {
+		env := 0.6 + 0.4*math.Sin(2*math.Pi*3*float64(i)/SampleRate)
+		v := (r.NormFloat64()*0.5 + math.Sin(2*math.Pi*180*float64(i)/SampleRate)) * level * env
+		binary.LittleEndian.PutUint16(out[i*2:], uint16(int16(math.Max(-32000, math.Min(32000, v)))))
+	}
+	return out
+}
+
+func TestRecordingEndsInANoisyRoomInsteadOfRunningToTheLimit(t *testing.T) {
+	// 1 s of room, 1.2 s of speech, then the room again for 30 s.
+	src := io.MultiReader(
+		bytes.NewReader(noisyRoom(time.Second, 350, 1)),
+		bytes.NewReader(speechLike(1200*time.Millisecond, 1400, 2)),
+		bytes.NewReader(noisyRoom(30*time.Second, 350, 3)))
+	opts := RecordOptions{StopOnSilence: true, MaxDuration: 20 * time.Second}.withDefaults()
+	pcm, ok := recordFrom(context.Background(), src, opts, func() {})
+	got := time.Duration(len(pcm)/2) * time.Second / SampleRate
+	if !ok || got > 4*time.Second {
+		t.Fatalf("recorded %v: it should have ended about 1.5 s after the speech (3.7 s), not wait for the 20 s limit", got)
+	}
+	if got < 2200*time.Millisecond {
+		t.Fatalf("recorded only %v: the speech was cut off", got)
+	}
+}
+
+func TestSpeechInTellsSpeechFromTheNoiseOfTheRoom(t *testing.T) {
+	if speechIn(noisyRoom(8*time.Second, 350, 4), 600) {
+		t.Error("the noise of the room was taken for speech")
+	}
+	mixed := append(append(noisyRoom(time.Second, 350, 5), speechLike(time.Second, 1400, 6)...), noisyRoom(time.Second, 350, 7)...)
+	if !speechIn(mixed, 600) {
+		t.Error("speech in a noisy room was not found")
+	}
+	if speechIn(Silence(3*time.Second), 600) {
+		t.Error("silence was taken for speech")
 	}
 }
