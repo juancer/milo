@@ -86,8 +86,11 @@ func (a *App) registerCoreActions() {
 			if a.Music != nil {
 				a.Music.Halt() // "stop" also ends the music for good
 			}
-			if a.Spotify != nil && a.Spotify.Active() {
-				a.Spotify.Pause(ctx) //nolint:errcheck // paused for good, so it is not resumed after the stop
+			if a.Spotify != nil {
+				a.Spotify.CancelSearches() // an artist still being looked for must not start playing after "para"
+				if a.Spotify.Active() {
+					a.Spotify.Pause(ctx) //nolint:errcheck // paused for good, so it is not resumed after the stop
+				}
 			}
 			a.Audio.Stop()
 			return actions.Result{Message: "Stopped"}, nil

@@ -564,24 +564,31 @@ func TestAReceiverThatStopsAnsweringIsRestarted(t *testing.T) {
 	waitFor(t, "the wedged receiver to be restarted", func() bool { return starts() >= 2 })
 }
 
-func TestPlaySomeMusicByAnArtistSearchesSpotify(t *testing.T) {
+func TestPlaySomeMusicByAnArtistSearchesSpotifyOnceAndRemembersThem(t *testing.T) {
 	sr := newSpotifyRig(t, false)
 	ctx := context.Background()
 	var auth, query string
+	searches := 0
 	status := http.StatusOK
 	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		searches++
 		auth, query = r.Header.Get("Authorization"), r.URL.Query().Get("q")
+		if status == http.StatusTooManyRequests {
+			w.Header().Set("Retry-After", "1")
+		}
 		w.WriteHeader(status)
 		if status == http.StatusOK {
 			if query == "nadie" {
 				w.Write([]byte(`{"artists":{"items":[]}}`))
 				return
 			}
-			w.Write([]byte(`{"artists":{"items":[{"name":"Belinda","uri":"spotify:artist:abc123"}]}}`))
+			name := strings.ToUpper(query[:1]) + query[1:]
+			w.Write([]byte(`{"artists":{"items":[{"name":"` + name + `","uri":"spotify:artist:` + query + `"}]}}`))
 		}
 	}))
 	defer web.Close()
 	sr.sp.WebAPIBase = web.URL
+	sr.sp.Store = sr.store
 	sr.start(t)
 	sr.store.SetSetting(ctx, SettingSpotifyVoice, "1") //nolint:errcheck
 	sr.fake.set(func() { sr.fake.playlists = []spotifyPlaylist{{"spotify:playlist:a", "Bedtime lullabies"}} })
@@ -594,23 +601,37 @@ func TestPlaySomeMusicByAnArtistSearchesSpotify(t *testing.T) {
 	t.Cleanup(m.Halt)
 
 	res, err := sr.run(actions.ActorAssistant, "play_music", map[string]any{"query": "belinda"})
-	if err != nil || res.Message != "Playing music by Belinda." || res.Refused || sr.fake.count("play spotify:artist:abc123") != 1 {
+	if err != nil || res.Message != "Playing music by Belinda." || res.Refused || sr.fake.count("play spotify:artist:belinda") != 1 {
 		t.Fatalf("artist = %q refused=%v err=%v calls=%v", res.Message, res.Refused, err, sr.fake.called())
 	}
-	if auth != "Bearer tok-123" || query != "belinda" {
-		t.Errorf("the search was sent as auth=%q q=%q", auth, query)
+	if auth != "Bearer tok-123" || query != "belinda" || searches != 1 {
+		t.Errorf("the search was sent as auth=%q q=%q (%d searches)", auth, query, searches)
 	}
-	// An artist Spotify does not know, and a search that is rate-limited, are said as they are, not
-	// replaced by some other music.
+	// The second time the artist is known: no search at all, and a looser spelling still finds them.
+	if res, _ := sr.run(actions.ActorAssistant, "play_music", map[string]any{"query": "música de Belinda"}); res.Message != "Playing music by Belinda." || searches != 1 {
+		t.Fatalf("remembered artist = %q after %d searches", res.Message, searches)
+	}
+	// An artist Spotify does not know is said as it is.
 	res, _ = sr.run(actions.ActorAssistant, "play_music", map[string]any{"query": "nadie"})
-	if !res.Refused || !strings.Contains(res.Message, "could not find") {
+	if !res.Refused || res.Data["reason"] != "artist_not_found" {
 		t.Errorf("unknown artist = %+v", res)
 	}
+	// Rate-limited: the person is told it will take a moment, and the artist starts by itself when Spotify allows.
+	searchMinWait, searchExtra = 20*time.Millisecond, 20*time.Millisecond
+	defer func() { searchMinWait, searchExtra = 2*time.Second, time.Second }()
 	status = http.StatusTooManyRequests
-	before := len(sr.fake.called())
-	res, _ = sr.run(actions.ActorAssistant, "play_music", map[string]any{"query": "belinda"})
-	if !res.Refused || !strings.Contains(res.Message, "right now") || len(sr.fake.called()) != before {
-		t.Errorf("rate-limited = %+v calls=%v", res, sr.fake.called())
+	before := sr.fake.count("play spotify:artist:maluma")
+	res, _ = sr.run(actions.ActorAssistant, "play_music", map[string]any{"query": "maluma"})
+	if res.Refused || res.Data["pending"] != "artist_search" || before != 0 {
+		t.Fatalf("rate-limited = %+v", res)
+	}
+	if res, _ := sr.run(actions.ActorAssistant, "play_music", map[string]any{"query": "maluma"}); res.Data["pending"] != "artist_search" {
+		t.Errorf("a second ask while waiting = %+v", res)
+	}
+	status = http.StatusOK
+	waitFor(t, "the waiting search to play the artist", func() bool { return sr.fake.count("play spotify:artist:maluma") == 1 })
+	if _, _, ok := sr.sp.knownArtist(ctx, "maluma"); !ok {
+		t.Error("the artist found later was not remembered")
 	}
 }
 
@@ -629,10 +650,11 @@ func TestArtistSearchUsesTheDeveloperAppWhenOneIsConfigured(t *testing.T) {
 	defer accounts.Close()
 	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		searchAuth = r.Header.Get("Authorization")
-		w.Write([]byte(`{"artists":{"items":[{"name":"Camilo","uri":"spotify:artist:cam"}]}}`))
+		q := r.URL.Query().Get("q")
+		w.Write([]byte(`{"artists":{"items":[{"name":"` + strings.ToUpper(q[:1]) + q[1:] + `","uri":"spotify:artist:` + q + `"}]}}`))
 	}))
 	defer web.Close()
-	sr.sp.WebAPIBase, sr.sp.AccountsBase, sr.sp.Vault = web.URL, accounts.URL, sr.vault
+	sr.sp.WebAPIBase, sr.sp.AccountsBase, sr.sp.Vault, sr.sp.Store = web.URL, accounts.URL, sr.vault, sr.store
 	sr.start(t)
 	sr.store.SetSetting(ctx, SettingSpotifyVoice, "1") //nolint:errcheck
 	waitFor(t, "the receiver to answer", func() bool { return sr.sp.Info(ctx).SignedIn })
@@ -665,7 +687,88 @@ func TestArtistSearchUsesTheDeveloperAppWhenOneIsConfigured(t *testing.T) {
 	if err := sr.sp.ClearSearchCredentials(ctx); err != nil || sr.sp.SearchConfigured(ctx) {
 		t.Fatalf("clear: %v", err)
 	}
-	if res, _ := sr.run(actions.ActorAssistant, "play_music", map[string]any{"query": "camilo"}); res.Message != "Playing music by Camilo." || searchAuth != "Bearer tok-123" {
+	if res, _ := sr.run(actions.ActorAssistant, "play_music", map[string]any{"query": "maluma"}); res.Message != "Playing music by Maluma." || searchAuth != "Bearer tok-123" {
 		t.Fatalf("after clearing: res=%q searchAuth=%q", res.Message, searchAuth)
+	}
+}
+
+func TestListenTrackerCountsASongOnceAfterItHasBeenHeardForAWhile(t *testing.T) {
+	var tr listenTracker
+	st := SpotifyStatus{Track: &struct {
+		URI         string   `json:"uri"`
+		Name        string   `json:"name"`
+		ArtistNames []string `json:"artist_names"`
+		ArtistURIs  []string `json:"artist_uris"`
+		AlbumName   string   `json:"album_name"`
+	}{URI: "spotify:track:1", Name: "Song"}}
+	now := time.Unix(1000, 0)
+	counted := 0
+	for i := 0; i < 20; i++ { // 40 s of listening in 2 s steps
+		now = now.Add(2 * time.Second)
+		if tr.observe(st, true, now) {
+			counted++
+		}
+	}
+	if counted != 1 {
+		t.Fatalf("counted %d times, want once", counted)
+	}
+	// A different song starts again from nothing; pausing does not add time; a long stall adds little.
+	st.Track.URI = "spotify:track:2"
+	now = now.Add(2 * time.Second)
+	if tr.observe(st, true, now) {
+		t.Error("a new song was counted at once")
+	}
+	if tr.observe(st, false, now.Add(time.Hour)) || tr.observe(st, true, now.Add(2*time.Hour)) {
+		t.Error("time while paused or stalled counted as listening")
+	}
+}
+
+func TestListeningMemoryDrivesFavoritesAndTheDefaultMusic(t *testing.T) {
+	sr := newSpotifyRig(t, false)
+	ctx := context.Background()
+	sr.sp.Store = sr.store
+	sr.start(t)
+	sr.store.SetSetting(ctx, SettingSpotifyVoice, "1") //nolint:errcheck
+	sr.fake.set(func() {
+		sr.fake.playlists = []spotifyPlaylist{{"spotify:playlist:a", "Bedtime lullabies"}, {"spotify:playlist:d", "Daily Mix 1"}}
+	})
+	waitFor(t, "the receiver to answer", func() bool { return sr.sp.Info(ctx).SignedIn })
+	m := &Music{Common: sr.common, Audio: sr.mock, Dir: t.TempDir(), Other: sr.sp}
+	m.RegisterActions(sr.eng)
+	if err := m.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(m.Halt)
+	pickRandom = func(n int) int { return 0 }
+	defer func() { pickRandom = rand.Intn }()
+
+	// No history yet: the favorites say so, and the default music is Spotify's own pick.
+	if res, _ := sr.run(actions.ActorAssistant, "play_music", map[string]any{"favorites": true}); !res.Refused || res.Data["reason"] != "no_history" {
+		t.Fatalf("favorites without history = %+v", res)
+	}
+	if res, _ := sr.run(actions.ActorAssistant, "play_music", map[string]any{}); res.Message != "Playing Daily Mix 1." {
+		t.Fatalf("default without history = %q", res.Message)
+	}
+	// History: three listens of an artist and two of a playlist.
+	now := time.Now()
+	for i := 0; i < 3; i++ {
+		sr.store.CountArtistPlay(ctx, "spotify:artist:cam", "Camilo", now) //nolint:errcheck
+	}
+	sr.store.CountContextPlay(ctx, "spotify:playlist:fav", "Mis favoritas", now) //nolint:errcheck
+	sr.store.CountContextPlay(ctx, "spotify:playlist:fav", "Mis favoritas", now) //nolint:errcheck
+	sr.store.CountArtistPlay(ctx, "spotify:artist:once", "Una vez", now)         //nolint:errcheck // a single listen is not a favorite
+
+	// With pickRandom at 0 the most listened comes first: Camilo.
+	if res, _ := sr.run(actions.ActorAssistant, "play_music", map[string]any{"favorites": true}); res.Message != "Playing Camilo." || sr.fake.count("play spotify:artist:cam") != 1 {
+		t.Fatalf("favorites = %q calls=%v", res.Message, sr.fake.called())
+	}
+	// "Pon algo de música" now draws on the history (pickRandom(3) == 0 would pick Spotify's own instead).
+	pickRandom = func(n int) int { return n - 1 }
+	if res, _ := sr.run(actions.ActorAssistant, "play_music", map[string]any{}); !strings.HasPrefix(res.Message, "Playing ") || res.Data["favorite"] == nil {
+		t.Fatalf("default with history = %+v", res)
+	}
+	// The artist heard is known by name without searching.
+	if name, uri, ok := sr.sp.knownArtist(ctx, "camilo"); !ok || uri != "spotify:artist:cam" || name != "Camilo" {
+		t.Errorf("knownArtist = %q %q %v", name, uri, ok)
 	}
 }

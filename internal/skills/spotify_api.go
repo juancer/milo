@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -36,9 +37,15 @@ type SpotifyStatus struct {
 	Stopped    bool   `json:"stopped"`
 	Paused     bool   `json:"paused"`
 	Buffering  bool   `json:"buffering"`
-	Track      *struct {
+	// ContextURI and ContextName say where the music comes from (a playlist, an album, an artist).
+	ContextURI  string `json:"context_uri"`
+	ContextName string `json:"context_name"`
+	Track       *struct {
+		URI         string   `json:"uri"`
 		Name        string   `json:"name"`
 		ArtistNames []string `json:"artist_names"`
+		ArtistURIs  []string `json:"artist_uris"`
+		AlbumName   string   `json:"album_name"`
 	} `json:"track"`
 }
 
@@ -143,6 +150,21 @@ func (c *spotifyClient) Playlists(ctx context.Context) ([]spotifyPlaylist, error
 // shared with everyone who uses go-librespot, and Spotify rate-limits it).
 var errSpotifySearchBusy = errors.New("spotify: artist search is busy right now")
 
+// busyError is errSpotifySearchBusy with how long Spotify asked to wait (its Retry-After).
+type busyError struct{ after time.Duration }
+
+func (e busyError) Error() string        { return errSpotifySearchBusy.Error() }
+func (e busyError) Is(target error) bool { return target == errSpotifySearchBusy }
+
+// retryAfter reads a Retry-After header (seconds) with a floor and a ceiling.
+func retryAfter(h http.Header) time.Duration {
+	n, err := strconv.Atoi(strings.TrimSpace(h.Get("Retry-After")))
+	if err != nil || n < 1 {
+		n = 30
+	}
+	return time.Duration(min(n, 60)) * time.Second
+}
+
 // librespotToken asks the receiver for a Web API token for its own signed-in session.
 func (c *spotifyClient) librespotToken(ctx context.Context) (string, error) {
 	var tok struct {
@@ -169,7 +191,7 @@ func (c *spotifyClient) searchArtist(ctx context.Context, webBase, token, query 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return "", "", errSpotifySearchBusy
+		return "", "", busyError{retryAfter(resp.Header)}
 	}
 	if resp.StatusCode != http.StatusOK {
 		return "", "", fmt.Errorf("spotify: search answered %d", resp.StatusCode)

@@ -340,6 +340,8 @@ type AudioSource interface {
 	// PlayAnything handles "play some music" when this source is the preferred one; handled is false
 	// when it is not and the local music should play instead.
 	PlayAnything(ctx context.Context, actor actions.Actor, query string) (res actions.Result, handled bool, err error)
+	// PlayFavorites starts something from what is listened to most.
+	PlayFavorites(ctx context.Context, actor actions.Actor) (res actions.Result, handled bool, err error)
 	// ResumePlayback carries on what was paused; handled is false when there is nothing to carry on.
 	ResumePlayback(ctx context.Context, actor actions.Actor) (res actions.Result, handled bool, err error)
 	Active() bool
@@ -713,8 +715,14 @@ func (m *Music) RegisterActions(e *actions.Engine) {
 		Params: []actions.Param{
 			{Name: "query", Description: "Words from the song, playlist or artist name, for example frozen. Leave empty to start something new.", Type: actions.String, MaxLen: 100},
 			{Name: "resume", Description: "true to carry on what was paused instead of starting something new", Type: actions.Boolean},
+			{Name: "favorites", Description: "true for something from what the family listens to most", Type: actions.Boolean},
 		},
 		Handler: func(ctx context.Context, c actions.Call) (actions.Result, error) {
+			if c.Args.Bool("favorites") && m.Other != nil {
+				if res, handled, err := m.Other.PlayFavorites(ctx, c.Actor); handled {
+					return res, err
+				}
+			}
 			if c.Args.Bool("resume") && m.Other != nil {
 				if res, handled, err := m.Other.ResumePlayback(ctx, c.Actor); handled {
 					return res, err

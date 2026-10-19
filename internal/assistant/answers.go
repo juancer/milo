@@ -612,6 +612,7 @@ func sayRefusal(lang string, data map[string]any) (string, bool) {
 		"no_music":           "Todavía no hay música en el dispositivo.",
 		"no_playlists":       "No encuentro ninguna lista de reproducción en tu Spotify.",
 		"playlist_not_found": "No encuentro una lista que se llame " + query + ".",
+		"no_history":         "Todavía no sé qué es lo que más escuchas. Pon música unos días y lo aprendo.",
 	}
 	en := map[string]string{
 		"voice_control_off":  "Spotify voice control is switched off. A grown-up can turn it on in the panel.",
@@ -621,6 +622,7 @@ func sayRefusal(lang string, data map[string]any) (string, bool) {
 		"no_music":           "There is no music on the device yet.",
 		"no_playlists":       "I cannot find any playlist on your Spotify.",
 		"playlist_not_found": "I cannot find a playlist called " + query + ".",
+		"no_history":         "I do not know yet what you listen to most. Play some music for a few days and I will learn.",
 	}
 	table := es
 	if lang == langEN {
@@ -628,4 +630,13 @@ func sayRefusal(lang string, data map[string]any) (string, bool) {
 	}
 	msg, ok := table[reason]
 	return msg, ok
+}
+
+// sayPendingSearch tells the person that an artist is being looked for and will start when found.
+func sayPendingSearch(lang string, data map[string]any) string {
+	query, _ := data["query"].(string)
+	if lang == langEN {
+		return "I am looking for " + query + ". It may take a moment."
+	}
+	return "Voy a buscar a " + query + ". Puede tardar un poco."
 }

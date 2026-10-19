@@ -299,3 +299,24 @@ func TestSpeechChunksCutLongAnswersIntoSentences(t *testing.T) {
 		t.Errorf("empty text gave %q", got)
 	}
 }
+
+func TestFavoritesAndPendingSearchWording(t *testing.T) {
+	for in, lang := range map[string]string{
+		"pon lo que más escucho":     langES,
+		"ponme mis favoritos":        langES,
+		"pon lo de siempre":          langES,
+		"play my favorites":          langEN,
+		"play what I listen to most": langEN,
+	} {
+		it, args, _, ok := matchIntentAnswer(in)
+		if !ok || it.tool != "play_music" || args["favorites"] != true || it.lang != lang {
+			t.Errorf("%q -> %q %v %v lang=%q", in, it.tool, args, ok, it.lang)
+		}
+	}
+	if got := sayPendingSearch(langES, map[string]any{"query": "camilo"}); got != "Voy a buscar a camilo. Puede tardar un poco." {
+		t.Errorf("got %q", got)
+	}
+	if got, ok := sayRefusal(langES, map[string]any{"reason": "no_history"}); !ok || got == "" {
+		t.Errorf("no_history has no wording: %q %v", got, ok)
+	}
+}
