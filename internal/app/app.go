@@ -24,6 +24,7 @@ import (
 	"github.com/juancer/milo/internal/schedules"
 	"github.com/juancer/milo/internal/secrets"
 	"github.com/juancer/milo/internal/skills"
+	"github.com/juancer/milo/internal/speech"
 	"github.com/juancer/milo/internal/store"
 	"github.com/juancer/milo/internal/system"
 	"github.com/juancer/milo/internal/telegram"
@@ -138,6 +139,7 @@ func (a *App) Close() {
 	if a.cancel != nil {
 		a.cancel()
 	}
+	speech.StopPiper() // the voice processes kept loaded between phrases
 	if a.Buttons != nil {
 		a.Buttons.Stop()
 	}

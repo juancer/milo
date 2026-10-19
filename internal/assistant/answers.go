@@ -485,3 +485,114 @@ func answerCalc(lang, text string) (string, bool) {
 	}
 	return fmt.Sprintf("%s es %s.", spoken, sayNumber(lang, v)), true
 }
+
+// ---------------------------------------------------------------- durations (timers)
+
+var (
+	unitSeconds = map[string]int{
+		"segundo": 1, "segundos": 1, "minuto": 60, "minutos": 60, "hora": 3600, "horas": 3600,
+		"second": 1, "seconds": 1, "minute": 60, "minutes": 60, "hour": 3600, "hours": 3600,
+	}
+)
+
+// parseDuration reads "5 minutos", "una hora y 30 minutos", "media hora", "an hour and a half",
+// "thirty seconds" into seconds (at most 24 hours) and a spoken form.
+func parseDuration(lang, text string) (secs int, spoken string, ok bool) {
+	f := strings.Fields(text)
+	table := numberWordES
+	half := map[string]bool{"media": true, "medio": true}
+	if lang == langEN {
+		table = numberWordEN
+		half = map[string]bool{"half": true}
+	}
+	i := 0
+	for i < len(f) {
+		w := f[i]
+		switch {
+		case w == "y" || w == "and" || w == "con":
+			i++
+			continue
+		case lang == langEN && w == "a" && i+1 < len(f) && half[f[i+1]] && lastUnit(f[:i]) > 0: // "an hour and a half"
+			i++
+			continue
+		case half[w]: // "media hora", "half an hour", and "y media" after an hour or a minute
+			if lang == langEN && i+2 < len(f)+1 && i+1 < len(f) && (f[i+1] == "an" || f[i+1] == "a") && i+2 < len(f) && unitSeconds[f[i+2]] > 0 {
+				secs += unitSeconds[f[i+2]] / 2
+				i += 3
+				continue
+			}
+			if i+1 < len(f) && unitSeconds[f[i+1]] > 0 {
+				secs += unitSeconds[f[i+1]] / 2
+				i += 2
+				continue
+			}
+			// "una hora y media" / "an hour and a half": half of the unit just read
+			if last := lastUnit(f[:i]); last > 0 {
+				secs += last / 2
+				i++
+				if lang == langEN && i < len(f) && (f[i] == "hour" || f[i] == "minute") { // "a half hour"
+					i++
+				}
+				continue
+			}
+			return 0, "", false
+		}
+		n, used := 0, 0
+		if digitsRe.MatchString(w) && !strings.Contains(w, "dec") {
+			v, err := strconv.Atoi(w)
+			if err != nil || v > 100000 {
+				return 0, "", false
+			}
+			n, used = v, 1
+		} else if v, u, found := wordsNumber(lang, table, f[i:]); found {
+			n, used = v, u
+		} else if (lang == langEN && (w == "a" || w == "an")) && i+1 < len(f) && unitSeconds[f[i+1]] > 0 {
+			n, used = 1, 1
+		} else {
+			return 0, "", false
+		}
+		i += used
+		if i >= len(f) || unitSeconds[f[i]] == 0 {
+			return 0, "", false
+		}
+		secs += n * unitSeconds[f[i]]
+		i++
+	}
+	if secs < 1 || secs > 24*3600 {
+		return 0, "", false
+	}
+	return secs, sayDuration(lang, secs), true
+}
+
+// lastUnit is the length, in seconds, of the last unit word in f ("una hora" -> 3600).
+func lastUnit(f []string) int {
+	for i := len(f) - 1; i >= 0; i-- {
+		if u := unitSeconds[f[i]]; u > 0 {
+			return u
+		}
+	}
+	return 0
+}
+
+// sayDuration words a number of seconds: "1 hora y 30 minutos", "5 minutos", "30 segundos".
+func sayDuration(lang string, secs int) string {
+	h, m, s := secs/3600, secs%3600/60, secs%60
+	names := [3][2]string{{"hora", "horas"}, {"minuto", "minutos"}, {"segundo", "segundos"}}
+	and := " y "
+	if lang == langEN {
+		names = [3][2]string{{"hour", "hours"}, {"minute", "minutes"}, {"second", "seconds"}}
+		and = " and "
+	}
+	var parts []string
+	for i, n := range []int{h, m, s} {
+		if n == 0 {
+			continue
+		}
+		name := names[i][1]
+		if n == 1 {
+			name = names[i][0]
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", n, name))
+	}
+	return strings.Join(parts, and)
+}

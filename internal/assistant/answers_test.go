@@ -122,3 +122,94 @@ func TestQuestionsAreRecognisedInBothLanguages(t *testing.T) {
 		}
 	}
 }
+
+func TestParseDuration(t *testing.T) {
+	for _, c := range []struct {
+		lang, in string
+		secs     int
+		spoken   string
+	}{
+		{langES, "5 minutos", 300, "5 minutos"},
+		{langES, "cinco minutos", 300, "5 minutos"},
+		{langES, "un minuto", 60, "1 minuto"},
+		{langES, "30 segundos", 30, "30 segundos"},
+		{langES, "1 hora y 30 minutos", 5400, "1 hora y 30 minutos"},
+		{langES, "una hora y media", 5400, "1 hora y 30 minutos"},
+		{langES, "media hora", 1800, "30 minutos"},
+		{langES, "dos horas", 7200, "2 horas"},
+		{langES, "veinte minutos", 1200, "20 minutos"},
+		{langEN, "5 minutes", 300, "5 minutes"},
+		{langEN, "thirty seconds", 30, "30 seconds"},
+		{langEN, "an hour and a half", 5400, "1 hour and 30 minutes"},
+		{langEN, "half an hour", 1800, "30 minutes"},
+		{langEN, "one minute", 60, "1 minute"},
+	} {
+		secs, spoken, ok := parseDuration(c.lang, c.in)
+		if !ok || secs != c.secs || spoken != c.spoken {
+			t.Errorf("%s %q -> %d %q %v, want %d %q", c.lang, c.in, secs, spoken, ok, c.secs, c.spoken)
+		}
+	}
+	for _, bad := range []string{"", "mucho", "cinco", "5", "minutos", "100 horas", "0 minutos", "cinco queso"} {
+		if _, _, ok := parseDuration(langES, bad); ok {
+			t.Errorf("%q was taken as a duration", bad)
+		}
+	}
+}
+
+func TestTimersAndEndOfConversationRules(t *testing.T) {
+	for in, want := range map[string]struct {
+		tool   string
+		secs   int
+		silent bool
+	}{
+		"Pon un temporizador de 5 minutos":    {"set_timer", 300, false},
+		"ponme un temporizador de media hora": {"set_timer", 1800, false},
+		"avísame en diez minutos":             {"set_timer", 600, false},
+		"set a timer for 2 minutes":           {"set_timer", 120, false},
+		"timer 30 seconds":                    {"set_timer", 30, false},
+		"cancela el temporizador":             {"cancel_timer", 0, false},
+		"cancel the timers":                   {"cancel_timer", 0, false},
+		"cállate":                             {"stop_audio", 0, true},
+		"silencio":                            {"stop_audio", 0, true},
+		"shut up":                             {"stop_audio", 0, true},
+		"adiós":                               {"", 0, true},
+		"hasta luego":                         {"", 0, true},
+		"gracias":                             {"", 0, true},
+		"bye":                                 {"", 0, true},
+	} {
+		it, args, _, ok := matchIntentAnswer(in)
+		if !ok || it.tool != want.tool || it.silent != want.silent {
+			t.Errorf("%q -> tool=%q silent=%v ok=%v, want %q silent=%v", in, it.tool, it.silent, ok, want.tool, want.silent)
+			continue
+		}
+		if want.secs != 0 && args["seconds"] != want.secs {
+			t.Errorf("%q -> seconds %v, want %d", in, args["seconds"], want.secs)
+		}
+	}
+	for _, in := range []string{"pon un temporizador", "pon un temporizador de mucho", "temporizador de queso"} {
+		if it, _, _, ok := matchIntentAnswer(in); ok {
+			t.Errorf("%q was taken as %q", in, it.tool)
+		}
+	}
+}
+
+func TestGamesUseTheirRandomChoice(t *testing.T) {
+	old := randInt
+	defer func() { randInt = old }()
+	randInt = func(n int) int { return n - 1 } // always the last choice
+	for in, want := range map[string]string{
+		"tira un dado":                  "Ha salido un 6.",
+		"roll a die":                    "It's a 6.",
+		"cara o cruz":                   "Cruz.",
+		"flip a coin":                   "Tails.",
+		"dime un número del 1 al 10":    "El 10.",
+		"pick a number between 5 and 8": "8.",
+	} {
+		if _, _, got, ok := matchIntentAnswer(in); !ok || got != want {
+			t.Errorf("%q -> %q %v, want %q", in, got, ok, want)
+		}
+	}
+	if _, _, _, ok := matchIntentAnswer("dime un número del 9 al 2"); ok {
+		t.Error("an empty range was accepted")
+	}
+}

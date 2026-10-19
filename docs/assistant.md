@@ -61,6 +61,19 @@ música", "pausa", "siguiente", "sube el volumen") work the same way. Anything t
 or an action that is refused (the weather skill is off, Spotify is not connected), goes to the model as
 usual. The rules live in `internal/assistant/intents.go` and the wording in `answers.go`.
 
+The exchange ends there: after a command or a short answer Milo stays silent and does not open the
+microphone again (say the wake word for the next one). **Goodbyes and "be quiet"** ("adiós", "hasta luego",
+"gracias", "cállate", "silencio", "shut up", "bye") end it with no answer at all. Also without the model:
+**timers** ("pon un temporizador de cinco minutos", "set a timer for two minutes", "cancela el temporizador"),
+**a die, a coin or a number** ("tira un dado", "cara o cruz", "dime un número del 1 al 10").
+
+### Why a spoken answer can take a few seconds
+
+Speech-to-text (Groq's Whisper) takes under a second. On a Raspberry Pi 3 the voice is what takes time:
+loading a Piper voice takes about 8 s, so Milo keeps one Piper process loaded per voice (the first phrase
+after a start pays for the load, the next ones take a second or two; it is stopped after 10 idle minutes), and
+keeps phrases it has said before as audio in `tts-cache` under the data directory (at most 300).
+
 ### Choosing a voice
 
 The **Voices** card lists the official Piper voices for a language, each with a demo you can listen to

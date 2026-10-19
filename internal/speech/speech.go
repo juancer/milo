@@ -184,7 +184,8 @@ func (p *Piper) WithOptions(o TTSOptions) *Piper {
 	return p
 }
 
-// Synthesize implements TTS.
+// Synthesize implements TTS. Repeated phrases come from a small disk cache, and a Piper process is
+// kept loaded between phrases (loading the model is most of the time a phrase takes on a Pi 3).
 func (p *Piper) Synthesize(ctx context.Context, text string) ([]byte, error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, errors.New("nothing to say")
@@ -192,6 +193,29 @@ func (p *Piper) Synthesize(ctx context.Context, text string) ([]byte, error) {
 	if len(text) > 4000 {
 		text = text[:4000]
 	}
+	scale := ""
+	if sp := p.opts.speed(); sp != 1 {
+		scale = strconv.FormatFloat(1/sp, 'f', 3, 64) // longer scale = slower speech
+	}
+	if wav, ok := cacheGet(p.model, scale, text); ok {
+		return p.opts.scale(wav), nil
+	}
+	wav, err := piperPool.synthesize(ctx, p.binary, p.model, scale, text)
+	if err != nil {
+		wav, err = p.synthOneShot(ctx, text, scale) // the long-lived process failed: do it the slow way once
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := checkTTSWAV(wav); err != nil {
+		return nil, fmt.Errorf("piper output is not usable audio: %w", err)
+	}
+	cachePut(p.model, scale, text, wav)
+	return p.opts.scale(wav), nil
+}
+
+// synthOneShot runs Piper once for this phrase and returns the raw WAV.
+func (p *Piper) synthOneShot(ctx context.Context, text, scale string) ([]byte, error) {
 	dir, err := os.MkdirTemp("", "milo-tts-")
 	if err != nil {
 		return nil, err
@@ -202,8 +226,8 @@ func (p *Piper) Synthesize(ctx context.Context, text string) ([]byte, error) {
 	cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	args := []string{"--model", p.model, "--output_file", out}
-	if sp := p.opts.speed(); sp != 1 {
-		args = append(args, "--length_scale", strconv.FormatFloat(1/sp, 'f', 3, 64)) // longer scale = slower speech
+	if scale != "" {
+		args = append(args, "--length_scale", scale)
 	}
 	cmd := exec.CommandContext(cctx, p.binary, args...)
 	cmd.Stdin = strings.NewReader(text + "\n")
@@ -222,10 +246,7 @@ func (p *Piper) Synthesize(ctx context.Context, text string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("piper produced no audio: %w", err)
 	}
-	if err := checkTTSWAV(wav); err != nil {
-		return nil, fmt.Errorf("piper output is not usable audio: %w", err)
-	}
-	return p.opts.scale(wav), nil
+	return wav, nil
 }
 
 // MockTTS "speaks" by producing a short tone burst that carries the text, so

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/juancer/milo/internal/voices"
+	"path/filepath"
 	"time"
 
 	"github.com/juancer/milo/internal/assistant"
@@ -108,6 +109,10 @@ func (a *App) VoiceChoices(ctx context.Context) map[string]string {
 
 func (a *App) initAssistant() {
 	a.Voices = &voices.Manager{Dir: a.Cfg.DataDir}
+	if a.Cfg.Hardware != "mock" {
+		// Phrases Milo says often are kept as audio, so the second time costs nothing.
+		speech.SetCacheDir(filepath.Join(a.Cfg.DataDir, "tts-cache"))
+	}
 	a.Notifier = notifications.New(a.Audio, a.Store)
 	a.Assistant = assistant.NewEngine(a.Store, a.Actions, backends{a}, a.Log)
 	a.Assistant.Audio, a.Assistant.Notify = a.Audio, a.Notifier

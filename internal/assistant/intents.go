@@ -3,8 +3,12 @@ package assistant
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"math/rand"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/juancer/milo/internal/actions"
 	"github.com/juancer/milo/internal/audio"
@@ -31,6 +35,10 @@ type intent struct {
 	say func(lang string, args, data map[string]any) (string, bool)
 	// local answers without any action (a sum); the captured text is its input.
 	local func(lang, text string) (string, bool)
+	// valid rejects a match whose captured words turn out not to mean anything (a duration that does not parse).
+	valid func(m []string) bool
+	// silent: nothing is said or played afterwards (goodbye, "be quiet").
+	silent bool
 }
 
 // words used inside several patterns (the text is lower case, without accents or punctuation).
@@ -58,7 +66,7 @@ var intentRules = []intent{
 	// Stopping and skipping.
 	{re: regexp.MustCompile(`^(?:pausa|pausar|pausa la musica|pause|pause the music|pause it)$`),
 		tool: "pause_music", args: func([]string) map[string]any { return map[string]any{} }},
-	{re: regexp.MustCompile(`^(?:para|parar|para la musica|parar la musica|detente|detener|stop|stop the music|stop it|apaga la musica|callate|silencio)$`),
+	{re: regexp.MustCompile(`^(?:para|parar|para la musica|parar la musica|detente|detener|stop|stop the music|stop it|apaga la musica)$`),
 		tool: "stop_music", args: func([]string) map[string]any { return map[string]any{} }},
 	{re: regexp.MustCompile(`^(?:siguiente|siguiente cancion|la siguiente|otra|otra cancion|salta|saltar|salta esta|next|next song|skip|skip this|skip it)$`),
 		tool: "next_song", args: func([]string) map[string]any { return map[string]any{} }},
@@ -100,6 +108,37 @@ var intentRules = []intent{
 		tool: "get_weather", args: func(m []string) map[string]any {
 			return dayArgs(map[bool]string{true: "tomorrow", false: "today"}[m[0] == "tomorrow"], true)(nil)
 		}, lang: langEN, say: sayForecast},
+	// The end of the conversation, said or asked for: silence, no answer, no new question.
+	{re: regexp.MustCompile(`^(?:callate|calla|silencio|cierra la boca|para de hablar|deja de hablar|basta|ya basta|ya esta|apagate|no hables mas)$`),
+		tool: "stop_audio", args: noArgs, lang: langES, silent: true},
+	{re: regexp.MustCompile(`^(?:shut up|be quiet|quiet|silence|stop talking|enough|that s enough|that is enough)$`),
+		tool: "stop_audio", args: noArgs, lang: langEN, silent: true},
+	{re: regexp.MustCompile(`^(?:adios|hasta luego|hasta manana|hasta pronto|chao|chau|nos vemos|buenas noches|me voy|gracias adios|gracias y adios|muchas gracias|gracias|vale gracias|ok gracias)$`),
+		args: noArgs, lang: langES, silent: true, local: func(string, string) (string, bool) { return "", true }},
+	{re: regexp.MustCompile(`^(?:bye|goodbye|good bye|see you|see you later|see you tomorrow|good night|thanks bye|thank you bye|thanks|thank you|thank you very much)$`),
+		args: noArgs, lang: langEN, silent: true, local: func(string, string) (string, bool) { return "", true }},
+	// Timers.
+	{re: regexp.MustCompile(`^(?:pon|ponme|programa|activa|inicia|empieza|crea)(?: un| una| el)? (?:temporizador|cronometro|timer|alarma|cuenta atras)(?: de| para| a| en)? (?P<d>.+)$`),
+		tool: "set_timer", args: timerArgs(langES), lang: langES, valid: durationOK(langES), say: sayTimer},
+	{re: regexp.MustCompile(`^(?:avisame|despiertame|recuerdame)(?: dentro de| en) (?P<d>.+)$`),
+		tool: "set_timer", args: timerArgs(langES), lang: langES, valid: durationOK(langES), say: sayTimer},
+	{re: regexp.MustCompile(`^(?:temporizador|timer|alarma)(?: de| para)? (?P<d>.+)$`),
+		tool: "set_timer", args: timerArgs(langES), lang: langES, valid: durationOK(langES), say: sayTimer},
+	{re: regexp.MustCompile(`^(?:set|start|put|create)(?: a| an| the)? (?:timer|alarm|countdown)(?: for| of)? (?P<d>.+)$`),
+		tool: "set_timer", args: timerArgs(langEN), lang: langEN, valid: durationOK(langEN), say: sayTimer},
+	{re: regexp.MustCompile(`^(?:timer|alarm)(?: for)? (?P<d>.+)$`),
+		tool: "set_timer", args: timerArgs(langEN), lang: langEN, valid: durationOK(langEN), say: sayTimer},
+	{re: regexp.MustCompile(`^(?:cancela|borra|quita|anula|para|apaga)(?: el| los| todos los)? (?:temporizador|temporizadores|timer|timers|alarma|alarmas|cronometro)$`),
+		tool: "cancel_timer", args: noArgs, lang: langES, say: func(lang string, _, _ map[string]any) (string, bool) { return "Temporizadores cancelados.", true }},
+	{re: regexp.MustCompile(`^(?:cancel|stop|delete|clear)(?: the| all| all the)? (?:timer|timers|alarm|alarms)$`),
+		tool: "cancel_timer", args: noArgs, lang: langEN, say: func(lang string, _, _ map[string]any) (string, bool) { return "Timers cancelled.", true }},
+	// Games for the child: nothing to ask a model.
+	{re: regexp.MustCompile(`^(?:tira|lanza|echa)(?: un| el)? dado$`), args: noArgs, lang: langES, local: rollDie},
+	{re: regexp.MustCompile(`^roll(?: a| the)? (?:die|dice)$`), args: noArgs, lang: langEN, local: rollDie},
+	{re: regexp.MustCompile(`^(?:cara o cruz|tira una moneda|lanza una moneda|echa una moneda|echa cara o cruz)$`), args: noArgs, lang: langES, local: flipCoin},
+	{re: regexp.MustCompile(`^(?:flip a coin|toss a coin|heads or tails)$`), args: noArgs, lang: langEN, local: flipCoin},
+	{re: regexp.MustCompile(`^(?:dime|elige|piensa)(?: un)? numero (?:del|de|entre) (?P<a>[0-9]+) (?:al|a|y) (?P<b>[0-9]+)$`), args: noArgs, lang: langES, local: pickNumber},
+	{re: regexp.MustCompile(`^(?:pick|choose|say)(?: me)?(?: a| me a)? number (?:from|between) (?P<a>[0-9]+) (?:to|and) (?P<b>[0-9]+)$`), args: noArgs, lang: langEN, local: pickNumber},
 	{re: regexp.MustCompile(`^(?:cuanto es|cuanto son|cuanto da|cuanto suman|cuanto sale|cuanto vale|calcula|dime cuanto es|dime cuanto son)(?: la suma de| el resultado de)? (?P<e>.+)$`),
 		args: exprArgs, lang: langES, local: answerCalc},
 	{re: regexp.MustCompile(`^(?:how much is|what is|what s|calculate|tell me how much is|whats) (?P<e>.+)$`),
@@ -108,6 +147,69 @@ var intentRules = []intent{
 		args: exprArgs, lang: langES, local: answerCalc},
 	{re: regexp.MustCompile(`^(?P<e>[0-9]+(?:dec[0-9]+)? [a-z ]*?[0-9]+(?:dec[0-9]+)?.*)$`),
 		args: exprArgs, lang: langEN, local: answerCalc},
+}
+
+// randInt picks a number in [0, n); tests replace it.
+var randInt = rand.Intn
+
+func rollDie(lang, _ string) (string, bool) {
+	n := randInt(6) + 1
+	if lang == langEN {
+		return fmt.Sprintf("It's a %d.", n), true
+	}
+	return fmt.Sprintf("Ha salido un %d.", n), true
+}
+
+func flipCoin(lang, _ string) (string, bool) {
+	heads := randInt(2) == 0
+	switch {
+	case lang == langEN && heads:
+		return "Heads.", true
+	case lang == langEN:
+		return "Tails.", true
+	case heads:
+		return "Cara.", true
+	}
+	return "Cruz.", true
+}
+
+func pickNumber(lang, text string) (string, bool) {
+	f := strings.Fields(text)
+	if len(f) != 2 {
+		return "", false
+	}
+	lo, err1 := strconv.Atoi(f[0])
+	hi, err2 := strconv.Atoi(f[1])
+	if err1 != nil || err2 != nil || lo > hi || hi-lo > 1_000_000 {
+		return "", false
+	}
+	n := lo + randInt(hi-lo+1)
+	if lang == langEN {
+		return fmt.Sprintf("%d.", n), true
+	}
+	return fmt.Sprintf("El %d.", n), true
+}
+
+func timerArgs(lang string) func([]string) map[string]any {
+	return func(m []string) map[string]any {
+		secs, _, _ := parseDuration(lang, m[0])
+		return map[string]any{"seconds": secs}
+	}
+}
+
+func durationOK(lang string) func([]string) bool {
+	return func(m []string) bool { _, _, ok := parseDuration(lang, m[0]); return ok }
+}
+
+func sayTimer(lang string, args, _ map[string]any) (string, bool) {
+	secs, ok := args["seconds"].(int)
+	if !ok {
+		return "", false
+	}
+	if lang == langEN {
+		return "Timer for " + sayDuration(lang, secs) + ".", true
+	}
+	return "Temporizador de " + sayDuration(lang, secs) + ".", true
 }
 
 func noArgs([]string) map[string]any { return map[string]any{} }
@@ -188,9 +290,12 @@ func matchIntentAnswer(text string) (it intent, args map[string]any, answer stri
 		if m == nil {
 			continue
 		}
+		if r.valid != nil && !r.valid(m[1:]) {
+			continue
+		}
 		a := r.args(m[1:])
 		if r.local != nil {
-			ans, good := r.local(r.lang, m[1])
+			ans, good := r.local(r.lang, strings.Join(m[1:], " "))
 			if !good {
 				continue // not a sum after all: try the next rule, or leave it to the model
 			}
@@ -232,7 +337,7 @@ func (e *Engine) tryIntent(ctx context.Context, sess *Session, text string) bool
 			}
 		}
 	}
-	e.log.Info("assistant: done without the model", "tool", it.tool, "answer", answer != "")
+	e.log.Info("assistant: done without the model", "tool", it.tool, "answer", answer != "", "silent", it.silent)
 	e.record(ctx, sess, "user", text, "")
 	if it.tool != "" {
 		out, _ := json.Marshal(map[string]any{"ok": true, "result": res.Message})
@@ -241,12 +346,15 @@ func (e *Engine) tryIntent(ctx context.Context, sess *Session, text string) bool
 	switch {
 	case answer != "":
 		e.record(ctx, sess, "assistant", answer, "")
+		t0 := time.Now()
 		e.say(ctx, answer) //nolint:errcheck // say already plays a tone when it cannot speak
+		e.log.Info("assistant: spoke the answer", "speak_ms", time.Since(t0).Milliseconds())
+	case it.silent: // goodbye, "be quiet": nothing more is said or played
 	case it.tool != "set_volume": // set_volume already beeps
 		e.note(ctx, audio.NotifyOK)
 	}
-	if it.music {
-		sess.finished = true // sound is on: do not keep a microphone open over it
-	}
+	// A command or a short answer is the end of the exchange: do not keep the microphone open for
+	// another question (the person says the wake word again if there is one).
+	sess.finished = true
 	return true
 }
