@@ -727,7 +727,7 @@ func (m *Music) RegisterActions(e *actions.Engine) {
 			title, err := m.Play(ctx, c.Args.String("query"))
 			if errors.Is(err, ErrNoMusic) {
 				// Said as it is, so the assistant tells the child the truth instead of guessing.
-				return actions.Result{Message: "There is no music on the device yet: a parent needs to connect Spotify or add songs.", Refused: true}, nil
+				return actions.Result{Message: "There is no music on the device yet: a parent needs to connect Spotify or add songs.", Refused: true, Data: map[string]any{"reason": "no_music"}}, nil
 			}
 			if err != nil {
 				return actions.Result{}, err

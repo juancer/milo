@@ -110,3 +110,46 @@ func TestGoodbyeAndSilenceAreSilent(t *testing.T) {
 		}
 	}
 }
+
+// A long answer is spoken sentence by sentence, in order.
+func TestALongAnswerIsSpokenInOrderBySentences(t *testing.T) {
+	h := newHarness(t)
+	text := "Esta es la primera frase de la respuesta, bastante larga. Esta es la segunda frase de la respuesta, igual de larga. Y esta es la tercera y última frase de la respuesta."
+	before := len(h.app.MockAudio.Played())
+	if err := h.app.Assistant.Speak(h.ctx, text); err != nil {
+		t.Fatal(err)
+	}
+	var said []string
+	for _, p := range h.app.MockAudio.Played()[before:] {
+		if p.Kind == "audio" {
+			said = append(said, p.Label)
+		}
+	}
+	if len(said) < 2 || strings.Join(said, " ") != text {
+		t.Errorf("spoken %q, want the answer in order as several pieces", said)
+	}
+}
+
+// A known reason for refusing is said at once, without the model.
+func TestAKnownRefusalIsSaidWithoutTheModel(t *testing.T) {
+	h := newHarness(t)
+	h.app.MockAudio.SetUtterance("pon musica") // nothing to play on this device: music feature on, folder empty
+	h.app.Store.SetSetting(h.ctx, "music.dir", t.TempDir())
+	h.app.Features.SetEnabled(h.ctx, "music", true)
+	before := len(h.app.MockAudio.Played())
+	if err := h.app.Assistant.RunVoice(h.ctx, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if h.llm.calls() != 0 {
+		t.Fatalf("the model was asked %d times for a refusal Milo knows", h.llm.calls())
+	}
+	said := false
+	for _, p := range h.app.MockAudio.Played()[before:] {
+		if p.Kind == "audio" && strings.Contains(p.Label, "Todavía no hay música") {
+			said = true
+		}
+	}
+	if !said {
+		t.Errorf("the refusal was not spoken: %+v", h.app.MockAudio.Played()[before:])
+	}
+}

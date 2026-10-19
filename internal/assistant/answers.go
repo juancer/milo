@@ -596,3 +596,36 @@ func sayDuration(lang string, secs int) string {
 	}
 	return strings.Join(parts, and)
 }
+
+// ---------------------------------------------------------------- refusals
+
+// sayRefusal words, in the language asked in, why an action could not be done, for the reasons the
+// skills name. Anything else is left to the model to explain.
+func sayRefusal(lang string, data map[string]any) (string, bool) {
+	reason, _ := data["reason"].(string)
+	query, _ := data["query"].(string)
+	es := map[string]string{
+		"voice_control_off":  "El control por voz de Spotify está apagado. Un adulto puede encenderlo en el panel.",
+		"not_connected":      "Spotify todavía no está conectado.",
+		"artist_not_found":   "No he encontrado a " + query + " en Spotify.",
+		"search_unavailable": "Ahora mismo no puedo buscar a " + query + " en Spotify. Inténtalo en un momento.",
+		"no_music":           "Todavía no hay música en el dispositivo.",
+		"no_playlists":       "No encuentro ninguna lista de reproducción en tu Spotify.",
+		"playlist_not_found": "No encuentro una lista que se llame " + query + ".",
+	}
+	en := map[string]string{
+		"voice_control_off":  "Spotify voice control is switched off. A grown-up can turn it on in the panel.",
+		"not_connected":      "Spotify is not connected yet.",
+		"artist_not_found":   "I could not find " + query + " on Spotify.",
+		"search_unavailable": "I cannot look up " + query + " on Spotify right now. Try again in a moment.",
+		"no_music":           "There is no music on the device yet.",
+		"no_playlists":       "I cannot find any playlist on your Spotify.",
+		"playlist_not_found": "I cannot find a playlist called " + query + ".",
+	}
+	table := es
+	if lang == langEN {
+		table = en
+	}
+	msg, ok := table[reason]
+	return msg, ok
+}

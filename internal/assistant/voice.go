@@ -305,9 +305,80 @@ func (e *Engine) Speak(ctx context.Context, text string) error {
 	if err != nil {
 		return err
 	}
-	wav, err := tts.Synthesize(ctx, text)
-	if err != nil {
-		return err
+	chunks := speechChunks(text)
+	if len(chunks) <= 1 {
+		wav, err := tts.Synthesize(ctx, text)
+		if err != nil {
+			return err
+		}
+		return e.Audio.Play(ctx, wav)
 	}
-	return e.Audio.Play(ctx, wav)
+	// A long answer starts with its first sentence while the next one is being made: on a Raspberry Pi
+	// making the voice takes about as long as saying it, so waiting for all of it would double the wait.
+	type piece struct {
+		wav []byte
+		err error
+	}
+	pctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ready := make(chan piece, 1)
+	go func() {
+		defer close(ready)
+		for _, c := range chunks {
+			wav, err := tts.Synthesize(pctx, c)
+			select {
+			case ready <- piece{wav, err}:
+			case <-pctx.Done():
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	for p := range ready {
+		if p.err != nil {
+			return p.err
+		}
+		if err := e.Audio.Play(ctx, p.wav); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// speechChunks cuts an answer into pieces of about a sentence, to be made and spoken one after the
+// other: no piece is shorter than minChunk characters (a short one joins its neighbour) and there are
+// at most maxChunks.
+func speechChunks(text string) []string {
+	const minChunk, maxChunks = 40, 5
+	var sentences []string
+	var cur strings.Builder
+	rs := []rune(strings.TrimSpace(text))
+	for i, r := range rs {
+		cur.WriteRune(r)
+		end := r == '.' || r == '!' || r == '?' || r == '…' || r == '\n'
+		if end && (i+1 == len(rs) || rs[i+1] == ' ' || rs[i+1] == '\n') {
+			if s := strings.TrimSpace(cur.String()); s != "" {
+				sentences = append(sentences, s)
+			}
+			cur.Reset()
+		}
+	}
+	if s := strings.TrimSpace(cur.String()); s != "" {
+		sentences = append(sentences, s)
+	}
+	var chunks []string
+	for _, s := range sentences {
+		if n := len(chunks); n > 0 && (len([]rune(chunks[n-1])) < minChunk || len(chunks) >= maxChunks) {
+			chunks[n-1] += " " + s
+			continue
+		}
+		chunks = append(chunks, s)
+	}
+	if n := len(chunks); n > 1 && len([]rune(chunks[n-1])) < minChunk {
+		chunks[n-2] += " " + chunks[n-1]
+		chunks = chunks[:n-1]
+	}
+	return chunks
 }

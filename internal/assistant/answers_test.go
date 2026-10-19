@@ -275,3 +275,27 @@ func TestStatusAnswers(t *testing.T) {
 	g, ok = sayUptime(langEN, nil, map[string]any{"seconds": 20})
 	check(g, ok, "I have been on for 1 minute.")
 }
+
+func TestSpeechChunksCutLongAnswersIntoSentences(t *testing.T) {
+	got := speechChunks("Hola. Esto es una frase bastante larga para sonar sola. Y esta es otra frase igual de larga que la anterior. Fin.")
+	want := []string{"Hola. Esto es una frase bastante larga para sonar sola.", "Y esta es otra frase igual de larga que la anterior. Fin."}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("chunks = %q, want %q", got, want)
+	}
+	if got := speechChunks("Una frase corta."); len(got) != 1 {
+		t.Errorf("a short answer was cut: %q", got)
+	}
+	long := ""
+	for i := 0; i < 12; i++ {
+		long += "Esta es la frase número uno de la lista que sigue y sigue. "
+	}
+	if got := speechChunks(long); len(got) > 5 {
+		t.Errorf("%d chunks, want at most 5", len(got))
+	}
+	if got := speechChunks("Línea uno que es bastante larga para el test.\nLínea dos que también es larga para el test."); len(got) != 2 {
+		t.Errorf("newlines did not split: %q", got)
+	}
+	if got := speechChunks(""); len(got) != 0 {
+		t.Errorf("empty text gave %q", got)
+	}
+}
