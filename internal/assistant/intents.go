@@ -530,6 +530,18 @@ func (e *Engine) tryIntent(ctx context.Context, sess *Session, text string) bool
 			kind = actions.ActorDevice
 		}
 		res, err = e.actions.Execute(ctx, actions.Actor{Kind: kind}, it.tool, args)
+		if err == nil && res.Refused {
+			// A reason Milo knows is said at once, in one short sentence: the model would take seconds to
+			// say the same thing, and often a lot more.
+			if why, ok := sayRefusal(it.lang, res.Data); ok {
+				e.log.Info("assistant: refused, said without the model", "tool", it.tool, "reason", res.Data["reason"])
+				e.record(ctx, sess, "user", text, "")
+				e.record(ctx, sess, "assistant", why, "")
+				e.say(ctx, why) //nolint:errcheck // say already plays a tone when it cannot speak
+				sess.finished = true
+				return true
+			}
+		}
 		if err != nil || res.Refused {
 			e.log.Info("assistant: command left to the model", "tool", it.tool, "refused", res.Refused, "error", err)
 			return false

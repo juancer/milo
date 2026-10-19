@@ -660,11 +660,11 @@ func (s *Spotify) ResumePlayback(ctx context.Context, actor actions.Actor) (acti
 		return actions.Result{}, false, nil
 	}
 	if msg := s.blocked(ctx, actor); msg != "" {
-		return actions.Result{Message: msg, Refused: true}, true, nil
+		return actions.Result{Message: msg, Refused: true, Data: map[string]any{"reason": "voice_control_off"}}, true, nil
 	}
 	c, err := s.api()
 	if err != nil {
-		return actions.Result{Message: err.Error(), Refused: true}, true, nil
+		return actions.Result{Message: err.Error(), Refused: true, Data: map[string]any{"reason": "not_connected"}}, true, nil
 	}
 	if s.OnPlay != nil {
 		s.OnPlay()
@@ -685,11 +685,11 @@ func (s *Spotify) PlayAnything(ctx context.Context, actor actions.Actor, query s
 		return actions.Result{}, false, nil
 	}
 	if msg := s.blocked(ctx, actor); msg != "" {
-		return actions.Result{Message: msg, Refused: true}, true, nil
+		return actions.Result{Message: msg, Refused: true, Data: map[string]any{"reason": "voice_control_off"}}, true, nil
 	}
 	c, err := s.api()
 	if err != nil {
-		return actions.Result{Message: err.Error(), Refused: true}, true, nil
+		return actions.Result{Message: err.Error(), Refused: true, Data: map[string]any{"reason": "not_connected"}}, true, nil
 	}
 	play := func(uri string, shuffle bool) error {
 		if s.OnPlay != nil {
@@ -718,7 +718,7 @@ func (s *Spotify) PlayAnything(ctx context.Context, actor actions.Actor, query s
 		if base == "" {
 			base = "https://api.spotify.com"
 		}
-		sctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		sctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		token, err := s.searchToken(sctx, c)
 		var name, uri string
 		if err == nil {
@@ -732,14 +732,14 @@ func (s *Spotify) PlayAnything(ctx context.Context, actor actions.Actor, query s
 			}
 			return actions.Result{Message: "Playing music by " + name + ".", Data: map[string]any{"artist": name}}, true, nil
 		case err == nil, errors.Is(err, errSpotifyNoArtist):
-			return actions.Result{Message: fmt.Sprintf("I could not find %q on Spotify.", query), Refused: true}, true, nil
+			return actions.Result{Message: fmt.Sprintf("I could not find %q on Spotify.", query), Refused: true, Data: map[string]any{"reason": "artist_not_found", "query": query}}, true, nil
 		default:
 			s.Log.Info("spotify: artist search failed", "error", err)
-			return actions.Result{Message: fmt.Sprintf("I could not look up %q on Spotify right now; asking for one of the family's playlists by name works.", query), Refused: true}, true, nil
+			return actions.Result{Message: fmt.Sprintf("I could not look up %q on Spotify right now; asking for one of the family's playlists by name works.", query), Refused: true, Data: map[string]any{"reason": "search_unavailable", "query": query}}, true, nil
 		}
 	}
 	if len(lists) == 0 {
-		return actions.Result{Message: "I could not find any playlist on the paired Spotify account. Make one in the Spotify app first.", Refused: true}, true, nil
+		return actions.Result{Message: "I could not find any playlist on the paired Spotify account. Make one in the Spotify app first.", Refused: true, Data: map[string]any{"reason": "no_playlists"}}, true, nil
 	}
 	pick := pickForYou(lists)
 	if err := play(pick.URI, true); err != nil {
@@ -821,11 +821,11 @@ func (s *Spotify) RegisterActions(e *actions.Engine) {
 			Name: name, Description: desc, Feature: "spotify", Exposure: both,
 			Handler: func(ctx context.Context, call actions.Call) (actions.Result, error) {
 				if msg := s.blocked(ctx, call.Actor); msg != "" {
-					return actions.Result{Message: msg, Refused: true}, nil
+					return actions.Result{Message: msg, Refused: true, Data: map[string]any{"reason": "voice_control_off"}}, nil
 				}
 				c, err := s.api()
 				if err != nil {
-					return actions.Result{Message: err.Error(), Refused: true}, nil
+					return actions.Result{Message: err.Error(), Refused: true, Data: map[string]any{"reason": "not_connected"}}, nil
 				}
 				if err := do(ctx, c); err != nil {
 					return actions.Result{}, err
@@ -857,11 +857,11 @@ func (s *Spotify) RegisterActions(e *actions.Engine) {
 		Params: []actions.Param{{Name: "name", Description: "Words from the playlist's name", Type: actions.String, MaxLen: 100, Required: true}},
 		Handler: func(ctx context.Context, call actions.Call) (actions.Result, error) {
 			if msg := s.blocked(ctx, call.Actor); msg != "" {
-				return actions.Result{Message: msg, Refused: true}, nil
+				return actions.Result{Message: msg, Refused: true, Data: map[string]any{"reason": "voice_control_off"}}, nil
 			}
 			c, err := s.api()
 			if err != nil {
-				return actions.Result{Message: err.Error(), Refused: true}, nil
+				return actions.Result{Message: err.Error(), Refused: true, Data: map[string]any{"reason": "not_connected"}}, nil
 			}
 			lists, err := c.Playlists(ctx)
 			if err != nil {
@@ -873,7 +873,7 @@ func (s *Spotify) RegisterActions(e *actions.Engine) {
 			}
 			i, ok := bestWordMatch(names, call.Args.String("name"))
 			if !ok {
-				return actions.Result{Message: fmt.Sprintf("I could not find a playlist called %q.", call.Args.String("name")), Refused: true}, nil
+				return actions.Result{Message: fmt.Sprintf("I could not find a playlist called %q.", call.Args.String("name")), Refused: true, Data: map[string]any{"reason": "playlist_not_found", "query": call.Args.String("name")}}, nil
 			}
 			if s.OnPlay != nil {
 				s.OnPlay() // the local music gives way
