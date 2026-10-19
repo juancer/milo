@@ -1,6 +1,7 @@
 package assistant_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/juancer/milo/internal/assistant"
@@ -33,5 +34,34 @@ func TestUnknownRequestStillGoesToTheModel(t *testing.T) {
 	}
 	if h.llm.calls() != 1 {
 		t.Errorf("the model was asked %d times, want 1", h.llm.calls())
+	}
+}
+
+// A question with a short answer is worded locally, in the language it was asked in, and spoken.
+func TestVoiceQuestionIsAnsweredWithoutTheModel(t *testing.T) {
+	h := newHarness(t)
+	for _, c := range []struct{ asked, want string }{
+		{"¿Qué hora es?", "Son las"},
+		{"¿Cuánto es 4 por 2?", "4 por 2 es 8."},
+		{"What is 3 plus 4", "3 plus 4 is 7."},
+		{"¿Qué día es hoy?", "Hoy es"},
+	} {
+		h.app.MockAudio.SetUtterance(c.asked)
+		before := len(h.app.MockAudio.Played())
+		if err := h.app.Assistant.RunVoice(h.ctx, "test"); err != nil {
+			t.Fatal(err)
+		}
+		if h.llm.calls() != 0 {
+			t.Fatalf("%q reached the model", c.asked)
+		}
+		spoke := false
+		for _, p := range h.app.MockAudio.Played()[before:] {
+			if p.Kind == "audio" && strings.Contains(p.Label, c.want) {
+				spoke = true
+			}
+		}
+		if !spoke {
+			t.Errorf("%q: nothing containing %q was spoken: %+v", c.asked, c.want, h.app.MockAudio.Played()[before:])
+		}
 	}
 }

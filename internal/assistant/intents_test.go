@@ -61,7 +61,7 @@ func TestMatchIntent(t *testing.T) {
 // Anything that is not clearly one of these commands must reach the model.
 func TestMatchIntentLeavesEverythingElseToTheModel(t *testing.T) {
 	for _, text := range []string{
-		"", "hola", "qué tiempo hace", "pon la lavadora", "pon la mesa", "cuéntame un cuento de dragones",
+		"", "hola", "qué tiempo hacía ayer en madrid", "pon la lavadora", "pon la mesa", "cuéntame un cuento de dragones",
 		"no pares de hablar", "stop talking about that", "play with me", "pon música triste y luego cuéntame un chiste",
 		"what is the music of the spheres", "dime una canción de cuna", "volumen", "sube", "pon algo de comer",
 	} {
