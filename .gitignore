@@ -19,3 +19,6 @@ master.key
 
 # Tooling
 graphify-out/
+
+# Package manager stores
+.pnpm-store/
