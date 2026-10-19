@@ -257,7 +257,10 @@ func (a *App) initTelegram(ctx context.Context) error {
 		Actions: a.Actions, Perms: a.Perms, Audit: a.Audit, Log: a.Log, BaseURL: a.Cfg.TelegramAPIURL,
 		Features: a.Features, Schedules: a.Schedules,
 		Speak: a.Assistant.Speak,
+		Ask:   a.Assistant.AskYesNo, Hold: a.Assistant.Hold,
+		Idle: func() bool { return !a.Audio.Busy() && !a.Assistant.Busy() },
 	})
+	a.Assistant.Backlog = a.Telegram.OfferBacklog
 	a.Telegram.SetSchedules(a.Schedules)
 	a.Features.SetFailureHook(a.Telegram.FeatureFailed)
 	a.Telegram.RegisterActions(a.Actions)

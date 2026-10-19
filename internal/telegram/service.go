@@ -51,6 +51,12 @@ type Deps struct {
 	BaseURL string
 	// Speak reads text aloud (text-to-speech). Nil until an assistant is configured.
 	Speak func(ctx context.Context, text string) error
+	// Ask says a question and listens for a yes or no, without the language model. Err is set when it
+	// cannot listen at all. Hold keeps the assistant busy (and music paused) until released; Idle
+	// reports that nothing is being played or said. All three are nil until an assistant exists.
+	Ask  func(ctx context.Context, prompt string) (yes, heard bool, err error)
+	Hold func() (release func())
+	Idle func() bool
 }
 
 // Status is what the admin UI shows.
@@ -97,13 +103,18 @@ type Service struct {
 	emergencyAt      map[int64]time.Time // user id -> last alert
 	urgentUntil      map[int64]time.Time // user id -> follow-up window end
 	urgentLeft       map[int64]int       // user id -> follow-ups still marked urgent
+
+	ann      *announceState
+	annBatch time.Duration // wait for the rest of a burst before announcing; tests shorten it
+	annIdle  time.Duration // idle check interval; tests shorten it
 }
 
 // New creates the (not yet running) service.
 func New(d Deps) *Service {
 	return &Service{Deps: d, replyAt: map[int64]time.Time{}, wake: make(chan struct{}, 1), now: time.Now,
 		started: time.Now(), adminTapAt: map[int64]time.Time{}, quietFeatures: map[string]bool{},
-		emergencyConfirm: map[int64]time.Time{}, emergencyAt: map[int64]time.Time{}, urgentUntil: map[int64]time.Time{}, urgentLeft: map[int64]int{}}
+		emergencyConfirm: map[int64]time.Time{}, emergencyAt: map[int64]time.Time{}, urgentUntil: map[int64]time.Time{}, urgentLeft: map[int64]int{},
+		ann: newAnnounceState()}
 }
 
 // Name implements features.Feature.
@@ -183,6 +194,7 @@ func (s *Service) Start(ctx context.Context) error {
 	s.spawn(func() { s.pollLoop(runCtx, client) })
 	s.spawn(func() { s.outboxLoop(runCtx, client) })
 	s.spawn(func() { s.maintenanceLoop(runCtx) })
+	s.spawn(func() { s.announceLoop(runCtx) })
 	s.Log.Info("telegram started", "bot", me.Username)
 	s.announceStart()
 	return nil
