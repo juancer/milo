@@ -276,12 +276,22 @@ func (e *Engine) sessionAllowed(ctx context.Context) bool {
 // say speaks text; when speech synthesis is not available it plays a tone so
 // the child knows something happened.
 func (e *Engine) say(ctx context.Context, text string) error {
+	e.mu.Lock()
+	e.spoken = text
+	e.mu.Unlock()
 	if err := e.Speak(ctx, text); err != nil && ctx.Err() == nil {
 		e.log.Warn("cannot speak", "error", err)
 		e.note(ctx, audio.NotifyError)
 		return err
 	}
 	return nil
+}
+
+// lastAnswer is what Milo last said aloud ("" if nothing yet).
+func (e *Engine) lastAnswer() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.spoken
 }
 
 // Speak reads text aloud with the configured text-to-speech engine. Telegram

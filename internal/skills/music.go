@@ -340,6 +340,8 @@ type AudioSource interface {
 	// PlayAnything handles "play some music" when this source is the preferred one; handled is false
 	// when it is not and the local music should play instead.
 	PlayAnything(ctx context.Context, actor actions.Actor, query string) (res actions.Result, handled bool, err error)
+	// ResumePlayback carries on what was paused; handled is false when there is nothing to carry on.
+	ResumePlayback(ctx context.Context, actor actions.Actor) (res actions.Result, handled bool, err error)
 	Active() bool
 	Pause(ctx context.Context) error
 	Skip(ctx context.Context, actor actions.Actor) (string, error)
@@ -708,9 +710,16 @@ func (m *Music) RegisterActions(e *actions.Engine) {
 	e.MustRegister(actions.Action{
 		Name: "play_music", Description: "Play some music. This is the tool for any request to play music, a song or a playlist. It plays Spotify when that is connected (a playlist whose name matches the words, otherwise whatever was paused, otherwise a default playlist), and the family's music folder when it is not. Give words from the song or playlist name, or nothing for a surprise. It keeps playing until stopped.",
 		Feature: "music", Exposure: both,
-		Params: []actions.Param{{Name: "query", Description: "Words from the song or folder name, for example frozen", Type: actions.String, MaxLen: 100}},
+		Params: []actions.Param{
+			{Name: "query", Description: "Words from the song, playlist or artist name, for example frozen. Leave empty to start something new.", Type: actions.String, MaxLen: 100},
+			{Name: "resume", Description: "true to carry on what was paused instead of starting something new", Type: actions.Boolean},
+		},
 		Handler: func(ctx context.Context, c actions.Call) (actions.Result, error) {
-			if m.Other != nil {
+			if c.Args.Bool("resume") && m.Other != nil {
+				if res, handled, err := m.Other.ResumePlayback(ctx, c.Actor); handled {
+					return res, err
+				}
+			} else if m.Other != nil {
 				if res, handled, err := m.Other.PlayAnything(ctx, c.Actor, c.Args.String("query")); handled {
 					return res, err
 				}

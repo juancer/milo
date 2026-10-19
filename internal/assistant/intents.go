@@ -39,6 +39,10 @@ type intent struct {
 	valid func(m []string) bool
 	// silent: nothing is said or played afterwards (goodbye, "be quiet").
 	silent bool
+	// device runs the action as the person at the device (not offered to the model) instead of as the assistant.
+	device bool
+	// repeat says again what was said last.
+	repeat bool
 }
 
 // words used inside several patterns (the text is lower case, without accents or punctuation).
@@ -66,8 +70,10 @@ var intentRules = []intent{
 	// Stopping and skipping.
 	{re: regexp.MustCompile(`^(?:pausa|pausar|pausa la musica|pause|pause the music|pause it)$`),
 		tool: "pause_music", args: func([]string) map[string]any { return map[string]any{} }},
-	{re: regexp.MustCompile(`^(?:para|parar|para la musica|parar la musica|detente|detener|stop|stop the music|stop it|apaga la musica)$`),
-		tool: "stop_music", args: func([]string) map[string]any { return map[string]any{} }},
+	{re: regexp.MustCompile(`^(?:apaga|apagate|apaga todo|apagalo|para todo|parar todo|para|parar|detente|detener|alto|para la musica|parar la musica|apaga la musica|quita la musica)$`),
+		tool: "stop_audio", args: noArgs, lang: langES, silent: true},
+	{re: regexp.MustCompile(`^(?:stop|stop everything|stop it|stop the music|turn it off|turn off|switch it off|power off)$`),
+		tool: "stop_audio", args: noArgs, lang: langEN, silent: true},
 	{re: regexp.MustCompile(`^(?:siguiente|siguiente cancion|la siguiente|otra|otra cancion|salta|saltar|salta esta|next|next song|skip|skip this|skip it)$`),
 		tool: "next_song", args: func([]string) map[string]any { return map[string]any{} }},
 	// Volume.
@@ -132,6 +138,45 @@ var intentRules = []intent{
 		tool: "cancel_timer", args: noArgs, lang: langES, say: func(lang string, _, _ map[string]any) (string, bool) { return "Temporizadores cancelados.", true }},
 	{re: regexp.MustCompile(`^(?:cancel|stop|delete|clear)(?: the| all| all the)? (?:timer|timers|alarm|alarms)$`),
 		tool: "cancel_timer", args: noArgs, lang: langEN, say: func(lang string, _, _ map[string]any) (string, bool) { return "Timers cancelled.", true }},
+	// What is happening, and a few questions about the device.
+	{re: regexp.MustCompile(`^(?:que esta sonando|que suena|que cancion es esta|que cancion es|que estoy escuchando|que estas poniendo|que musica es esta)$`),
+		tool: "now_playing", args: noArgs, lang: langES, say: sayNowPlaying},
+	{re: regexp.MustCompile(`^(?:what s playing|what is playing|what song is this|what s this song|what am i listening to)$`),
+		tool: "now_playing", args: noArgs, lang: langEN, say: sayNowPlaying},
+	{re: regexp.MustCompile(`^(?:que volumen tengo|que volumen hay|que volumen tienes|cuanto volumen hay|a que volumen estamos|cual es el volumen)$`),
+		tool: "get_device_status", args: noArgs, lang: langES, say: sayVolume},
+	{re: regexp.MustCompile(`^(?:what s the volume|what is the volume|how loud is it|what volume is it at)$`),
+		tool: "get_device_status", args: noArgs, lang: langEN, say: sayVolume},
+	{re: regexp.MustCompile(`^(?:pon el volumen|pon volumen|volumen|sube el volumen|ponlo|pon la musica)?(?: a| al)? ?(?:maximo|tope|el maximo)$`),
+		tool: "set_volume", args: func([]string) map[string]any { return map[string]any{"level": 100} }, lang: langES},
+	{re: regexp.MustCompile(`^(?:pon el volumen|pon volumen|volumen|baja el volumen|ponlo)(?: a| al)? ?(?:minimo|el minimo|lo minimo)$`),
+		tool: "set_volume", args: func([]string) map[string]any { return map[string]any{"level_10": 1} }, lang: langES},
+	{re: regexp.MustCompile(`^(?:silencia|silenciar|mute|quita el sonido|sin sonido)$`),
+		tool: "set_volume", args: func([]string) map[string]any { return map[string]any{"level": 0} }, lang: langES, silent: true},
+	{re: regexp.MustCompile(`^(?:volume|set the volume|set volume|turn it|put it)?(?: to| up to| at)? ?(?:max|maximum|full|the max|full volume)$`),
+		tool: "set_volume", args: func([]string) map[string]any { return map[string]any{"level": 100} }, lang: langEN},
+	{re: regexp.MustCompile(`^(?:volume|set the volume|set volume|turn it|put it)?(?: to| down to| at)? ?(?:min|minimum|lowest|the minimum)$`),
+		tool: "set_volume", args: func([]string) map[string]any { return map[string]any{"level_10": 1} }, lang: langEN},
+	{re: regexp.MustCompile(`^(?:cuanto tiempo llevas encendido|cuanto llevas encendido|desde cuando estas encendido|cuanto tiempo llevas funcionando)$`),
+		tool: "get_uptime", args: noArgs, lang: langES, device: true, say: sayUptime},
+	{re: regexp.MustCompile(`^(?:how long have you been on|how long have you been running|what s your uptime)$`),
+		tool: "get_uptime", args: noArgs, lang: langEN, device: true, say: sayUptime},
+	{re: regexp.MustCompile(`^(?:que ip tienes|cual es tu ip|dime tu ip|dime la ip|cual es tu direccion)$`),
+		tool: "get_ip", args: noArgs, lang: langES, device: true, say: sayIP},
+	{re: regexp.MustCompile(`^(?:what is your ip|what s your ip|what is your ip address|what s your ip address|tell me your ip|tell me your ip address)$`),
+		tool: "get_ip", args: noArgs, lang: langEN, device: true, say: sayIP},
+	{re: regexp.MustCompile(`^(?:tengo mensajes|hay mensajes|tengo algun mensaje|hay algun mensaje|hay mensajes nuevos|tengo mensajes nuevos|cuantos mensajes tengo|cuantos mensajes hay)$`),
+		tool: "get_pending_messages", args: noArgs, lang: langES, say: sayPending},
+	{re: regexp.MustCompile(`^(?:do i have messages|do i have any messages|any messages|how many messages do i have|do i have new messages)$`),
+		tool: "get_pending_messages", args: noArgs, lang: langEN, say: sayPending},
+	{re: regexp.MustCompile(`^(?:leeme los mensajes|lee los mensajes|lee mis mensajes|reproduce los mensajes|pon los mensajes|dime los mensajes|leeme mis mensajes)$`),
+		tool: "read_messages", args: noArgs, lang: langES, silent: true},
+	{re: regexp.MustCompile(`^(?:play my messages|read my messages|play the messages|read the messages|read me my messages)$`),
+		tool: "read_messages", args: noArgs, lang: langEN, silent: true},
+	{re: regexp.MustCompile(`^(?:repite|repitelo|repite eso|otra vez|dilo otra vez|que has dicho|que dijiste|no te he oido|no te oi)$`),
+		args: noArgs, lang: langES, repeat: true},
+	{re: regexp.MustCompile(`^(?:repeat|repeat that|say that again|say it again|what did you say|again please|once more)$`),
+		args: noArgs, lang: langEN, repeat: true},
 	// Games for the child: nothing to ask a model.
 	{re: regexp.MustCompile(`^(?:tira|lanza|echa)(?: un| el)? dado$`), args: noArgs, lang: langES, local: rollDie},
 	{re: regexp.MustCompile(`^roll(?: a| the)? (?:die|dice)$`), args: noArgs, lang: langEN, local: rollDie},
@@ -147,6 +192,11 @@ var intentRules = []intent{
 		args: exprArgs, lang: langES, local: answerCalc},
 	{re: regexp.MustCompile(`^(?P<e>[0-9]+(?:dec[0-9]+)? [a-z ]*?[0-9]+(?:dec[0-9]+)?.*)$`),
 		args: exprArgs, lang: langEN, local: answerCalc},
+	// The last resort: "pon Camilo" plays that artist. Only a name that cannot be anything else counts
+	// ("pon la mesa" or "pon la tele" do not), and Spotify's answer has to match it (see artistMatches).
+	{re: regexp.MustCompile(`^(?:pon|ponme|pone|reproduce|play|put on|quiero escuchar|i want to hear)(?: me)?(?: a)? (?P<q>[a-z0-9]+(?: [a-z0-9]+){0,3})$`),
+		tool: "play_music", args: func(m []string) map[string]any { return map[string]any{"query": strings.TrimSpace(m[0])} }, music: true,
+		valid: looksLikeAName},
 }
 
 // randInt picks a number in [0, n); tests replace it.
@@ -210,6 +260,154 @@ func sayTimer(lang string, args, _ map[string]any) (string, bool) {
 		return "Timer for " + sayDuration(lang, secs) + ".", true
 	}
 	return "Temporizador de " + sayDuration(lang, secs) + ".", true
+}
+
+func sayNowPlaying(lang string, _, data map[string]any) (string, bool) {
+	playing, _ := data["playing"].(bool)
+	track, _ := data["track"].(string)
+	switch {
+	case playing && track != "" && lang == langEN:
+		return "Playing " + track + ".", true
+	case playing && track != "":
+		return "Suena " + track + ".", true
+	case lang == langEN:
+		return "Nothing is playing.", true
+	}
+	return "No está sonando nada.", true
+}
+
+func intOf(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case float64:
+		return int(n), true
+	}
+	return 0, false
+}
+
+func sayVolume(lang string, _, data map[string]any) (string, bool) {
+	level, ok := intOf(data["volume"])
+	if !ok {
+		return "", false
+	}
+	if lang == langEN {
+		return fmt.Sprintf("The volume is at %d out of 10.", (level+5)/10), true
+	}
+	return fmt.Sprintf("El volumen está en %d de 10.", (level+5)/10), true
+}
+
+func sayUptime(lang string, _, data map[string]any) (string, bool) {
+	secs, ok := intOf(data["seconds"])
+	if !ok || secs < 0 {
+		return "", false
+	}
+	d := ""
+	switch days := secs / 86400; {
+	case days > 0 && lang == langEN:
+		d = fmt.Sprintf("%d day", days)
+		if days > 1 {
+			d += "s"
+		}
+		secs %= 86400
+		if h := sayDuration(lang, secs/3600*3600); secs >= 3600 {
+			d += " and " + h
+		}
+		return "I have been on for " + d + ".", true
+	case days > 0:
+		d = fmt.Sprintf("%d día", days)
+		if days > 1 {
+			d += "s"
+		}
+		secs %= 86400
+		if h := sayDuration(lang, secs/3600*3600); secs >= 3600 {
+			d += " y " + h
+		}
+		return "Llevo encendido " + d + ".", true
+	}
+	if secs < 60 {
+		secs = 60
+	}
+	dur := sayDuration(lang, secs/60*60)
+	if lang == langEN {
+		return "I have been on for " + dur + ".", true
+	}
+	return "Llevo encendido " + dur + ".", true
+}
+
+func sayIP(lang string, _, data map[string]any) (string, bool) {
+	ip, _ := data["ip"].(string)
+	if ip == "" {
+		return "", false
+	}
+	spoken := strings.ReplaceAll(ip, ".", " punto ")
+	if lang == langEN {
+		return "My address is " + strings.ReplaceAll(ip, ".", " dot ") + ".", true
+	}
+	return "Mi dirección es " + spoken + ".", true
+}
+
+func sayPending(lang string, _, data map[string]any) (string, bool) {
+	n, ok := intOf(data["pending"])
+	if !ok {
+		return "", false
+	}
+	urgent, _ := intOf(data["urgent"])
+	var msg string
+	switch {
+	case lang == langEN && n == 0:
+		msg = "You have no new messages."
+	case lang == langEN && n == 1:
+		msg = "You have 1 new message."
+	case lang == langEN:
+		msg = fmt.Sprintf("You have %d new messages.", n)
+	case n == 0:
+		msg = "No tienes mensajes nuevos."
+	case n == 1:
+		msg = "Tienes 1 mensaje nuevo."
+	default:
+		msg = fmt.Sprintf("Tienes %d mensajes nuevos.", n)
+	}
+	if urgent > 0 && lang == langEN {
+		msg += fmt.Sprintf(" %d of them urgent.", urgent)
+	} else if urgent > 0 {
+		msg += fmt.Sprintf(" %d urgentes.", urgent)
+	}
+	return msg, true
+}
+
+// notNames are the first words of requests that are not an artist: determiners and pronouns, words for
+// music itself, and things in the house.
+var notNames = map[string]bool{
+	"el": true, "la": true, "los": true, "las": true, "un": true, "una": true, "unos": true, "unas": true, "mi": true, "mis": true,
+	"tu": true, "tus": true, "su": true, "sus": true, "lo": true, "le": true, "me": true, "te": true, "se": true, "nos": true,
+	"algo": true, "alguna": true, "algun": true, "esto": true, "eso": true, "esa": true, "ese": true, "esta": true, "este": true,
+	"the": true, "a": true, "an": true, "my": true, "your": true, "some": true, "any": true, "something": true, "anything": true,
+	"this": true, "that": true, "it": true,
+	"musica": true, "music": true, "cancion": true, "canciones": true, "song": true, "songs": true, "tema": true, "temas": true,
+	"volumen": true, "volume": true, "luz": true, "luces": true, "tele": true, "television": true, "radio": true, "ventilador": true,
+	"calefaccion": true, "agua": true, "cena": true, "comida": true, "lavadora": true, "mesa": true, "ropa": true,
+	"playlist": true, "lista": true, "alarma": true, "temporizador": true, "timer": true, "dado": true, "dados": true,
+	// words that start a sentence, not a name
+	"with": true, "for": true, "to": true, "in": true, "at": true, "on": true, "up": true, "down": true, "off": true, "back": true,
+	"con": true, "para": true, "por": true, "en": true, "de": true, "del": true, "hasta": true, "ya": true, "ahora": true,
+}
+
+// looksLikeAName reports whether the words after "pon" could be an artist's name.
+func looksLikeAName(m []string) bool {
+	f := strings.Fields(m[0])
+	if len(f) == 0 || notNames[f[0]] || len(m[0]) < 2 || !regexp.MustCompile(`[a-z]`).MatchString(m[0]) {
+		return false
+	}
+	for _, w := range f { // numbers are quantities ("pon cinco"), not part of a name
+		if _, isNumber := numberWordES[w]; isNumber || digitsRe.MatchString(w) {
+			return false
+		}
+		if _, isNumber := numberWordEN[w]; isNumber {
+			return false
+		}
+	}
+	return true
 }
 
 func noArgs([]string) map[string]any { return map[string]any{} }
@@ -321,10 +519,17 @@ func (e *Engine) tryIntent(ctx context.Context, sess *Session, text string) bool
 			}
 		}
 	}
+	if it.repeat {
+		answer = e.lastAnswer()
+	}
 	var res actions.Result
 	if it.tool != "" {
 		var err error
-		res, err = e.actions.Execute(ctx, actions.Actor{Kind: actions.ActorAssistant}, it.tool, args)
+		kind := actions.ActorAssistant
+		if it.device {
+			kind = actions.ActorDevice
+		}
+		res, err = e.actions.Execute(ctx, actions.Actor{Kind: kind}, it.tool, args)
 		if err != nil || res.Refused {
 			e.log.Info("assistant: command left to the model", "tool", it.tool, "refused", res.Refused, "error", err)
 			return false
@@ -349,7 +554,7 @@ func (e *Engine) tryIntent(ctx context.Context, sess *Session, text string) bool
 		t0 := time.Now()
 		e.say(ctx, answer) //nolint:errcheck // say already plays a tone when it cannot speak
 		e.log.Info("assistant: spoke the answer", "speak_ms", time.Since(t0).Milliseconds())
-	case it.silent: // goodbye, "be quiet": nothing more is said or played
+	case it.silent || it.repeat: // goodbye, "be quiet", or nothing to repeat: nothing more is said or played
 	case it.tool != "set_volume": // set_volume already beeps
 		e.note(ctx, audio.NotifyOK)
 	}

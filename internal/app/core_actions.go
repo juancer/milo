@@ -11,6 +11,7 @@ import (
 
 // registerCoreActions registers actions that need no feature.
 func (a *App) registerCoreActions() {
+	a.registerStatusActions()
 	lo, hi := actions.Range(0, 100)
 	dlo, dhi := actions.Range(-100, 100)
 	tlo, thi := actions.Range(0, 10)

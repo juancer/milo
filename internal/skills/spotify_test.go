@@ -3,6 +3,8 @@ package skills
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -87,6 +89,7 @@ func newFakeLibrespot(t *testing.T) *fakeLibrespot {
 	act("next", func(map[string]any) {})
 	act("prev", func(map[string]any) {})
 	act("play", func(map[string]any) { f.paused, f.stopped = false, false })
+	act("shuffle_context", func(map[string]any) {})
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
 	return f
@@ -452,11 +455,11 @@ func TestStartingLocalMusicPausesSpotify(t *testing.T) {
 	waitFor(t, "Spotify to be paused", func() bool { return sr.fake.count("pause") >= 1 })
 }
 
-func TestPlaySomeMusicGoesToSpotifyAndSaysWhyWhenItCannot(t *testing.T) {
+func TestPlaySomeMusicStartsSomethingNewForYouAndSaysWhyWhenItCannot(t *testing.T) {
 	sr := newSpotifyRig(t, false)
+	ctx := context.Background()
 	m := &Music{Common: sr.common, Audio: sr.mock, Dir: t.TempDir(), Other: sr.sp} // an empty music folder
 	m.RegisterActions(sr.eng)
-	ctx := context.Background()
 	if err := m.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -464,24 +467,34 @@ func TestPlaySomeMusicGoesToSpotifyAndSaysWhyWhenItCannot(t *testing.T) {
 	sr.start(t)
 	sr.store.SetSetting(ctx, SettingSpotifyVoice, "1") //nolint:errcheck
 	sr.fake.set(func() {
-		sr.fake.playlists = []spotifyPlaylist{{"spotify:playlist:a", "Bedtime lullabies"}, {"spotify:playlist:b", "Dance Party Mix"}}
+		sr.fake.playlists = []spotifyPlaylist{{"spotify:playlist:a", "Bedtime lullabies"}, {"spotify:playlist:b", "Dance Party Mix"}, {"spotify:playlist:c", "Daily Mix 1"}, {"spotify:playlist:d", "Descubrimiento semanal"}}
 	})
 	waitFor(t, "the receiver to answer", func() bool { return sr.sp.Info(ctx).SignedIn })
-	sr.fake.set(func() { sr.fake.track = "" })
+	// Something is paused on Spotify: "play some music" must still start something new, not carry on.
+	sr.fake.set(func() { sr.fake.paused, sr.fake.stopped, sr.fake.track = true, false, "Old song" })
+	waitFor(t, "the paused song to be seen", func() bool { return sr.sp.Info(ctx).Track != "" })
+	pickRandom = func(n int) int { return n - 1 }
+	defer func() { pickRandom = rand.Intn }()
 
-	// Nothing loaded: "play some music" starts the first playlist.
+	// For you: one of the playlists Spotify makes from your taste, shuffled.
 	res, err := sr.run(actions.ActorAssistant, "play_music", map[string]any{})
-	if err != nil || res.Message != "Playing Bedtime lullabies." || sr.fake.count("play spotify:playlist:a") != 1 {
+	if err != nil || res.Message != "Playing Descubrimiento semanal." || sr.fake.count("play spotify:playlist:d") != 1 || sr.fake.count("shuffle_context") < 1 || sr.fake.count("resume") != 0 {
 		t.Fatalf("play = %q %v calls=%v", res.Message, err, sr.fake.called())
+	}
+	// "sigue" carries on what was paused instead.
+	if res, _ := sr.run(actions.ActorAssistant, "play_music", map[string]any{"resume": true}); res.Message != "Playing." || sr.fake.count("resume") != 1 {
+		t.Fatalf("resume = %+v calls=%v", res, sr.fake.called())
 	}
 	// Words that match a playlist start that one.
 	if res, _ := sr.run(actions.ActorAssistant, "play_music", map[string]any{"query": "dance party"}); res.Message != "Playing Dance Party Mix." {
 		t.Fatalf("matching playlist = %q", res.Message)
 	}
-	// The preferred playlist is configurable.
-	sr.store.SetSetting(ctx, SettingSpotifyDefaultPlaylist, "dance") //nolint:errcheck
+	// Without taste playlists, one of the family's at random.
+	sr.fake.set(func() {
+		sr.fake.playlists = []spotifyPlaylist{{"spotify:playlist:a", "Bedtime lullabies"}, {"spotify:playlist:b", "Dance Party Mix"}}
+	})
 	if res, _ := sr.run(actions.ActorAssistant, "play_music", map[string]any{}); res.Message != "Playing Dance Party Mix." {
-		t.Fatalf("default playlist = %q", res.Message)
+		t.Fatalf("no taste playlists = %q", res.Message)
 	}
 	// Voice control off: the child is told, and nothing local plays instead.
 	sr.store.SetSetting(ctx, SettingSpotifyVoice, "0") //nolint:errcheck
@@ -498,7 +511,41 @@ func TestPlaySomeMusicGoesToSpotifyAndSaysWhyWhenItCannot(t *testing.T) {
 	if len(sr.fake.called()) != before {
 		t.Error("Spotify was used although the source is local")
 	}
-	_ = m
+}
+
+func TestArtistMatches(t *testing.T) {
+	for _, c := range []struct {
+		query, artist string
+		want          bool
+	}{
+		{"camilo", "Camilo", true},
+		{"música de belinda", "Belinda", true},
+		{"belinda", "Belinda Carlisle", true},
+		{"queen", "Queen", true},
+		{"los payasos", "Los Payasos de la Tele", true},
+		{"camilo", "Camila Cabello", false},
+		{"maluma", "Maluma Baby", true},
+		{"shakira", "Karol G", false},
+		{"frozen", "Elsa y Anna", false},
+		{"el kanka", "El Kanka", true},
+		{"", "Camilo", false},
+	} {
+		if got := artistMatches(c.query, c.artist); got != c.want {
+			t.Errorf("artistMatches(%q, %q) = %v, want %v", c.query, c.artist, got, c.want)
+		}
+	}
+}
+
+func TestPickForYouPrefersTheTastePlaylists(t *testing.T) {
+	pickRandom = func(n int) int { return 0 }
+	defer func() { pickRandom = rand.Intn }()
+	lists := []spotifyPlaylist{{"u:1", "Fiesta"}, {"u:2", "Radar de novedades"}, {"u:3", "Mi lista"}}
+	if got := pickForYou(lists); got.URI != "u:2" {
+		t.Errorf("picked %q, want the taste playlist", got.Name)
+	}
+	if got := pickForYou(lists[:1]); got.URI != "u:1" {
+		t.Errorf("picked %q, want the only playlist", got.Name)
+	}
 }
 
 func TestAReceiverThatStopsAnsweringIsRestarted(t *testing.T) {
@@ -564,5 +611,61 @@ func TestPlaySomeMusicByAnArtistSearchesSpotify(t *testing.T) {
 	res, _ = sr.run(actions.ActorAssistant, "play_music", map[string]any{"query": "belinda"})
 	if !res.Refused || !strings.Contains(res.Message, "right now") || len(sr.fake.called()) != before {
 		t.Errorf("rate-limited = %+v calls=%v", res, sr.fake.called())
+	}
+}
+
+func TestArtistSearchUsesTheDeveloperAppWhenOneIsConfigured(t *testing.T) {
+	sr := newSpotifyRig(t, false)
+	ctx := context.Background()
+	var searchAuth, tokenAuth string
+	accounts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenAuth = r.Header.Get("Authorization")
+		if user, pass, ok := r.BasicAuth(); !ok || user != "abcdefghijklmnopqrstuvwxyz012345" || pass != "secretsecretsecretsecret012345" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Write([]byte(`{"access_token":"cc-token","expires_in":3600}`))
+	}))
+	defer accounts.Close()
+	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		searchAuth = r.Header.Get("Authorization")
+		w.Write([]byte(`{"artists":{"items":[{"name":"Camilo","uri":"spotify:artist:cam"}]}}`))
+	}))
+	defer web.Close()
+	sr.sp.WebAPIBase, sr.sp.AccountsBase, sr.sp.Vault = web.URL, accounts.URL, sr.vault
+	sr.start(t)
+	sr.store.SetSetting(ctx, SettingSpotifyVoice, "1") //nolint:errcheck
+	waitFor(t, "the receiver to answer", func() bool { return sr.sp.Info(ctx).SignedIn })
+	m := &Music{Common: sr.common, Audio: sr.mock, Dir: t.TempDir(), Other: sr.sp}
+	m.RegisterActions(sr.eng)
+	if err := m.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(m.Halt)
+
+	// Credentials Spotify refuses are not stored.
+	if err := sr.sp.SetSearchCredentials(ctx, "abcdefghijklmnopqrstuvwxyz012345", "wrongwrongwrongwrongwrong0000"); !errors.Is(err, ErrSpotifyCredentials) {
+		t.Fatalf("wrong secret: %v", err)
+	}
+	if err := sr.sp.SetSearchCredentials(ctx, "short", "x"); !errors.Is(err, ErrSpotifyCredentials) || sr.sp.SearchConfigured(ctx) {
+		t.Fatalf("malformed credentials accepted: %v", err)
+	}
+	// Good ones are checked, stored, and used: the search carries the app's token, not the receiver's.
+	if err := sr.sp.SetSearchCredentials(ctx, "abcdefghijklmnopqrstuvwxyz012345", "secretsecretsecretsecret012345"); err != nil {
+		t.Fatal(err)
+	}
+	if !sr.sp.SearchConfigured(ctx) || !sr.sp.Info(ctx).SearchConfigured || !strings.HasPrefix(tokenAuth, "Basic ") {
+		t.Fatalf("configured=%v auth=%q", sr.sp.SearchConfigured(ctx), tokenAuth)
+	}
+	res, err := sr.run(actions.ActorAssistant, "play_music", map[string]any{"query": "camilo"})
+	if err != nil || res.Message != "Playing music by Camilo." || searchAuth != "Bearer cc-token" {
+		t.Fatalf("res=%q err=%v searchAuth=%q", res.Message, err, searchAuth)
+	}
+	// Removed, the receiver's token is used again.
+	if err := sr.sp.ClearSearchCredentials(ctx); err != nil || sr.sp.SearchConfigured(ctx) {
+		t.Fatalf("clear: %v", err)
+	}
+	if res, _ := sr.run(actions.ActorAssistant, "play_music", map[string]any{"query": "camilo"}); res.Message != "Playing music by Camilo." || searchAuth != "Bearer tok-123" {
+		t.Fatalf("after clearing: res=%q searchAuth=%q", res.Message, searchAuth)
 	}
 }

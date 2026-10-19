@@ -26,7 +26,7 @@ func (a *App) initSkills(ctx context.Context) error {
 		// Music only resumes when there is no speech, alert or conversation going on.
 		Idle: func() bool { return !a.Audio.Busy() && !a.Assistant.Busy() }}
 	idle := func() bool { return !a.Audio.Busy() && !a.Assistant.Busy() }
-	a.Spotify = &skills.Spotify{Common: common, Audio: a.Audio, DataDir: a.Cfg.DataDir, Idle: idle,
+	a.Spotify = &skills.Spotify{Common: common, Audio: a.Audio, DataDir: a.Cfg.DataDir, Idle: idle, Vault: a.Vault,
 		DeviceNameOf: func(ctx context.Context) string {
 			n, _ := a.Store.DeviceName(ctx)
 			return n

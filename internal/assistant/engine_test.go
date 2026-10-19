@@ -586,7 +586,7 @@ func TestStartingMusicEndsTheConversation(t *testing.T) {
 	h.app.Store.SetSetting(h.ctx, "music.dir", dir)
 	h.app.Features.SetEnabled(h.ctx, "music", true)
 	h.llm.replies = []assistant.Message{call("c", "play_music", `{"query":"twinkle"}`), say("Playing it!")}
-	h.app.MockAudio.SetUtterance("play twinkle")
+	h.app.MockAudio.SetUtterance("could you start the twinkle song for me")
 	h.app.Actions.Execute(h.ctx, device(), "gpt", nil)
 	h.waitSpoken("Playing it!")
 	time.Sleep(300 * time.Millisecond)

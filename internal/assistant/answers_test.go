@@ -213,3 +213,65 @@ func TestGamesUseTheirRandomChoice(t *testing.T) {
 		t.Error("an empty range was accepted")
 	}
 }
+
+func TestStatusQuestionsAndStopEverything(t *testing.T) {
+	for in, want := range map[string]struct {
+		tool, lang             string
+		silent, device, repeat bool
+	}{
+		"Apaga":                            {"stop_audio", langES, true, false, false},
+		"apágate":                          {"stop_audio", langES, true, false, false},
+		"para todo":                        {"stop_audio", langES, true, false, false},
+		"stop everything":                  {"stop_audio", langEN, true, false, false},
+		"turn it off":                      {"stop_audio", langEN, true, false, false},
+		"¿Qué está sonando?":               {"now_playing", langES, false, false, false},
+		"what's playing":                   {"now_playing", langEN, false, false, false},
+		"¿Qué volumen tengo?":              {"get_device_status", langES, false, false, false},
+		"what's the volume":                {"get_device_status", langEN, false, false, false},
+		"pon el volumen al máximo":         {"set_volume", langES, false, false, false},
+		"volumen al mínimo":                {"set_volume", langES, false, false, false},
+		"silencia":                         {"set_volume", langES, true, false, false},
+		"set the volume to max":            {"set_volume", langEN, false, false, false},
+		"¿Cuánto tiempo llevas encendido?": {"get_uptime", langES, false, true, false},
+		"what's your uptime":               {"get_uptime", langEN, false, true, false},
+		"¿Qué IP tienes?":                  {"get_ip", langES, false, true, false},
+		"¿Tengo mensajes?":                 {"get_pending_messages", langES, false, false, false},
+		"do I have messages":               {"get_pending_messages", langEN, false, false, false},
+		"léeme los mensajes":               {"read_messages", langES, true, false, false},
+		"play my messages":                 {"read_messages", langEN, true, false, false},
+		"repite":                           {"", langES, false, false, true},
+		"say that again":                   {"", langEN, false, false, true},
+	} {
+		it, _, _, ok := matchIntentAnswer(in)
+		if !ok || it.tool != want.tool || it.lang != want.lang || it.silent != want.silent || it.device != want.device || it.repeat != want.repeat {
+			t.Errorf("%q -> tool=%q lang=%q silent=%v device=%v repeat=%v ok=%v, want %+v", in, it.tool, it.lang, it.silent, it.device, it.repeat, ok, want)
+		}
+	}
+}
+
+func TestStatusAnswers(t *testing.T) {
+	check := func(got string, ok bool, want string) {
+		t.Helper()
+		if !ok || got != want {
+			t.Errorf("got %q (%v), want %q", got, ok, want)
+		}
+	}
+	g, ok := sayNowPlaying(langES, nil, map[string]any{"playing": true, "track": "Hola · Camilo"})
+	check(g, ok, "Suena Hola · Camilo.")
+	g, ok = sayNowPlaying(langEN, nil, map[string]any{"playing": false})
+	check(g, ok, "Nothing is playing.")
+	g, ok = sayVolume(langES, nil, map[string]any{"volume": 70})
+	check(g, ok, "El volumen está en 7 de 10.")
+	g, ok = sayPending(langES, nil, map[string]any{"pending": 3, "urgent": 1})
+	check(g, ok, "Tienes 3 mensajes nuevos. 1 urgentes.")
+	g, ok = sayPending(langEN, nil, map[string]any{"pending": 0, "urgent": 0})
+	check(g, ok, "You have no new messages.")
+	g, ok = sayIP(langES, nil, map[string]any{"ip": "192.168.1.254"})
+	check(g, ok, "Mi dirección es 192 punto 168 punto 1 punto 254.")
+	g, ok = sayUptime(langES, nil, map[string]any{"seconds": 3*86400 + 5*3600 + 100})
+	check(g, ok, "Llevo encendido 3 días y 5 horas.")
+	g, ok = sayUptime(langES, nil, map[string]any{"seconds": 4500})
+	check(g, ok, "Llevo encendido 1 hora y 15 minutos.")
+	g, ok = sayUptime(langEN, nil, map[string]any{"seconds": 20})
+	check(g, ok, "I have been on for 1 minute.")
+}

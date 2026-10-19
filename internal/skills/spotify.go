@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/juancer/milo/internal/secrets"
 	"io"
 	"log/slog"
+	"math/rand"
 	"net"
 	"os"
 	"os/exec"
@@ -28,9 +30,6 @@ const (
 	// SettingMusicSource says where "play some music" comes from: "spotify" (the default, used whenever
 	// Spotify is connected) or "local" (only the family's music folder).
 	SettingMusicSource = "music.source"
-	// SettingSpotifyDefaultPlaylist holds words from the name of the playlist "play some music" starts
-	// when nothing is paused; empty means the account's first playlist.
-	SettingSpotifyDefaultPlaylist = "spotify.default_playlist"
 
 	// DefaultSpotifyBinary is where `milo install` puts the go-librespot release binary.
 	DefaultSpotifyBinary = "/usr/local/bin/go-librespot"
@@ -64,18 +63,25 @@ type Spotify struct {
 	HungAfter time.Duration
 	// WebAPIBase is Spotify's Web API address used to search for artists (tests replace it).
 	WebAPIBase string
+	// AccountsBase is where a developer app's token is requested (https://accounts.spotify.com; tests replace it).
+	AccountsBase string
+	// Vault keeps the optional search credentials.
+	Vault *secrets.Vault
 
 	mu       sync.Mutex
 	killProc context.CancelFunc // stops the receiver process; procLoop then starts a new one
-	procRun  runner
-	pollRun  runner
-	playRun  runner
-	client   *spotifyClient
-	fifo     *os.File
-	snap     spotifySnap
-	pump     context.CancelFunc
-	wake     chan struct{}
-	lastErr  string
+
+	webToken    string // an app-only search token and when it runs out
+	webTokenExp time.Time
+	procRun     runner
+	pollRun     runner
+	playRun     runner
+	client      *spotifyClient
+	fifo        *os.File
+	snap        spotifySnap
+	pump        context.CancelFunc
+	wake        chan struct{}
+	lastErr     string
 }
 
 type spotifySnap struct {
@@ -568,18 +574,89 @@ func (s *Spotify) Skip(ctx context.Context, actor actions.Actor) (string, error)
 	return "Next song.", nil
 }
 
-// PlayAnything is "play some music" when Spotify is the music source. It returns handled=false when
-// Spotify is not the right place to play (switched to local, not running, not paired), so the local
-// music takes over. Otherwise it plays: a playlist whose name matches the words, else whatever was
-// paused, else the default or first playlist. When it cannot, it says why instead of failing.
-func (s *Spotify) PlayAnything(ctx context.Context, actor actions.Actor, query string) (actions.Result, bool, error) {
+// pickRandom picks a number in [0, n); tests replace it.
+var pickRandom = rand.Intn
+
+// tasteMarkers are parts of the names Spotify gives the playlists it makes for each listener from
+// what they play ("Daily Mix 1", "Descubrimiento semanal", "Release Radar"...), compared without
+// accents and in lower case.
+var tasteMarkers = []string{"daily mix", "mix diario", "descubrimiento semanal", "discover weekly", "radar de novedades",
+	"release radar", "on repeat", "en repeticion", "repeat rewind", "your mix", "tu mix", "time capsule", "capsula del tiempo"}
+
+var accentFold = strings.NewReplacer("á", "a", "à", "a", "ä", "a", "é", "e", "è", "e", "ë", "e", "í", "i", "ï", "i",
+	"ó", "o", "ò", "o", "ö", "o", "ú", "u", "ü", "u", "ñ", "n", "ç", "c")
+
+func fold(s string) string { return accentFold.Replace(strings.ToLower(s)) }
+
+// pickForYou chooses what "play some music" starts: one of the playlists Spotify makes from the
+// listener's taste if the account has any, otherwise one of the family's playlists, at random.
+func pickForYou(lists []spotifyPlaylist) spotifyPlaylist {
+	var taste []spotifyPlaylist
+	for _, l := range lists {
+		name := fold(l.Name)
+		for _, m := range tasteMarkers {
+			if strings.Contains(name, m) {
+				taste = append(taste, l)
+				break
+			}
+		}
+	}
+	if len(taste) > 0 {
+		lists = taste
+	}
+	return lists[pickRandom(len(lists))]
+}
+
+// artistMatches reports whether a search result is the artist that was asked for: every word asked
+// is in the artist's name, or the artist's whole name is within what was asked. Spotify always
+// returns something, and "pon la mesa" must not start a band that happens to sound like it.
+func artistMatches(query, artist string) bool {
+	q, a := strings.Fields(fold(strings.Join(words(query), " "))), strings.Fields(fold(artist))
+	if len(q) == 0 || len(a) == 0 {
+		return false
+	}
+	in := func(w string, set []string) bool {
+		for _, x := range set {
+			if x == w {
+				return true
+			}
+		}
+		return false
+	}
+	all := true
+	for _, w := range q {
+		if !in(w, a) {
+			all = false
+			break
+		}
+	}
+	if all {
+		return true
+	}
+	for _, w := range a {
+		if !in(w, q) {
+			return false
+		}
+	}
+	return true
+}
+
+// preferred reports whether Spotify is where music comes from right now: not switched to the local
+// folder, running and paired.
+func (s *Spotify) preferred(ctx context.Context) (loaded, ok bool) {
 	if s.setting(ctx, SettingMusicSource, "spotify") == "local" {
-		return actions.Result{}, false, nil
+		return false, false
 	}
 	s.mu.Lock()
-	up, signedIn, loaded := s.snap.up, s.snap.signedIn, s.snap.st.Track != nil
-	s.mu.Unlock()
-	if !up || !signedIn {
+	defer s.mu.Unlock()
+	return s.snap.st.Track != nil, s.snap.up && s.snap.signedIn
+}
+
+// ResumePlayback carries on what was paused ("sigue"). handled is false when there is nothing
+// paused on Spotify, so the local music can carry on instead.
+func (s *Spotify) ResumePlayback(ctx context.Context, actor actions.Actor) (actions.Result, bool, error) {
+	loaded, ok := s.preferred(ctx)
+	if !ok || !loaded {
 		return actions.Result{}, false, nil
 	}
 	if msg := s.blocked(ctx, actor); msg != "" {
@@ -589,10 +666,36 @@ func (s *Spotify) PlayAnything(ctx context.Context, actor actions.Actor, query s
 	if err != nil {
 		return actions.Result{Message: err.Error(), Refused: true}, true, nil
 	}
-	play := func(uri string) error {
+	if s.OnPlay != nil {
+		s.OnPlay()
+	}
+	if err := c.Resume(ctx); err != nil {
+		return actions.Result{}, true, err
+	}
+	return actions.Result{Message: "Playing."}, true, nil
+}
+
+// PlayAnything is "play some music" when Spotify is the music source. It returns handled=false when
+// Spotify is not the right place to play (switched to local, not running, not paired), so the local
+// music takes over. Asked for something, it plays a playlist whose name matches, else the artist.
+// Asked for nothing in particular, it starts something new, shuffled and aimed at the listener's
+// taste, and never just carries on what was playing before (that is ResumePlayback).
+func (s *Spotify) PlayAnything(ctx context.Context, actor actions.Actor, query string) (actions.Result, bool, error) {
+	if _, ok := s.preferred(ctx); !ok {
+		return actions.Result{}, false, nil
+	}
+	if msg := s.blocked(ctx, actor); msg != "" {
+		return actions.Result{Message: msg, Refused: true}, true, nil
+	}
+	c, err := s.api()
+	if err != nil {
+		return actions.Result{Message: err.Error(), Refused: true}, true, nil
+	}
+	play := func(uri string, shuffle bool) error {
 		if s.OnPlay != nil {
 			s.OnPlay() // the local music gives way
 		}
+		c.ShuffleContext(ctx, shuffle) //nolint:errcheck // playing matters more than the order
 		return c.Play(ctx, uri)
 	}
 	lists, err := c.Playlists(ctx)
@@ -604,52 +707,45 @@ func (s *Spotify) PlayAnything(ctx context.Context, actor actions.Actor, query s
 		names[i] = l.Name
 	}
 	if i, ok := bestWordMatch(names, query); ok {
-		if err := play(lists[i].URI); err != nil {
+		if err := play(lists[i].URI, false); err != nil {
 			return actions.Result{}, true, err
 		}
 		return actions.Result{Message: "Playing " + lists[i].Name + ".", Data: map[string]any{"playlist": lists[i].Name}}, true, nil
 	}
-	// Words that are not a playlist are an artist ("música de Belinda"): search for them.
+	// Words that are not a playlist are an artist ("música de Belinda", "Camilo"): search for them.
 	if len(words(query)) > 0 {
 		base := s.WebAPIBase
 		if base == "" {
 			base = "https://api.spotify.com"
 		}
 		sctx, cancel := context.WithTimeout(ctx, 8*time.Second)
-		name, uri, err := c.searchArtist(sctx, base, strings.Join(words(query), " "))
+		token, err := s.searchToken(sctx, c)
+		var name, uri string
+		if err == nil {
+			name, uri, err = c.searchArtist(sctx, base, token, strings.Join(words(query), " "))
+		}
 		cancel()
 		switch {
-		case err == nil:
-			if err := play(uri); err != nil {
+		case err == nil && artistMatches(query, name):
+			if err := play(uri, false); err != nil {
 				return actions.Result{}, true, err
 			}
 			return actions.Result{Message: "Playing music by " + name + ".", Data: map[string]any{"artist": name}}, true, nil
-		case errors.Is(err, errSpotifyNoArtist):
+		case err == nil, errors.Is(err, errSpotifyNoArtist):
 			return actions.Result{Message: fmt.Sprintf("I could not find %q on Spotify.", query), Refused: true}, true, nil
 		default:
 			s.Log.Info("spotify: artist search failed", "error", err)
 			return actions.Result{Message: fmt.Sprintf("I could not look up %q on Spotify right now; asking for one of the family's playlists by name works.", query), Refused: true}, true, nil
 		}
 	}
-	if loaded {
-		if s.OnPlay != nil {
-			s.OnPlay()
-		}
-		if err := c.Resume(ctx); err == nil {
-			return actions.Result{Message: "Playing."}, true, nil
-		}
-	}
 	if len(lists) == 0 {
 		return actions.Result{Message: "I could not find any playlist on the paired Spotify account. Make one in the Spotify app first.", Refused: true}, true, nil
 	}
-	pick := 0
-	if i, ok := bestWordMatch(names, s.setting(ctx, SettingSpotifyDefaultPlaylist, "")); ok {
-		pick = i
-	}
-	if err := play(lists[pick].URI); err != nil {
+	pick := pickForYou(lists)
+	if err := play(pick.URI, true); err != nil {
 		return actions.Result{}, true, err
 	}
-	return actions.Result{Message: "Playing " + lists[pick].Name + ".", Data: map[string]any{"playlist": lists[pick].Name}}, true, nil
+	return actions.Result{Message: "Playing " + pick.Name + ".", Data: map[string]any{"playlist": pick.Name}}, true, nil
 }
 
 // YieldToLocal pauses Spotify because the local music is about to play.
@@ -688,13 +784,15 @@ type SpotifyInfo struct {
 	Track        string          `json:"track,omitempty"`
 	Pairing      *SpotifyPairing `json:"pairing,omitempty"`
 	VoiceControl bool            `json:"voice_control"`
-	Error        string          `json:"error,omitempty"`
+	// SearchConfigured is true when the owner gave the credentials of a Spotify developer app for artist search.
+	SearchConfigured bool   `json:"search_configured"`
+	Error            string `json:"error,omitempty"`
 }
 
 // Info reports the receiver's state.
 func (s *Spotify) Info(ctx context.Context) SpotifyInfo {
 	bin := s.binary(ctx)
-	info := SpotifyInfo{Binary: bin, BinaryFound: binaryOK(bin), DeviceName: s.deviceName(ctx), VoiceControl: s.voiceControl(ctx)}
+	info := SpotifyInfo{Binary: bin, BinaryFound: binaryOK(bin), DeviceName: s.deviceName(ctx), VoiceControl: s.voiceControl(ctx), SearchConfigured: s.SearchConfigured(ctx)}
 	s.mu.Lock()
 	snap, c, lastErr := s.snap, s.client, s.lastErr
 	s.mu.Unlock()

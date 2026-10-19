@@ -41,8 +41,8 @@ func TestMatchIntent(t *testing.T) {
 		"pon la playlist de dormir":          {"spotify_play_playlist", map[string]any{"name": "dormir"}},
 		"play my playlist bedtime":           {"spotify_play_playlist", map[string]any{"name": "bedtime"}},
 		"pausa":                              {"pause_music", none},
-		"para":                               {"stop_music", none},
-		"stop the music":                     {"stop_music", none},
+		"para":                               {"stop_audio", none},
+		"stop the music":                     {"stop_audio", none},
 		"siguiente canción":                  {"next_song", none},
 		"skip":                               {"next_song", none},
 		"sube el volumen":                    {"set_volume", map[string]any{"change": 10}},
@@ -63,10 +63,36 @@ func TestMatchIntentLeavesEverythingElseToTheModel(t *testing.T) {
 	for _, text := range []string{
 		"", "hola", "qué tiempo hacía ayer en madrid", "pon la lavadora", "pon la mesa", "cuéntame un cuento de dragones",
 		"no pares de hablar", "stop talking about that", "play with me", "pon música triste y luego cuéntame un chiste",
-		"what is the music of the spheres", "dime una canción de cuna", "volumen", "sube", "pon algo de comer",
+		"what is the music of the spheres", "dime una canción de cuna", "volumen", "sube", "pon algo de comer", "pon la mesa", "pon la tele", "pon el ventilador", "pon la lavadora ya", "pon cinco",
 	} {
 		if it, args, ok := matchIntent(text); ok {
 			t.Errorf("%q was taken as %q %v", text, it.tool, args)
+		}
+	}
+}
+
+func TestBareArtistNamesPlayThatArtist(t *testing.T) {
+	for in, q := range map[string]string{
+		"pon Camilo":           "camilo",
+		"ponme a Belinda":      "belinda",
+		"pon a Shakira":        "shakira",
+		"Hey Milo, pon Maluma": "maluma",
+		"play Queen":           "queen",
+	} {
+		_ = q
+		it, args, ok := matchIntent(in)
+		if !ok || it.tool != "play_music" {
+			t.Errorf("%q -> %q %v, want play_music", in, it.tool, ok)
+			continue
+		}
+		if args["query"] == "" || args["query"] == nil {
+			t.Errorf("%q gave no artist", in)
+		}
+	}
+	// Not names, or other rules first.
+	for in, tool := range map[string]string{"pon música": "play_music", "pon el volumen al máximo": "set_volume", "pon la playlist de dormir": "spotify_play_playlist", "pon un temporizador de 5 minutos": "set_timer"} {
+		if it, _, ok := matchIntent(in); !ok || it.tool != tool {
+			t.Errorf("%q -> %q %v, want %q", in, it.tool, ok, tool)
 		}
 	}
 }

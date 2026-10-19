@@ -70,6 +70,7 @@ type Engine struct {
 	AlertParents func(ctx context.Context, quote string)
 
 	mu        sync.Mutex
+	spoken    string      // the last thing said aloud, for "repeat that"
 	turns     []time.Time // recent turns, for the hourly limit
 	running   bool
 	runCtx    context.Context
