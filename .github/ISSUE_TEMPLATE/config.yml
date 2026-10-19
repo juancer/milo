@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Commercial use or licensing
+    url: https://github.com/juancer/milo/issues/new?title=Commercial+use+request
+    about: The license is noncommercial. Ask here before using Milo in a product or service.

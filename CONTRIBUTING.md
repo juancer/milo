@@ -1,11 +1,21 @@
 # Contributing to Milo
 
-Milo is open source under Apache-2.0. You are free to use, modify and fork it.
+Milo is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE): free for
+personal, family, hobby and educational use; commercial use needs the author's permission
+(open an issue at https://github.com/juancer/milo).
 
-**Please notify the project when you improve or fork it.** The easiest way is to open a
-pull request (preferred) or an issue at https://github.com/juancer/milo describing what you
-changed. This is a polite request that keeps the community informed; it is not a condition
-of the license, and you must keep the `LICENSE` and `NOTICE` files intact.
+## How changes get in
+
+`main` is protected: nobody pushes to it directly, not even the author. Every change is a pull request.
+
+1. Fork the repo (or branch, if you have access) and make your change.
+2. Run `make test`. The same check runs on the pull request and must pass.
+3. Open a pull request that says what changed and why, and how you tested it (which Pi, if hardware is involved).
+4. The author reviews it. Merged branches are deleted automatically.
+
+By sending a pull request you confirm that you wrote the change (or may share it) and agree that
+it is distributed under this project's license. Forks are welcome under the license terms; please
+keep the `LICENSE` and `NOTICE` files, and tell the project about improvements by opening a pull request or issue.
 
 ## Ground rules
 

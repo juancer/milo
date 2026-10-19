@@ -1,8 +1,9 @@
 Milo
-Copyright 2026 Milo contributors (original author: juancer, https://github.com/juancer/milo)
+Required Notice: Copyright 2026 juancer (https://github.com/juancer/milo)
 
-Licensed under the Apache License, Version 2.0. Redistributions must retain this
-NOTICE file (Apache-2.0, section 4d).
+Milo is source-available under the PolyForm Noncommercial License 1.0.0 (see LICENSE).
+Personal, family, hobby, educational and other noncommercial use is free. Any commercial
+use needs the author's written permission: open an issue at https://github.com/juancer/milo.
 
-Please tell the original project about improvements and forks by opening an issue or
-pull request at https://github.com/juancer/milo. This is a request, not a license term.
+Third-party software keeps its own license. In particular go-librespot (GPL-3.0) is downloaded
+by `milo install` as a separate program and is not part of this repository.
