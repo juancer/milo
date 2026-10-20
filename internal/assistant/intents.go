@@ -67,6 +67,17 @@ var intentRules = []intent{
 	// Music by someone ("pon musica de belinda", "play songs by queen", "pon algo de frozen").
 	{re: regexp.MustCompile(`^` + verbPlay + `(?: me)? (?:(?:un poco de |algo de |alguna |una )?(?:la |las |el |los )?` + musicWord + `|something|some music) (?:de la |de los |de las |del |de |by |from |of )(?P<q>[a-z0-9 ]{2,60})$`),
 		tool: "play_music", args: func(m []string) map[string]any { return map[string]any{"query": strings.TrimSpace(m[0])} }, music: true},
+	// "No escuches": the wake word is switched off until a button is held.
+	{re: regexp.MustCompile(`^(?:milo )?(?:no escuches|no me escuches|no escuches mas|deja de escuchar|dejar de escuchar|para de escuchar|no sigas escuchando|silencia el microfono|apaga el microfono|desactiva el microfono)$`),
+		tool: "listening_off", args: noArgs, lang: langES,
+		say: func(string, map[string]any, map[string]any) (string, bool) {
+			return "Vale, dejo de escuchar. Para activarme otra vez, mantén pulsado el botón de hablar.", true
+		}},
+	{re: regexp.MustCompile(`^(?:milo )?(?:stop listening|do not listen|do not listen to me|dont listen|don t listen|do not listen anymore|mute the microphone|mute your microphone|turn off the microphone)$`),
+		tool: "listening_off", args: noArgs, lang: langEN,
+		say: func(string, map[string]any, map[string]any) (string, bool) {
+			return "Okay, I stop listening. To wake me up again, hold the talk button.", true
+		}},
 	// Stopping and skipping.
 	{re: regexp.MustCompile(`^(?:pausa|pausar|pausa la musica|pause|pause the music|pause it)$`),
 		tool: "pause_music", args: func([]string) map[string]any { return map[string]any{} }},

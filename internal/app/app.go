@@ -277,5 +277,6 @@ func (a *App) initTelegram(ctx context.Context) error {
 	if err := a.Features.Register(ctx, a.Wake); err != nil {
 		return err
 	}
+	a.registerListeningActions()
 	return a.initSkills(ctx)
 }

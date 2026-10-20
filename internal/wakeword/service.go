@@ -8,6 +8,7 @@ import (
 	"math"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/juancer/milo/internal/actions"
@@ -56,6 +57,7 @@ type Status struct {
 	Running       bool      `json:"running"`
 	Engine        string    `json:"engine"`
 	Threshold     float64   `json:"threshold"`
+	Muted         bool      `json:"muted"`
 	LastDetection time.Time `json:"last_detection,omitempty"`
 	Scores        []Score   `json:"scores"`
 }
@@ -76,10 +78,46 @@ type Service struct {
 	scores   []Score
 	lastFire time.Time
 	now      func() time.Time
+
+	muted        atomic.Bool        // "no escuches": the microphone is not opened for the wake word
+	mutedChanged chan struct{}      // wakes the loop when muted changes
+	listenCancel context.CancelFunc // ends the current listening when it is muted
 }
 
 // New returns the (not yet running) service.
-func New(d Deps) *Service { return &Service{Deps: d, now: time.Now} }
+func New(d Deps) *Service {
+	return &Service{Deps: d, now: time.Now, mutedChanged: make(chan struct{}, 1)}
+}
+
+// SettingMuted keeps "hey milo, no escuches" across restarts: while it is "1" the wake word is off
+// and the microphone is not opened for it. Buttons and the Telegram channel keep working.
+const SettingMuted = "wakeword.muted"
+
+// Muted reports whether the wake word is switched off by "no escuches".
+func (s *Service) Muted() bool { return s.muted.Load() }
+
+// SetMuted switches the wake word listening off or on. It is remembered across restarts.
+func (s *Service) SetMuted(ctx context.Context, on bool) error {
+	v := ""
+	if on {
+		v = "1"
+	}
+	if err := s.Store.SetSetting(ctx, SettingMuted, v); err != nil {
+		return err
+	}
+	s.muted.Store(on)
+	s.mu.Lock()
+	cancel := s.listenCancel
+	s.mu.Unlock()
+	if on && cancel != nil {
+		cancel() // the microphone is released at once
+	}
+	select {
+	case s.mutedChanged <- struct{}{}:
+	default:
+	}
+	return nil
+}
 
 // Name implements features.Feature.
 func (s *Service) Name() string { return FeatureName }
@@ -152,6 +190,7 @@ func (s *Service) Start(ctx context.Context) error {
 		return err
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
+	s.muted.Store(s.setting(ctx, SettingMuted, "") == "1")
 	s.mu.Lock()
 	s.det, s.engine, s.cancel, s.running = det, engine, cancel, true
 	s.mu.Unlock()
@@ -220,7 +259,23 @@ func (s *Service) loop(ctx context.Context) {
 				ext.Close()
 			}
 		}
-		err := s.Audio.Listen(ctx, func(pcm []byte) {
+		for s.muted.Load() { // "no escuches": nothing listens until it is switched on again
+			select {
+			case <-ctx.Done():
+				return
+			case <-s.mutedChanged:
+			case <-time.After(5 * time.Second):
+			}
+		}
+		lctx, lcancel := context.WithCancel(ctx)
+		s.mu.Lock()
+		s.listenCancel = lcancel
+		s.mu.Unlock()
+		if s.muted.Load() { // muted between the check and the line above
+			lcancel()
+			continue
+		}
+		err := s.Audio.Listen(lctx, func(pcm []byte) {
 			defer s.recoverPanic("wake word detector")
 			if !s.scheduleOpen(ctx) {
 				return // outside the wakeword usage schedule: the detector idles
@@ -229,8 +284,12 @@ func (s *Service) loop(ctx context.Context) {
 				s.fire(ctx)
 			}
 		})
+		lcancel()
 		if ctx.Err() != nil {
 			return
+		}
+		if s.muted.Load() {
+			continue // it was muted, not a failure
 		}
 		if err != nil {
 			s.Log.Warn("wake word cannot listen; will retry", "error", err, "retry_in", backoff)
@@ -307,7 +366,7 @@ func (s *Service) Status(ctx context.Context) Status {
 	sens, _ := strconv.Atoi(s.setting(ctx, SettingSensitivity, "5"))
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	st := Status{Running: s.running, Engine: s.engine, Threshold: ThresholdFor(sens),
+	st := Status{Running: s.running, Engine: s.engine, Threshold: ThresholdFor(sens), Muted: s.muted.Load(),
 		LastDetection: s.lastFire, Scores: append([]Score{}, s.scores...)}
 	return st
 }

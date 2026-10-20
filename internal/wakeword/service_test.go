@@ -302,3 +302,50 @@ func TestAPanicWhileListeningIsContained(t *testing.T) {
 		t.Fatal("the loop stopped after a panic")
 	}
 }
+
+func TestMutingReleasesTheMicrophoneAndUnmutingListensAgain(t *testing.T) {
+	r := newRig(t, false)
+	r.enrollSynthetic(t)
+	r.start(t)
+	ctx := context.Background()
+	if err := r.svc.SetMuted(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	waitListening := func(want bool) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for r.audio.Listening() != want {
+			if time.Now().After(deadline) {
+				t.Fatalf("listening = %v, want %v", r.audio.Listening(), want)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	waitListening(false)
+	if !r.svc.Status(ctx).Muted {
+		t.Fatal("status does not say muted")
+	}
+	if err := r.svc.SetMuted(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	waitListening(true)
+	if r.svc.Status(ctx).Muted {
+		t.Fatal("still muted")
+	}
+}
+
+func TestMutedStaysMutedAfterARestart(t *testing.T) {
+	r := newRig(t, false)
+	r.enrollSynthetic(t)
+	if err := r.svc.SetMuted(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.svc.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { r.svc.Stop(context.Background()) })
+	time.Sleep(100 * time.Millisecond)
+	if r.audio.Listening() || !r.svc.Muted() {
+		t.Fatal("a restarted Milo listens although it was told not to")
+	}
+}
