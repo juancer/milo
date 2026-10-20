@@ -13,6 +13,7 @@ import (
 func (s *server) wakeRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/wakeword", s.requireAuth(s.getWake))
 	mux.Handle("PUT /api/wakeword", s.requireAuth(s.putWake))
+	mux.Handle("PUT /api/wakeword/muted", s.requireAuth(s.putWakeMuted))
 	mux.Handle("POST /api/wakeword/samples", s.requireAuth(s.enrollWake))
 	mux.Handle("DELETE /api/wakeword/samples/{id}", s.requireAuth(s.deleteWakeSample))
 	if s.app.MockGPIO != nil {
@@ -93,6 +94,22 @@ func (s *server) putWake(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "wakeword.settings_updated", d.Engine, nil)
 	s.restartFeature(ctx, wakeword.FeatureName)
+	s.getWake(w, r)
+}
+
+// putWakeMuted is the panel's way of "no escuches" and of bringing the wake word back.
+func (s *server) putWakeMuted(w http.ResponseWriter, r *http.Request) {
+	var d struct {
+		Muted bool `json:"muted"`
+	}
+	if !decodeJSON(w, r, &d) {
+		return
+	}
+	if err := s.app.Wake.SetMuted(r.Context(), d.Muted); err != nil {
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
+		return
+	}
+	s.audit(r, "wakeword.muted", strconv.FormatBool(d.Muted), nil)
 	s.getWake(w, r)
 }
 

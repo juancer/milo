@@ -7,7 +7,7 @@ import { confirmTwice, guard, toast } from "../ui";
 interface State {
   settings: { engine: string; phrase: string; sensitivity: number; external_path: string };
   feature: { enabled: boolean; running: boolean; last_error?: string };
-  status: { running: boolean; engine: string; threshold: number; last_detection?: string; scores: { at: string; distance: number }[] };
+  status: { running: boolean; engine: string; threshold: number; muted: boolean; last_detection?: string; scores: { at: string; distance: number }[] };
   samples: { id: number; frames: number; created_at: string }[];
   max_samples: number;
   simulated: boolean;
@@ -37,6 +37,14 @@ export async function render(root: HTMLElement): Promise<void> {
     h("p", {}, !st.feature.enabled ? badge(t("common.featureOff"), true) : st.feature.running ? badge(t("wakeword.listening")) : badge(t("common.notRunning"), true), " ",
       st.feature.enabled ? null : h("span", { class: "muted" }, t("wakeword.turnOn")),
       st.feature.last_error ? h("span", { class: "error" }, ` ${st.feature.last_error}`) : null),
+    st.status.muted ? h("p", {}, badge(t("wakeword.muted"), true), " ", h("span", { class: "muted" }, t("wakeword.mutedHelp"))) : null,
+    actions(button(st.status.muted ? t("wakeword.unmute") : t("wakeword.mute"), {
+      variant: st.status.muted ? "primary" : "secondary",
+      onclick: async () => {
+        await guard(() => api("PUT", "/api/wakeword/muted", { muted: !st.status.muted }));
+        await refresh();
+      },
+    })),
     note(t("wakeword.intro")),
     note(t("wakeword.musicHint")),
     st.simulated ? note(t("wakeword.simulated")) : null));
