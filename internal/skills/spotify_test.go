@@ -584,9 +584,9 @@ func TestAReceiverThatStopsAnsweringIsRestarted(t *testing.T) {
 		b, _ := os.ReadFile(filepath.Join(sr.dir, "args"))
 		return strings.Count(string(b), "--config_dir")
 	}
-	if starts() != 1 {
-		t.Fatalf("receiver started %d times before the hang", starts())
-	}
+	// SignedIn comes from the fake API, which answers before a slow machine has run the fake receiver's
+	// script: wait for the first start instead of assuming it already happened.
+	waitFor(t, "the receiver to be started once", func() bool { return starts() == 1 })
 	sr.fake.set(func() { sr.fake.hung = true })
 	waitFor(t, "the wedged receiver to be restarted", func() bool { return starts() >= 2 })
 }
