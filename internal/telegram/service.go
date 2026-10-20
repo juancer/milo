@@ -105,8 +105,9 @@ type Service struct {
 	urgentLeft       map[int64]int       // user id -> follow-ups still marked urgent
 
 	ann      *announceState
-	annBatch time.Duration // wait for the rest of a burst before announcing; tests shorten it
-	annIdle  time.Duration // idle check interval; tests shorten it
+	problems problemLimiter // log problems already sent (see problems.go)
+	annBatch time.Duration  // wait for the rest of a burst before announcing; tests shorten it
+	annIdle  time.Duration  // idle check interval; tests shorten it
 }
 
 // New creates the (not yet running) service.

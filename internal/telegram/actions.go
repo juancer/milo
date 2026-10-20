@@ -99,18 +99,6 @@ func (s *Service) RegisterActions(e *actions.Engine) {
 		Handler: s.chatSelect,
 	})
 
-	// Without buttons the child asks for it by voice ("hey Milo, send a message to Dad", then "voice"): the
-	// assistant runs this as the device, so the model itself cannot start a recording.
-	e.MustRegister(actions.Action{
-		Name:        "send_voice_message",
-		Description: "Record a voice message and send it to one of the family chats, by its name. Recording stops when the person stops talking.",
-		Feature:     FeatureName, Exposure: device,
-		Params: []actions.Param{
-			{Name: "chat", Description: "Name of the chat, for example Dad", Type: actions.String, Required: true, MaxLen: 60},
-		},
-		Handler: s.sendVoiceMessage,
-	})
-
 	e.MustRegister(actions.Action{
 		Name:        "send_message",
 		Description: "Send a text message to one of the family chats, by its name.",
@@ -449,84 +437,37 @@ func (s *Service) talk(ctx context.Context, _ actions.Call) (actions.Result, err
 }
 
 func (s *Service) recordAndQueue(ctx context.Context, chat store.Chat) {
-	s.recordVoice(ctx, chat, audio.RecordOptions{MaxDuration: maxRecording}) //nolint:errcheck // the tones already tell the person
-}
-
-var errNothingRecorded = errors.New("nothing was recorded")
-
-// recordVoice records a voice message, encodes it and queues it for the chat, playing the same tones as the
-// TALK button. It returns why nothing was queued.
-func (s *Service) recordVoice(ctx context.Context, chat store.Chat, opts audio.RecordOptions) error {
 	s.Notify.Notify(context.Background(), audio.NotifyRecordStart) //nolint:errcheck
-	wav, err := s.Audio.Record(ctx, opts)
+	wav, err := s.Audio.Record(ctx, audio.RecordOptions{MaxDuration: maxRecording})
 	s.Notify.Notify(context.Background(), audio.NotifyRecordStop) //nolint:errcheck
 	bg := context.Background()
 	if err != nil {
 		s.Log.Error("recording failed", "error", err)
 		s.Notify.Notify(bg, audio.NotifyError) //nolint:errcheck
-		return err
+		return
 	}
 	if audio.Duration(wav) < minRecording {
 		s.Notify.Notify(bg, audio.NotifyNone) //nolint:errcheck // too short to send
-		return errNothingRecorded
+		return
 	}
 	ogg, err := s.Codec.WAVToOgg(bg, wav)
 	if err != nil {
 		s.Log.Error("cannot encode voice message", "error", err)
 		s.Notify.Notify(bg, audio.NotifyError) //nolint:errcheck
-		return err
+		return
 	}
 	if s.outboxFull(bg, chat.ID) {
 		s.Log.Warn("telegram: outgoing queue is full, voice message dropped", "chat", chat.Name)
 		s.Notify.Notify(bg, audio.NotifyError) //nolint:errcheck
-		return errors.New("the outgoing queue is full")
+		return
 	}
 	if _, err := s.Store.InsertMessage(bg, store.Message{Direction: "out", Kind: "voice", ChatID: chat.ID, Audio: ogg}); err != nil {
 		s.Log.Error("cannot queue voice message", "error", err)
 		s.Notify.Notify(bg, audio.NotifyError) //nolint:errcheck
-		return err
+		return
 	}
 	s.wakeOutbox()
 	s.Notify.Notify(bg, audio.NotifyOK) //nolint:errcheck
-	return nil
-}
-
-// sendVoiceMessage records until the person stops talking and sends the recording to the named chat.
-func (s *Service) sendVoiceMessage(ctx context.Context, c actions.Call) (actions.Result, error) {
-	chat, err := s.chatByName(ctx, c.Args.String("chat"))
-	if err != nil {
-		return actions.Result{}, err
-	}
-	err = s.recordVoice(ctx, chat, audio.RecordOptions{
-		MaxDuration: maxRecording, StopOnSilence: true, SilenceFor: 2 * time.Second, NoSpeechFor: 6 * time.Second,
-	})
-	if errors.Is(err, errNothingRecorded) {
-		return actions.Result{Message: "Nothing was recorded", Refused: true, Data: map[string]any{"reason": "nothing_recorded", "chat": chat.Name}}, nil
-	}
-	if err != nil {
-		return actions.Result{}, err
-	}
-	return actions.Result{Message: "Voice message queued for " + chat.Name, Data: map[string]any{"chat": chat.Name}}, nil
-}
-
-// chatByName finds an enabled chat by its name, ignoring case.
-func (s *Service) chatByName(ctx context.Context, name string) (store.Chat, error) {
-	chats, err := s.Store.ListChats(ctx)
-	if err != nil {
-		return store.Chat{}, err
-	}
-	want := strings.ToLower(strings.TrimSpace(name))
-	var names []string
-	for _, ch := range chats {
-		if !ch.Enabled {
-			continue
-		}
-		names = append(names, ch.Name)
-		if strings.ToLower(ch.Name) == want {
-			return ch, nil
-		}
-	}
-	return store.Chat{}, fmt.Errorf("%w: unknown chat %q; available chats: %s", actions.ErrInvalidParams, name, strings.Join(names, ", "))
 }
 
 // ---------------------------------------------------------------- send_message

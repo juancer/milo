@@ -16,6 +16,24 @@ type Ring struct {
 	mu    sync.Mutex
 	lines []string
 	max   int
+	hook  func(line string) // called with every WARN and ERROR line, after redaction (see SetProblemHook)
+}
+
+// SetProblemHook makes f receive every warning and error line as it is logged. f must return quickly and
+// must not log at WARN or above itself.
+func (r *Ring) SetProblemHook(f func(line string)) {
+	r.mu.Lock()
+	r.hook = f
+	r.mu.Unlock()
+}
+
+func (r *Ring) problem(line string) {
+	r.mu.Lock()
+	f := r.hook
+	r.mu.Unlock()
+	if f != nil {
+		f(line)
+	}
 }
 
 // NewRing keeps at most max lines.
@@ -84,6 +102,9 @@ func (h *ringHandler) Handle(ctx context.Context, rec slog.Record) error {
 	}
 	rec.Attrs(func(a slog.Attr) bool { write("", a); return true })
 	h.ring.add(b.String())
+	if rec.Level >= slog.LevelWarn {
+		h.ring.problem(b.String())
+	}
 	return h.next.Handle(ctx, rec)
 }
 

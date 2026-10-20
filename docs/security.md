@@ -65,7 +65,8 @@ Message copies deliberately let an administrator read or hear what relatives sen
 They are **opt-in per person, off by default, limited to `manage_users`**, and the sender is not
 told per message: only enable them for adults who already supervise the device, and tell the
 family. Telegram messages are not end-to-end encrypted with bots, so a copy passes through
-Telegram's servers like every other bot message. Device alerts carry a feature name only.
+Telegram's servers like every other bot message. Device alerts carry a feature name only, unless the owner turns on
+**Error alerts** (off by default), which can send log text; see [telegram.md](telegram.md#error-alerts).
 
 ## Backups
 

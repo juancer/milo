@@ -18,6 +18,8 @@ var tokenRe = regexp.MustCompile(`^[0-9]{3,12}:[A-Za-z0-9_-]{20,64}$`)
 
 func (s *server) telegramRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/telegram", s.requireAuth(s.telegramStatus))
+	mux.Handle("GET /api/telegram/error-alerts", s.requireAuth(s.getErrorAlerts))
+	mux.Handle("PUT /api/telegram/error-alerts", s.requireOwner(s.putErrorAlerts))
 	mux.Handle("PUT /api/telegram/token", s.requireAuth(s.setTelegramToken))
 	mux.Handle("DELETE /api/telegram/token", s.requireAuth(s.deleteTelegramToken))
 	mux.Handle("GET /api/invitations", s.requireAuth(s.listInvitations))
@@ -565,4 +567,27 @@ func (s *server) listMessages(w http.ResponseWriter, r *http.Request) {
 		out = append(out, row{m.ID, m.Direction, m.Kind, m.Type, m.Status, m.Person, m.CreatedAt, m.Attempts, m.LastError})
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// getErrorAlerts is what the panel shows about sending warnings and errors to Telegram.
+func (s *server) getErrorAlerts(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.app.Telegram.ErrorAlertSettings(r.Context()))
+}
+
+// putErrorAlerts changes it. Only the owner: the detail setting decides how much of the log leaves the device.
+func (s *server) putErrorAlerts(w http.ResponseWriter, r *http.Request) {
+	var d telegram.ErrorAlertSettings
+	if !decodeJSON(w, r, &d) {
+		return
+	}
+	if !telegram.ValidErrorAlertSettings(d) {
+		writeError(w, http.StatusBadRequest, "web.err.invalid_error_alert_settings")
+		return
+	}
+	if err := s.app.Telegram.SaveErrorAlertSettings(r.Context(), d); err != nil {
+		writeError(w, http.StatusInternalServerError, "web.err.internal_error")
+		return
+	}
+	s.audit(r, "telegram.error_alerts_updated", d.Detail, map[string]string{"enabled": strconv.FormatBool(d.Enabled), "level": d.Level})
+	writeJSON(w, http.StatusOK, s.app.Telegram.ErrorAlertSettings(r.Context()))
 }

@@ -98,13 +98,6 @@ Child to parent:
   configured, otherwise it beeps the chat's position).
 - **TALK** starts recording; press again to stop and send to the selected chat as a Telegram
   voice message. The selected chat is independent of any AI conversation.
-- **By voice, with no buttons:** say "Hey Milo, send a message to Dad" (or "mándale un mensaje a Papi").
-  Milo asks "text or voice?". Answer "de voz" and it records until you stop talking and sends a Telegram
-  voice message; answer "de texto" and it asks what to say, writes down what it hears and sends it as text.
-  If the request already says which ("envía una nota de voz a Papi") nothing is asked, and with a single
-  chat the name can be left out. "Mándale a papi que llego tarde", with the message in it, goes to the
-  assistant, which sends it as text. The recording action (`send_voice_message`) is for the device and the
-  voice rules only: the model cannot start a recording.
 - Messages wait in an outbox and are retried with backoff until Telegram accepts them, so a
   Wi-Fi outage delays them but never loses them.
 
@@ -171,6 +164,22 @@ Every message the bot sends comes from the translation catalogs ([i18n.md](i18n.
 code. It writes to each person in their own language (**People → Language**) and otherwise in the
 notification language (**System → Languages**); strangers always get the notification language.
 The bot's username is your own bot's: Milo never assumes a name.
+
+## Error alerts
+
+Milo can send a Telegram message when it logs a warning or an error. It is **off by default** and is chosen
+on the Telegram tile of the web admin (**Error alerts**; only the owner can change it):
+
+- **What counts:** errors only, or errors and warnings.
+- **How much is sent:** only the message; the message and its details, 200 characters at most with addresses
+  and tokens hidden (the default); or the whole log line. The whole line can contain addresses, file paths and,
+  in some network errors, the bot token, and Telegram does not encrypt bot messages end to end: choose it
+  knowing that.
+- **Who gets it:** the people who turned on **My alerts** in the bot menu and hold `manage_configuration`
+  (the same people who already get "a feature could not start" and "Milo has started").
+- **Limits:** the same message is sent at most once every 10 minutes and at most 6 messages go out in 10
+  minutes, so a failure that repeats cannot flood a phone. Problems about Telegram itself are never sent through
+  Telegram.
 
 ## Group chats
 
