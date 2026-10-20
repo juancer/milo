@@ -1744,3 +1744,52 @@ func TestParallelWrongPasswordChangesAreLimited(t *testing.T) {
 		t.Fatalf("statuses = %v, want at most 5 x 401 and the rest 429", got)
 	}
 }
+
+// Milo executes the external wake-word helper, so choosing it is the owner's, like spotify.binary.
+func TestOnlyTheOwnerChoosesTheWakeWordHelper(t *testing.T) {
+	e := newEnv(t, true)
+	owner := e.login(t)
+	e.post(t, "/api/admins", map[string]string{"username": "mom", "password": "moms-first-password-1"}, owner)
+	mom := e.loginAs(t, "mom", "moms-first-password-1")
+	for _, c := range e.post(t, "/api/account/password", map[string]string{"current_password": "moms-first-password-1", "new_password": "moms-own-password-42"}, mom).Cookies() {
+		mom = c
+	}
+	helper := filepath.Join(t.TempDir(), "helper")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(helper, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	put := func(c *http.Cookie, engine string, sens int, path string) int {
+		body, _ := json.Marshal(map[string]any{"engine": engine, "phrase": "Hey Milo", "sensitivity": sens, "external_path": path})
+		return e.do(t, "PUT", "/api/wakeword", string(body), c, nil).StatusCode
+	}
+
+	if got := put(mom, "external", 5, helper); got != 403 {
+		t.Fatalf("non-owner switching to external = %d, want 403", got)
+	}
+	if got := put(mom, "template", 5, helper); got != 403 {
+		t.Fatalf("non-owner setting a helper path = %d, want 403", got)
+	}
+	if v, _ := e.store.GetSetting(context.Background(), "wakeword.external_path"); v != "" {
+		t.Fatalf("a refused request stored a path: %q", v)
+	}
+	if got := put(mom, "template", 8, ""); got != 200 {
+		t.Fatalf("non-owner changing the sensitivity = %d, want 200", got)
+	}
+
+	if got := put(owner, "external", 5, helper); got != 200 {
+		t.Fatalf("owner switching to external = %d, want 200", got)
+	}
+	// With the helper already chosen, a regular administrator may keep it, change other settings, or leave it.
+	if got := put(mom, "external", 9, helper); got != 200 {
+		t.Fatalf("non-owner keeping the helper unchanged = %d, want 200", got)
+	}
+	if got := put(mom, "external", 9, "/bin/true"); got != 403 {
+		t.Fatalf("non-owner changing the helper path = %d, want 403", got)
+	}
+	if got := put(mom, "template", 9, helper); got != 200 {
+		t.Fatalf("non-owner leaving the external engine = %d, want 200", got)
+	}
+}
