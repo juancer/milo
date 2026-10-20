@@ -55,6 +55,12 @@ systemctl daemon-reload && systemctl enable --now milo-update.timer
 It checks every 10 minutes, verifies the SHA-256, runs `milo install` (an idempotent upgrade that
 keeps the database and master key) and restarts the service. Logs: `journalctl -u milo-update`.
 
+The commit it last installed is kept in `/var/lib/milo-update/commit`, a directory only root can write
+(the service user owns `/var/lib/milo`, so the state must not live there). Devices updated from an older
+script kept it in `/var/lib/milo/update-commit`: that file is no longer read, so copy the new script into
+place (the first `install` line above) and the next run simply installs the current release once more.
+Offline check of the script: `sh deploy/pi/milo-update_test.sh`.
+
 ## Back up
 
 Use the **Backup** tile (or `milo backup FILE`): one encrypted file with the database and the master
