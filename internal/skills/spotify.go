@@ -481,9 +481,19 @@ func (s *Spotify) yield(ctx context.Context) {
 	if c == nil {
 		return
 	}
+	// The player has stopped reading, but the receiver keeps writing until it is paused. With the pipe
+	// full (64 KiB, about a third of a second) it blocks on the write and stops answering the pause
+	// itself: the "receiver is not answering" restarts after every spoken answer. So the pipe is
+	// emptied until the pause has taken effect.
+	s.mu.Lock()
+	f := s.fifo
+	s.mu.Unlock()
+	stopDrain := drainUntilStopped(f)
 	pc, cancel := context.WithTimeout(ctx, 5*time.Second)
 	err := c.Pause(pc)
 	cancel()
+	sleepCtx(ctx, 300*time.Millisecond) // what the receiver was still writing
+	stopDrain()
 	if err != nil {
 		s.Log.Debug("spotify: could not pause for a notification", "error", err)
 		return
@@ -541,6 +551,32 @@ func drainPipe(f *os.File) {
 			return
 		}
 	}
+}
+
+// drainUntilStopped throws away everything written to the pipe until the returned function is called
+// (it returns once the draining has ended).
+func drainUntilStopped(f *os.File) (stop func()) {
+	if f == nil {
+		return func() {}
+	}
+	quit, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		buf := make([]byte, 16<<10)
+		for {
+			select {
+			case <-quit:
+				return
+			default:
+			}
+			f.SetReadDeadline(time.Now().Add(50 * time.Millisecond)) //nolint:errcheck // a pipe supports deadlines
+			if _, err := f.Read(buf); err != nil && !errors.Is(err, os.ErrDeadlineExceeded) {
+				return
+			}
+		}
+	}()
+	var once sync.Once
+	return func() { once.Do(func() { close(quit); <-done }) }
 }
 
 // ---------------------------------------------------------------- control
