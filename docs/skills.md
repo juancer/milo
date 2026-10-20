@@ -52,7 +52,7 @@ expands repeating events and honours cancellations and exceptions. Unusual repea
 missed. Event titles are spoken and, when the assistant reads them, sent to the AI service. Titles are
 written by other people, so in the turn where the assistant reads the calendar it can only use a short
 list of harmless tools (volume, stop, listing and cancelling, time and weather); it cannot send a Telegram
-message, create a reminder or timer, or start music. Recurring events are expanded with limits (500
+message, create a reminder or timer, or start music. The same holds in a turn where the assistant played music or said what is playing (`play_music`, `spotify_play_playlist`, `now_playing`): artist, playlist and song names of the Spotify catalog are written by whoever created them, so the rest of that turn only gets the same short list. Recurring events are expanded with limits (500
 occurrences per event, 2000 per read, a 2 second deadline; repeat rules more frequent than hourly are
 ignored).
 
