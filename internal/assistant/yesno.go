@@ -63,43 +63,55 @@ func (e *Engine) Hold() (release func()) {
 	return func() { once.Do(func() { e.holds.Add(-1) }) }
 }
 
-// AskYesNo says prompt, listens for a few seconds and reports what was answered. Nothing is sent to
-// the language model. heard is false when nobody answered or the answer was not a yes or a no.
-func (e *Engine) AskYesNo(ctx context.Context, prompt string) (yes, heard bool, err error) {
+// listenText says prompt (when there is one), listens until the person stops talking and returns what was
+// said. heard is false when nobody spoke. ErrNoListener means there is no speech-to-text to listen with.
+func (e *Engine) listenText(ctx context.Context, prompt string, maxDuration, noSpeechFor time.Duration) (text string, heard bool, err error) {
 	if e.Audio == nil {
-		return false, false, ErrNoListener
+		return "", false, ErrNoListener
 	}
 	s, err := e.store.GetGPTSettings(ctx)
 	if err != nil {
-		return false, false, err
+		return "", false, err
 	}
 	stt, err := e.backends.STT(ctx, s)
 	if err != nil {
-		return false, false, ErrNoListener // before saying anything: the caller falls back to a sound
+		return "", false, ErrNoListener // before saying anything: the caller falls back to a sound
 	}
 	release := e.Hold()
 	defer release()
-	started := time.Now()
-	if err := e.say(ctx, prompt); err != nil {
-		return false, false, err
+	if prompt != "" {
+		started := time.Now()
+		if err := e.say(ctx, prompt); err != nil {
+			return "", false, err
+		}
+		e.log.Info("asked the person something", "prompt", prompt, "speak_ms", time.Since(started).Milliseconds())
 	}
-	e.log.Info("asked a yes/no question", "prompt", prompt, "speak_ms", time.Since(started).Milliseconds())
 	e.note(ctx, audio.NotifyRecordStart)
-	wav, err := e.Audio.Record(ctx, audio.RecordOptions{MaxDuration: 8 * time.Second, StopOnSilence: true, NoSpeechFor: 5 * time.Second})
+	wav, err := e.Audio.Record(ctx, audio.RecordOptions{MaxDuration: maxDuration, StopOnSilence: true, NoSpeechFor: noSpeechFor})
 	e.note(ctx, audio.NotifyRecordStop)
 	if err != nil || ctx.Err() != nil {
-		return false, false, err
+		return "", false, err
 	}
 	if hs, ok := e.Audio.(interface{ HasSpeech(wav []byte) bool }); ok && !hs.HasSpeech(wav) {
-		e.log.Info("no answer to the yes/no question (nobody spoke)")
-		return false, false, nil // only the noise of the room: nobody is there
+		e.log.Info("nobody answered (only the noise of the room)")
+		return "", false, nil
 	}
-	text, err := stt.Transcribe(ctx, wav)
+	text, err = stt.Transcribe(ctx, wav)
 	if err != nil {
 		e.log.Info("could not understand the answer", "error", err)
-		return false, false, nil
+		return "", false, nil
 	}
-	e.log.Info("answer to the yes/no question", "text", text)
+	e.log.Info("heard the answer", "text", text)
+	return text, strings.TrimSpace(text) != "", nil
+}
+
+// AskYesNo says prompt, listens for a few seconds and reports what was answered. Nothing is sent to
+// the language model. heard is false when nobody answered or the answer was not a yes or a no.
+func (e *Engine) AskYesNo(ctx context.Context, prompt string) (yes, heard bool, err error) {
+	text, said, err := e.listenText(ctx, prompt, 8*time.Second, 5*time.Second)
+	if err != nil || !said {
+		return false, false, err
+	}
 	switch MatchAnswer(text) {
 	case AnswerYes:
 		return true, true, nil
