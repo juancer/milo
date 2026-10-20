@@ -28,6 +28,8 @@ type fakeLibrespot struct {
 	paused    bool
 	track     string
 	pairing   *SpotifyPairing
+	ctxURI    string // what the receiver reports as playing from
+	resumeBad int    // how many /player/resume calls fail with a 500 (a restarting receiver)
 	playlists []spotifyPlaylist
 	calls     []string
 	srv       *httptest.Server
@@ -47,7 +49,7 @@ func newFakeLibrespot(t *testing.T) *fakeLibrespot {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		st := map[string]any{"username": "family", "device_name": "Milo", "stopped": f.stopped, "paused": f.paused}
+		st := map[string]any{"username": "family", "device_name": "Milo", "stopped": f.stopped, "paused": f.paused, "context_uri": f.ctxURI}
 		if f.track != "" {
 			st["track"] = map[string]any{"name": f.track, "artist_names": []string{"Somebody"}}
 		}
@@ -76,6 +78,12 @@ func newFakeLibrespot(t *testing.T) *fakeLibrespot {
 			json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck // some calls have no body
 			f.mu.Lock()
 			f.calls = append(f.calls, name)
+			if name == "resume" && f.resumeBad > 0 {
+				f.resumeBad--
+				f.mu.Unlock()
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 			if name == "play" {
 				f.calls[len(f.calls)-1] = "play " + body["uri"].(string)
 			}
@@ -292,6 +300,25 @@ func TestSpotifyPausesForANotificationAndResumesWhenQuiet(t *testing.T) {
 
 	waitFor(t, "Spotify to be paused", func() bool { return sr.fake.count("pause") >= 1 })
 	waitFor(t, "Spotify to resume", func() bool { return sr.fake.count("resume") >= 1 })
+	waitFor(t, "the stream to start again", func() bool { return musicStreams(sr.mock) >= 2 })
+}
+
+func TestSpotifyCarriesOnAfterAnAnswerEvenWhenTheFirstResumesFail(t *testing.T) {
+	resumeRetryEvery = 10 * time.Millisecond
+	t.Cleanup(func() { resumeRetryEvery = 2 * time.Second })
+	sr := newSpotifyRig(t, false)
+	sr.start(t)
+	stop := sr.feed(t)
+	defer stop()
+	sr.fake.set(func() {
+		sr.fake.stopped, sr.fake.paused, sr.fake.track = false, false, "Twinkle"
+		sr.fake.ctxURI, sr.fake.resumeBad = "spotify:playlist:abc", 2
+	})
+	waitFor(t, "the stream to play", func() bool { return musicStreams(sr.mock) >= 1 })
+
+	sr.mock.PlayNotification(context.Background(), audio.NotifyMessage, 100) //nolint:errcheck // interrupts the stream
+
+	waitFor(t, "the playlist to start again", func() bool { return sr.fake.count("play spotify:playlist:abc") >= 1 })
 	waitFor(t, "the stream to start again", func() bool { return musicStreams(sr.mock) >= 2 })
 }
 
