@@ -12,6 +12,18 @@ provider, exactly as when the GPT button is pressed). The wake word goes through
 Action Engine path as the GPT button, so the assistant feature switch and its usage schedule
 apply to it too.
 
+## "No escuches": switching the wake word off
+
+Say "Hey Milo, no escuches" (or "deja de escuchar", "stop listening"). Milo confirms, and from then on
+**the microphone is not opened for the wake word at all** until a button brings it back. It is
+remembered across restarts, so a Milo that was told not to listen does not listen after a reboot.
+
+- The way back is a button: map the action **`listening_toggle`** (or `listening_on`) to a button press
+  on the Buttons tile. On the reference device the green (talk) button does it with a **long press**
+  (hold it about a second); a falling tone means "not listening", a rising one "listening again".
+- Buttons, Telegram and everything else keep working while the wake word is off.
+- `listening_off` is also available to the assistant, so it works when asked in other words.
+
 ## Engines
 
 | Engine | Needs | How it decides | Good for |
