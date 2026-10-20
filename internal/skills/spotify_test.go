@@ -772,3 +772,25 @@ func TestListeningMemoryDrivesFavoritesAndTheDefaultMusic(t *testing.T) {
 		t.Errorf("knownArtist = %q %q %v", name, uri, ok)
 	}
 }
+
+func TestMusicRequestWhileReceiverRestartsSaysTryAgain(t *testing.T) {
+	sr := newSpotifyRig(t, false)
+	ctx := context.Background()
+	res, handled, _ := sr.sp.PlayAnything(ctx, actions.Actor{Kind: actions.ActorDevice}, "")
+	if handled {
+		t.Fatalf("never signed in: Spotify is simply not connected, got %+v", res)
+	}
+	sr.sp.mu.Lock()
+	sr.sp.signedAt = time.Now().Add(-time.Minute) // it worked a minute ago, and is down now
+	sr.sp.mu.Unlock()
+	res, handled, _ = sr.sp.PlayAnything(ctx, actions.Actor{Kind: actions.ActorDevice}, "")
+	if !handled || !res.Refused || res.Data["reason"] != "spotify_restarting" {
+		t.Fatalf("want a restarting refusal, got handled=%v %+v", handled, res)
+	}
+	sr.sp.mu.Lock()
+	sr.sp.signedAt = time.Now().Add(-time.Hour)
+	sr.sp.mu.Unlock()
+	if _, handled, _ = sr.sp.PlayAnything(ctx, actions.Actor{Kind: actions.ActorDevice}, ""); handled {
+		t.Fatal("down for an hour is not a restart")
+	}
+}

@@ -82,10 +82,15 @@ type Spotify struct {
 	client   *spotifyClient
 	fifo     *os.File
 	snap     spotifySnap
+	signedAt time.Time // last time the receiver answered signed in (see restarting)
 	pump     context.CancelFunc
 	wake     chan struct{}
 	lastErr  string
 }
+
+// spotifyRestartGrace is how long after the receiver was last signed in a failure is reported as
+// "restarting, try again" instead of "not connected" (the watchdog brings it back in seconds).
+const spotifyRestartGrace = 5 * time.Minute
 
 type spotifySnap struct {
 	up       bool // the receiver answers
@@ -361,6 +366,9 @@ func (s *Spotify) apply(st SpotifyStatus, err error) {
 	counted := err == nil && s.listen.observe(st, st.playing(), time.Now())
 	wasPlaying := s.snap.signedIn && s.snap.st.playing()
 	s.snap = spotifySnap{up: err == nil || errors.Is(err, errSpotifyNoSession), signedIn: err == nil, st: st}
+	if err == nil {
+		s.signedAt = time.Now()
+	}
 	playing := s.snap.signedIn && st.playing()
 	var cancel context.CancelFunc
 	if !playing {
@@ -660,11 +668,29 @@ func (s *Spotify) preferred(ctx context.Context) (loaded, ok bool) {
 	return s.snap.st.Track != nil, s.snap.up && s.snap.signedIn
 }
 
+// restarting answers a music request made while the receiver is down after having worked a moment
+// ago: the person is told to try again, instead of hearing that Spotify is missing.
+func (s *Spotify) restarting(ctx context.Context) (actions.Result, bool, error) {
+	if s.setting(ctx, SettingMusicSource, "spotify") == "local" {
+		return actions.Result{}, false, nil
+	}
+	s.mu.Lock()
+	recent := !s.signedAt.IsZero() && time.Since(s.signedAt) < spotifyRestartGrace
+	s.mu.Unlock()
+	if !recent {
+		return actions.Result{}, false, nil
+	}
+	return actions.Result{Message: "Spotify is restarting; try again in a few seconds.", Refused: true, Data: map[string]any{"reason": "spotify_restarting"}}, true, nil
+}
+
 // ResumePlayback carries on what was paused ("sigue"). handled is false when there is nothing
 // paused on Spotify, so the local music can carry on instead.
 func (s *Spotify) ResumePlayback(ctx context.Context, actor actions.Actor) (actions.Result, bool, error) {
 	loaded, ok := s.preferred(ctx)
-	if !ok || !loaded {
+	if !ok {
+		return s.restarting(ctx)
+	}
+	if !loaded {
 		return actions.Result{}, false, nil
 	}
 	if msg := s.blocked(ctx, actor); msg != "" {
@@ -690,7 +716,7 @@ func (s *Spotify) ResumePlayback(ctx context.Context, actor actions.Actor) (acti
 // taste, and never just carries on what was playing before (that is ResumePlayback).
 func (s *Spotify) PlayAnything(ctx context.Context, actor actions.Actor, query string) (actions.Result, bool, error) {
 	if _, ok := s.preferred(ctx); !ok {
-		return actions.Result{}, false, nil
+		return s.restarting(ctx)
 	}
 	if msg := s.blocked(ctx, actor); msg != "" {
 		return actions.Result{Message: msg, Refused: true, Data: map[string]any{"reason": "voice_control_off"}}, true, nil

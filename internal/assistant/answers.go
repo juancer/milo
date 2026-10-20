@@ -607,6 +607,7 @@ func sayRefusal(lang string, data map[string]any) (string, bool) {
 	es := map[string]string{
 		"voice_control_off":  "El control por voz de Spotify está apagado. Un adulto puede encenderlo en el panel.",
 		"not_connected":      "Spotify todavía no está conectado.",
+		"spotify_restarting": "Spotify se está reiniciando. Inténtalo en unos segundos.",
 		"artist_not_found":   "No he encontrado a " + query + " en Spotify.",
 		"search_unavailable": "Ahora mismo no puedo buscar a " + query + " en Spotify. Inténtalo en un momento.",
 		"no_music":           "Todavía no hay música en el dispositivo.",
@@ -617,6 +618,7 @@ func sayRefusal(lang string, data map[string]any) (string, bool) {
 	en := map[string]string{
 		"voice_control_off":  "Spotify voice control is switched off. A grown-up can turn it on in the panel.",
 		"not_connected":      "Spotify is not connected yet.",
+		"spotify_restarting": "Spotify is restarting. Try again in a few seconds.",
 		"artist_not_found":   "I could not find " + query + " on Spotify.",
 		"search_unavailable": "I cannot look up " + query + " on Spotify right now. Try again in a moment.",
 		"no_music":           "There is no music on the device yet.",
