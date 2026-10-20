@@ -1793,3 +1793,40 @@ func TestOnlyTheOwnerChoosesTheWakeWordHelper(t *testing.T) {
 		t.Fatalf("non-owner leaving the external engine = %d, want 200", got)
 	}
 }
+
+func TestOnlyTheOwnerChangesWhatErrorAlertsSend(t *testing.T) {
+	e := newEnv(t, true)
+	owner := e.login(t)
+	e.post(t, "/api/admins", map[string]string{"username": "mom", "password": "moms-first-password-1"}, owner)
+	mom := e.loginAs(t, "mom", "moms-first-password-1")
+	for _, c := range e.post(t, "/api/account/password", map[string]string{"current_password": "moms-first-password-1", "new_password": "moms-own-password-42"}, mom).Cookies() {
+		mom = c
+	}
+	put := func(c *http.Cookie, body string) int {
+		return e.do(t, "PUT", "/api/telegram/error-alerts", body, c, nil).StatusCode
+	}
+	full := `{"enabled":true,"level":"warn","detail":"full"}`
+
+	if got := put(mom, full); got != 403 {
+		t.Fatalf("non-owner = %d, want 403", got)
+	}
+	if got := put(owner, `{"enabled":true,"level":"everything","detail":"full"}`); got != 400 {
+		t.Fatalf("bad level = %d, want 400", got)
+	}
+	if got := put(owner, `{"enabled":true,"level":"warn","detail":"whole-database"}`); got != 400 {
+		t.Fatalf("bad detail = %d, want 400", got)
+	}
+	if v, _ := e.store.GetSetting(context.Background(), "telegram.error_alerts_detail"); v != "" {
+		t.Fatalf("a refused request stored %q", v)
+	}
+	if got := put(owner, full); got != 200 {
+		t.Fatalf("owner = %d, want 200", got)
+	}
+	if v, _ := e.store.GetSetting(context.Background(), "telegram.error_alerts_detail"); v != "full" {
+		t.Fatalf("detail = %q", v)
+	}
+	// Anyone signed in can see the choice.
+	if got := e.do(t, "GET", "/api/telegram/error-alerts", "", mom, nil).StatusCode; got != 200 {
+		t.Fatalf("GET = %d, want 200", got)
+	}
+}

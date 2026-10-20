@@ -69,6 +69,9 @@ func runServer(ctx context.Context, cfg system.Config) error {
 		return err
 	}
 	defer application.Close()
+	// Warnings and errors can be sent to Telegram (chosen in the panel). On its own goroutine: a log call may
+	// come from code that holds a lock the sender needs.
+	logs.SetProblemHook(func(line string) { go application.Telegram.AlertProblem(line) })
 	application.Telegram.SetVersion(version)
 	application.Logs, application.RestartFunc = logs, func() {
 		time.Sleep(500 * time.Millisecond) // let the HTTP response go out first

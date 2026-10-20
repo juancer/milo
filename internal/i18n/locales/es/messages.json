@@ -118,6 +118,7 @@
   "web.err.no_such_pending_request": "no existe esa solicitud pendiente",
   "web.err.no_such_reminder": "no existe ese recordatorio",
   "web.err.no_such_rule": "no existe esa regla",
+  "web.err.invalid_error_alert_settings": "ajustes de alertas de error no válidos",
   "web.err.no_such_sample": "no existe esa muestra",
   "web.err.no_such_timer": "no existe ese temporizador",
   "web.err.spotify_binary_path": "la ruta debe ser absoluta, por ejemplo /usr/local/bin/go-librespot",

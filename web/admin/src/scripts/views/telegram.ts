@@ -1,4 +1,4 @@
-import { actions, badge, button, card, checkbox, emptyState, field, fields, list, note, row, select, submit, table, toggle } from "../../components/ui";
+import { actions, badge, button, card, checkbox, emptyState, field, fields, formCard, list, note, row, select, submit, table, toggle } from "../../components/ui";
 import { t, tOr } from "../../i18n";
 import { api } from "../api";
 import { clear, h, when } from "../dom";
@@ -43,11 +43,12 @@ interface Message {
 let lastInvite: { link: string; command: string; expires_at: string } | null = null;
 
 export async function render(root: HTMLElement): Promise<void> {
-  const [st, invites, requests, messages] = await Promise.all([
+  const [st, invites, requests, messages, alertsCfg] = await Promise.all([
     api<TelegramStatus>("GET", "/api/telegram"),
     api<Invitation[]>("GET", "/api/invitations"),
     api<Request[]>("GET", "/api/authorizations"),
     api<Message[]>("GET", "/api/messages"),
+    api<{ enabled: boolean; level: string; detail: string }>("GET", "/api/telegram/error-alerts"),
   ]);
   clear(root);
   const refresh = () => render(root);
@@ -81,6 +82,24 @@ export async function render(root: HTMLElement): Promise<void> {
       ? t("telegram.pendingUrgent", { count: st.pending_messages, urgent: st.urgent_messages })
       : t("telegram.pending", { count: st.pending_messages })),
   ));
+
+  // ---- errors sent to Telegram (the owner decides how much of the log leaves the device)
+  const alertsOn = checkbox(alertsCfg.enabled);
+  const alertsLevel = select(t("telegram.errorAlertsLevel"), [["error", t("telegram.errorAlertsLevelError")], ["warn", t("telegram.errorAlertsLevelWarn")]], alertsCfg.level);
+  const alertsDetail = select(t("telegram.errorAlertsDetail"), [
+    ["none", t("telegram.errorAlertsDetailNone")], ["safe", t("telegram.errorAlertsDetailSafe")], ["full", t("telegram.errorAlertsDetailFull")],
+  ], alertsCfg.detail);
+  root.append(formCard(async (ev) => {
+    ev.preventDefault();
+    await guard(() => api("PUT", "/api/telegram/error-alerts", { enabled: alertsOn.checked, level: alertsLevel.value, detail: alertsDetail.value }), "common.saved");
+    await refresh();
+  },
+    h("h2", {}, t("telegram.errorAlerts")),
+    note(t("telegram.errorAlertsHelp")),
+    h("label", { class: "field" }, alertsOn, " ", t("telegram.errorAlertsOn")),
+    fields(field(t("telegram.errorAlertsLevel"), alertsLevel), field(t("telegram.errorAlertsDetail"), alertsDetail)),
+    note(t("telegram.errorAlertsFullWarning")),
+    actions(submit(t("common.save")))));
 
   // ---- requests waiting for approval
   root.append(card(t("telegram.requests"),

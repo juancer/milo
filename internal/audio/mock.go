@@ -22,8 +22,7 @@ type Mock struct {
 	mu           sync.Mutex
 	volume       int
 	played       []Played
-	utterance    string   // what the "child" says on the next recording
-	queue        []string // further recordings, one per entry, after utterance (a conversation with several turns)
+	utterance    string // what the "child" says on the next recording
 	listeners    map[int]func([]byte)
 	nextID       int
 	streamCancel context.CancelFunc
@@ -40,13 +39,6 @@ func NewMock() *Mock { return &Mock{volume: 70} }
 func (m *Mock) SetUtterance(text string) {
 	m.mu.Lock()
 	m.utterance = text
-	m.mu.Unlock()
-}
-
-// QueueUtterances makes the next recordings contain these texts, one each, in order.
-func (m *Mock) QueueUtterances(texts ...string) {
-	m.mu.Lock()
-	m.queue = append(m.queue, texts...)
 	m.mu.Unlock()
 }
 
@@ -83,9 +75,6 @@ func (m *Mock) Record(ctx context.Context, opts RecordOptions) ([]byte, error) {
 	m.mu.Lock()
 	text := m.utterance
 	m.utterance = ""
-	if text == "" && len(m.queue) > 0 {
-		text, m.queue = m.queue[0], m.queue[1:]
-	}
 	m.mu.Unlock()
 	wav := EncodeWAV(Silence(time.Second), SampleRate)
 	if text != "" {

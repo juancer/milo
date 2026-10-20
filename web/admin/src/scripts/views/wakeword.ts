@@ -39,7 +39,7 @@ export async function render(root: HTMLElement): Promise<void> {
       st.feature.last_error ? h("span", { class: "error" }, ` ${st.feature.last_error}`) : null),
     st.status.muted ? h("p", {}, badge(t("wakeword.muted"), true), " ", h("span", { class: "muted" }, t("wakeword.mutedHelp"))) : null,
     actions(button(st.status.muted ? t("wakeword.unmute") : t("wakeword.mute"), {
-      variant: st.status.muted ? "primary" : "secondary",
+      variant: st.status.muted ? undefined : "secondary",
       onclick: async () => {
         await guard(() => api("PUT", "/api/wakeword/muted", { muted: !st.status.muted }));
         await refresh();
