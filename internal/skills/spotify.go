@@ -88,6 +88,13 @@ type Spotify struct {
 	lastErr  string
 }
 
+// resumeGiveUp is how long the music keeps trying to carry on after an answer, and resumeRetryEvery
+// the pause between tries (variables so tests are quick).
+var (
+	resumeGiveUp     = 60 * time.Second
+	resumeRetryEvery = 2 * time.Second
+)
+
 // spotifyRestartGrace is how long after the receiver was last signed in a failure is reported as
 // "restarting, try again" instead of "not connected" (the watchdog brings it back in seconds).
 const spotifyRestartGrace = 5 * time.Minute
@@ -145,6 +152,7 @@ func (s *Spotify) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	growPipe(f)
 
 	base := s.APIBase
 	if base == "" {
@@ -476,36 +484,75 @@ func (s *Spotify) playLoop(ctx context.Context) {
 // other sound.
 func (s *Spotify) yield(ctx context.Context) {
 	s.mu.Lock()
-	c := s.client
+	c, f, uri := s.client, s.fifo, s.snap.st.ContextURI
 	s.mu.Unlock()
 	if c == nil {
 		return
 	}
 	// The player has stopped reading, but the receiver keeps writing until it is paused. With the pipe
-	// full (64 KiB, about a third of a second) it blocks on the write and stops answering the pause
-	// itself: the "receiver is not answering" restarts after every spoken answer. So the pipe is
-	// emptied until the pause has taken effect.
-	s.mu.Lock()
-	f := s.fifo
-	s.mu.Unlock()
+	// full it blocks on the write and stops answering the pause itself: the "receiver is not answering"
+	// restarts after every spoken answer. So the pipe is emptied until the pause has taken effect.
 	stopDrain := drainUntilStopped(f)
-	pc, cancel := context.WithTimeout(ctx, 5*time.Second)
-	err := c.Pause(pc)
-	cancel()
-	sleepCtx(ctx, 300*time.Millisecond) // what the receiver was still writing
-	stopDrain()
-	if err != nil {
+	defer stopDrain()
+	paused := false
+	for try := 0; try < 3 && !paused && ctx.Err() == nil; try++ {
+		pc, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err := c.Pause(pc)
+		cancel()
+		if err == nil {
+			paused = true
+			break
+		}
 		s.Log.Debug("spotify: could not pause for a notification", "error", err)
-		return
+		sleepCtx(ctx, 500*time.Millisecond)
+	}
+	sleepCtx(ctx, 300*time.Millisecond) // what the receiver was still writing
+	if paused {
+		stopDrain() // nothing more is coming; if the pause failed the pipe keeps being emptied until the watchdog restarts the receiver
 	}
 	if !waitUntilQuiet(ctx, s.idle(), s.QuietFor) {
 		return // stays paused; the family can press play in the Spotify app
 	}
-	rc, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	if err := c.Resume(rc); err != nil {
-		s.Log.Debug("spotify: could not resume", "error", err)
+	s.resumeAfterYield(ctx, uri)
+}
+
+// resumeAfterYield carries the music on once the speaker is free. It does not give up at the first
+// failure: the receiver may be restarting (the watchdog brings it back in seconds), and a restarted
+// receiver has forgotten what it was playing, so the playlist or album it came from is started again.
+func (s *Spotify) resumeAfterYield(ctx context.Context, uri string) {
+	deadline := time.Now().Add(resumeGiveUp)
+	for attempt := 0; time.Now().Before(deadline) && ctx.Err() == nil; attempt++ {
+		if s.isPlaying() {
+			return // somebody already started it again
+		}
+		s.mu.Lock()
+		c := s.client
+		s.mu.Unlock()
+		if c != nil {
+			rc, cancel := context.WithTimeout(ctx, 5*time.Second)
+			err := c.Resume(rc)
+			if err == nil && sleepCtx(ctx, time.Second) {
+				if st, serr := c.Status(rc); serr == nil && st.playing() {
+					cancel()
+					return
+				} else if serr == nil && st.Track == nil && uri != "" {
+					err = errors.New("the receiver has nothing loaded") // restarted: start the music again
+				}
+			}
+			if err != nil && uri != "" && attempt >= 1 {
+				err = c.Play(rc, uri)
+			}
+			cancel()
+			if err == nil {
+				return
+			}
+			s.Log.Debug("spotify: could not resume", "error", err, "attempt", attempt+1)
+		}
+		if !sleepCtx(ctx, resumeRetryEvery) {
+			return
+		}
 	}
+	s.Log.Warn("spotify: could not carry the music on after the answer")
 }
 
 func (s *Spotify) idle() func() bool {
@@ -513,6 +560,23 @@ func (s *Spotify) idle() func() bool {
 		return s.Idle
 	}
 	return func() bool { return s.Audio == nil || !s.Audio.Busy() }
+}
+
+// pipeSize is how much audio the pipe may hold: 1 MiB is the most the kernel gives a process without
+// privileges (/proc/sys/fs/pipe-max-size), about 6 seconds of what the receiver writes, against the
+// 0.37 s of the default 64 KiB. It is the room a slow pause has before the receiver blocks.
+const pipeSize = 1 << 20
+
+// growPipe enlarges the pipe. When the kernel refuses, the default size is kept.
+func growPipe(f *os.File) {
+	const fSetPipeSz = 1031    // F_SETPIPE_SZ
+	rc, err := f.SyscallConn() // not f.Fd(): that makes the file blocking and read deadlines stop working
+	if err != nil {
+		return
+	}
+	rc.Control(func(fd uintptr) { //nolint:errcheck // best effort
+		syscall.Syscall(syscall.SYS_FCNTL, fd, fSetPipeSz, pipeSize) //nolint:errcheck
+	})
 }
 
 // pipeReader reads the receiver's PCM from the pipe and gives up when its stream is cancelled, so
