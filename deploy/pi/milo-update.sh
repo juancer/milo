@@ -2,7 +2,12 @@
 # Pulls the rolling "latest" release of the Milo repo and upgrades this device when it changed.
 # Runs as root from milo-update.timer. Config in /etc/milo/update.env: REPO=owner/name, GH_TOKEN=...
 set -eu
-. /etc/milo/update.env
+# An explicit PATH: root must not run whatever the environment points at. MILO_UPDATE_PATH, MILO_UPDATE_ENV
+# and MILO_UPDATE_STATE_DIR exist so milo-update_test.sh can run this script without root and network;
+# systemd never sets them.
+PATH=${MILO_UPDATE_PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}
+export PATH
+. "${MILO_UPDATE_ENV:-/etc/milo/update.env}"
 
 case "$(uname -m)" in
   aarch64) BIN=milo-linux-arm64 ;;
@@ -11,7 +16,15 @@ case "$(uname -m)" in
 esac
 
 API="https://api.github.com/repos/$REPO/releases"
-STATE=/var/lib/milo/update-commit
+# The state lives in a directory only root can write. It used to be /var/lib/milo/update-commit, a
+# directory the unprivileged milo service owns, so a compromised service could swap the file for a
+# symlink and have root overwrite another file. That old file is never read: the first run after this
+# change simply installs the current release once more.
+STATE_DIR=${MILO_UPDATE_STATE_DIR:-/var/lib/milo-update}
+STATE=$STATE_DIR/commit
+if [ -L "$STATE_DIR" ]; then echo "$STATE_DIR is a symlink; refusing" >&2; exit 1; fi
+install -d -m 0700 "$STATE_DIR"
+if [ "$(stat -c %u "$STATE_DIR")" != "$(id -u)" ]; then echo "$STATE_DIR is not owned by the user running the update; refusing" >&2; exit 1; fi
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
@@ -29,5 +42,9 @@ fetch SHA256SUMS "$TMP/SHA256SUMS"
 (cd "$TMP" && grep " $BIN\$" SHA256SUMS | sha256sum -c -)
 chmod 755 "$TMP/$BIN"
 "$TMP/$BIN" install
-echo "$NEW" > "$STATE"
+# Written to a temp file in the same directory and renamed, so a crash never leaves half a state and a
+# link at $STATE is replaced rather than followed.
+NEWSTATE=$(mktemp "$STATE_DIR/commit.XXXXXX")
+echo "$NEW" > "$NEWSTATE"
+mv -f "$NEWSTATE" "$STATE"
 echo "updated to $NEW"
