@@ -123,6 +123,7 @@
   "web.err.spotify_binary_path": "la ruta debe ser absoluta, por ejemplo /usr/local/bin/go-librespot",
   "web.err.no_such_user": "no existe ese usuario",
   "web.err.not_an_api_key": "{label} no parece una clave de API",
+  "web.err.only_the_owner_can_choose_the_wake_word_helper": "solo el propietario puede elegir el ayudante de la palabra de activación",
   "web.err.only_the_owner_can_manage_administrators": "solo el propietario puede gestionar los administradores",
   "web.err.parameters_for_an_event_are_invalid_or_too_l": "los parámetros de un evento no son válidos o son demasiado grandes",
   "web.err.personality_must_be_1_200_characters": "la personalidad debe tener entre 1 y 200 caracteres",

@@ -74,6 +74,17 @@ func (s *server) putWake(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "web.err.sensitivity_must_be_1_10")
 		return
 	}
+	// Milo executes the external helper, so only the owner may switch to it or point it at another file
+	// (like spotify.binary). Anyone may keep it as it is, change the other settings, or leave the engine.
+	ctx := r.Context()
+	if !adminFrom(r).IsOwner {
+		engine, _ := s.app.Store.GetSetting(ctx, wakeword.SettingEngine)
+		path, _ := s.app.Store.GetSetting(ctx, wakeword.SettingExternalPath)
+		if (d.Engine == "external" && engine != "external") || (d.ExternalPath != "" && d.ExternalPath != path) {
+			writeError(w, http.StatusForbidden, "web.err.only_the_owner_can_choose_the_wake_word_helper")
+			return
+		}
+	}
 	// Required for the external engine, and checked for any stored path, so an
 	// unvalidated one never sits in the settings waiting for the engine to change.
 	if d.Engine == "external" || d.ExternalPath != "" {
@@ -82,7 +93,6 @@ func (s *server) putWake(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	ctx := r.Context()
 	for k, v := range map[string]string{
 		wakeword.SettingEngine: d.Engine, wakeword.SettingPhrase: d.Phrase,
 		wakeword.SettingSensitivity: strconv.Itoa(d.Sensitivity), wakeword.SettingExternalPath: d.ExternalPath,

@@ -70,7 +70,8 @@ synthetic speech, so real-world accuracy has not been measured; treat it as a st
 
 A helper is any executable you install yourself. In the admin, give its absolute path (no
 arguments). It must be executable and not writable by group or others. Milo starts it and
-restarts it if it stops.
+restarts it if it stops. Only the **owner** can switch to the external engine or change the helper path,
+because Milo executes that file.
 
 - **stdin**: raw audio, 16 kHz, mono, signed 16-bit little-endian.
 - **stdout**: one line every time the wake phrase is heard (content is ignored).

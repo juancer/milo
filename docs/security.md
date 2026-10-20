@@ -91,6 +91,10 @@ change that path, because Milo executes it. The receiver's saved sign-in lives i
 `<data dir>/spotify` (0700) and is not in backups; its control interface listens on loopback only,
 without a password. Voice control of Spotify is off by default. Details: [spotify.md](spotify.md).
 
+The same rule holds for the external wake-word helper: only the **owner** can switch the wake word to
+the `external` engine or change its helper path, because Milo executes that file too
+(see [wakeword.md](wakeword.md)). Other administrators can still change the phrase and sensitivity.
+
 ## Logging and audit
 
 Log and audit fields whose names look like credentials (`token`, `password`, `key`, ...) are
