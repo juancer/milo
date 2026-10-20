@@ -30,13 +30,18 @@ const (
 	maxToolResultLen = 800
 )
 
-// Some tool results carry text written by other people, such as calendar event titles. Nothing
+// Some tool results carry text written by other people, such as calendar event titles and the
+// artist, playlist and song names of the Spotify catalog. Nothing
 // the model does after reading them may send text to someone else, schedule speech or start
 // chosen playback in the same turn: a line in the prompt asking the model to ignore such text is
 // not a control. After such a read only the tools listed here run; a new tool is refused until
 // it is added on purpose.
 var (
-	outsiderTextTools = map[string]bool{"get_calendar": true}
+	outsiderTextTools = map[string]bool{
+		"get_calendar": true,
+		// Their results name artists, playlists and songs of the Spotify catalog, which anyone can create.
+		"play_music": true, "now_playing": true, "spotify_play_playlist": true,
+	}
 	afterOutsiderText = map[string]bool{
 		"get_calendar": true, "get_time": true, "get_weather": true, "get_device_status": true,
 		"get_pending_messages": true, "list_timers": true, "list_reminders": true,

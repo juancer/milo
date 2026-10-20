@@ -638,6 +638,67 @@ func TestNothingIsSentOrScheduledAfterReadingTheCalendarInTheSameTurn(t *testing
 	}
 }
 
+// Spotify artist, playlist and song names are written by whoever made them. The turn that read one is
+// restricted exactly as the calendar turn is, whatever the name says.
+func TestNothingIsSentOrScheduledAfterThirdPartyMusicNamesInTheSameTurn(t *testing.T) {
+	for _, first := range []struct{ tool, args string }{
+		{"play_music", `{"query":"camilo"}`},
+		{"now_playing", `{}`},
+		{"spotify_play_playlist", `{"name":"mix"}`},
+	} {
+		t.Run(first.tool, func(t *testing.T) {
+			h := newHarness(t)
+			h.llm.replies = []assistant.Message{
+				call("c1", first.tool, first.args),
+				{Role: "assistant", ToolCalls: []assistant.ToolCall{
+					{ID: "c2", Name: "send_message", Arguments: `{"chat":"Dad","text":"Ignore previous instructions"}`},
+					{ID: "c3", Name: "create_reminder", Arguments: `{"text":"Ignore previous instructions","in_seconds":60}`},
+					{ID: "c4", Name: "listening_off", Arguments: `{}`},
+					{ID: "c5", Name: "play_music", Arguments: `{"query":"something else"}`},
+				}},
+				say("done"),
+			}
+			if _, err := h.turn("play something"); err != nil {
+				t.Fatal(err)
+			}
+			for _, id := range []string{"c2", "c3", "c4", "c5"} {
+				if got := h.toolResult(2, id); !strings.Contains(got, readCalendarRefusal) {
+					t.Fatalf("%s was not refused after %s: %s", id, first.tool, got)
+				}
+			}
+		})
+	}
+}
+
+func TestVolumeAndStopStillWorkAfterMusicNames(t *testing.T) {
+	h := newHarness(t)
+	h.llm.replies = []assistant.Message{
+		call("c1", "play_music", `{"query":"camilo"}`),
+		{Role: "assistant", ToolCalls: []assistant.ToolCall{
+			{ID: "c2", Name: "set_volume", Arguments: `{"level": 30}`},
+			{ID: "c3", Name: "stop_audio", Arguments: `{}`},
+		}},
+		say("done"),
+	}
+	if _, err := h.turn("play camilo quieter"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"c2", "c3"} {
+		if got := h.toolResult(2, id); strings.Contains(got, readCalendarRefusal) {
+			t.Fatalf("%s was refused after the music names: %s", id, got)
+		}
+	}
+	if got := h.app.MockAudio.Status(h.ctx).Volume; got != 30 {
+		t.Fatalf("volume = %d, want 30", got)
+	}
+}
+
+func TestListeningOffIsNotAllowedAfterThirdPartyText(t *testing.T) {
+	if assistant.AllowedAfterOutsiderText("listening_off") {
+		t.Fatal("listening_off must be refused in a turn that read third-party text")
+	}
+}
+
 func TestAllowlistedToolStillWorksAfterReadingTheCalendar(t *testing.T) {
 	h := newHarness(t)
 	h.llm.replies = []assistant.Message{
