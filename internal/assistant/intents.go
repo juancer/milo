@@ -43,6 +43,8 @@ type intent struct {
 	device bool
 	// repeat says again what was said last.
 	repeat bool
+	// compose starts "text or voice?": a message to a relative that holds no message yet (see compose.go).
+	compose bool
 }
 
 // words used inside several patterns (the text is lower case, without accents or punctuation).
@@ -67,6 +69,13 @@ var intentRules = []intent{
 	// Music by someone ("pon musica de belinda", "play songs by queen", "pon algo de frozen").
 	{re: regexp.MustCompile(`^` + verbPlay + `(?: me)? (?:(?:un poco de |algo de |alguna |una )?(?:la |las |el |los )?` + musicWord + `|something|some music) (?:de la |de los |de las |del |de |by |from |of )(?P<q>[a-z0-9 ]{2,60})$`),
 		tool: "play_music", args: func(m []string) map[string]any { return map[string]any{"query": strings.TrimSpace(m[0])} }, music: true},
+	// A message to someone, with no message in it yet: Milo asks "text or voice?" (compose.go).
+	{re: regexp.MustCompile(`^(?:(?:quiero|quisiera|puedes|podrias|me gustaria) )?(?:manda|mandale|mandar|mandarle|envia|enviale|enviar|enviarle|escribe|escribele|escribir|escribirle)(?: un| una)? (?:mensaje|nota|audio|recado)(?: de (?:voz|texto))?(?: (?:a|para|al) (?P<q>[a-z0-9 ]{1,40}))?$`),
+		args: func(m []string) map[string]any { return map[string]any{"q": strings.TrimSpace(m[0])} }, lang: langES, compose: true, valid: validRecipient},
+	{re: regexp.MustCompile(`^(?:mandale|enviale|escribele|mandarle|enviarle|escribirle) (?:a|al) (?P<q>[a-z0-9 ]{1,40})$`),
+		args: func(m []string) map[string]any { return map[string]any{"q": strings.TrimSpace(m[0])} }, lang: langES, compose: true, valid: validRecipient},
+	{re: regexp.MustCompile(`^(?:(?:i want to|i would like to|can you|could you) )?(?:send|write|text)(?: a| an)?(?: voice| text)? (?:message|note)(?: to (?P<q>[a-z0-9 ]{1,40}))?$`),
+		args: func(m []string) map[string]any { return map[string]any{"q": strings.TrimSpace(m[0])} }, lang: langEN, compose: true, valid: validRecipient},
 	// "No escuches": the wake word is switched off until a button is held.
 	{re: regexp.MustCompile(`^(?:milo )?(?:no escuches|no me escuches|no escuches mas|deja de escuchar|dejar de escuchar|para de escuchar|no sigas escuchando|silencia el microfono|apaga el microfono|desactiva el microfono)$`),
 		tool: "listening_off", args: noArgs, lang: langES,
@@ -538,6 +547,11 @@ func (e *Engine) tryIntent(ctx context.Context, sess *Session, text string) bool
 	if it.repeat {
 		answer = e.lastAnswer()
 	}
+	if it.compose {
+		q, _ := args["q"].(string)
+		e.compose(ctx, sess, text, q, it.lang)
+		return true
+	}
 	var res actions.Result
 	if it.tool != "" {
 		var err error
@@ -597,5 +611,20 @@ func (e *Engine) tryIntent(ctx context.Context, sess *Session, text string) bool
 	// A command or a short answer is the end of the exchange: do not keep the microphone open for
 	// another question (the person says the wake word again if there is one).
 	sess.finished = true
+	return true
+}
+
+// validRecipient keeps "send a message to Dad" and turns away "send a message to Dad that I am late": a request
+// that already holds the message goes to the model, which sends it as text.
+func validRecipient(m []string) bool {
+	who := strings.Fields(" " + strings.TrimSpace(m[0]) + " ")
+	if len(who) > 3 {
+		return false
+	}
+	for _, w := range who {
+		if w == "que" || w == "that" || w == "diciendole" || w == "saying" {
+			return false
+		}
+	}
 	return true
 }

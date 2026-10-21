@@ -155,7 +155,7 @@ func TestOnlySafeToolsAreOfferedToTheModel(t *testing.T) {
 		}
 	}
 	// Device-only, Telegram-only and disabled-feature actions must never be offered.
-	for _, banned := range []string{"gpt", "talk", "listen", "chat_select", "deliver_message", "send_emergency", "send_message", "read_messages"} {
+	for _, banned := range []string{"gpt", "talk", "listen", "chat_select", "deliver_message", "send_emergency", "send_message", "read_messages", "send_voice_message"} {
 		if tools[banned] {
 			t.Errorf("tool %q must not be offered to the model", banned)
 		}
