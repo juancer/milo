@@ -41,7 +41,7 @@ func TestUnknownRequestStillGoesToTheModel(t *testing.T) {
 func TestVoiceQuestionIsAnsweredWithoutTheModel(t *testing.T) {
 	h := newHarness(t)
 	for _, c := range []struct{ asked, want string }{
-		{"¿Qué hora es?", "Son las"},
+		{"¿Qué hora es?", "Son las|Es la una"}, // one o'clock is "Es la una", so the test cannot depend on the hour it runs at
 		{"¿Cuánto es 4 por 2?", "4 por 2 es 8."},
 		{"What is 3 plus 4", "3 plus 4 is 7."},
 		{"¿Qué día es hoy?", "Hoy es"},
@@ -56,8 +56,10 @@ func TestVoiceQuestionIsAnsweredWithoutTheModel(t *testing.T) {
 		}
 		spoke := false
 		for _, p := range h.app.MockAudio.Played()[before:] {
-			if p.Kind == "audio" && strings.Contains(p.Label, c.want) {
-				spoke = true
+			for _, want := range strings.Split(c.want, "|") {
+				if p.Kind == "audio" && strings.Contains(p.Label, want) {
+					spoke = true
+				}
 			}
 		}
 		if !spoke {
