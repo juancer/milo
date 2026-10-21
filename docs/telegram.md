@@ -98,6 +98,13 @@ Child to parent:
   configured, otherwise it beeps the chat's position).
 - **TALK** starts recording; press again to stop and send to the selected chat as a Telegram
   voice message. The selected chat is independent of any AI conversation.
+- **By voice, with no buttons:** say "Hey Milo, send a message to Dad" (or "mándale un mensaje a Papi").
+  Milo asks "text or voice?". Answer "de voz" and it records until you stop talking and sends a Telegram
+  voice message; answer "de texto" and it asks what to say, writes down what it hears and sends it as text.
+  If the request already says which ("envía una nota de voz a Papi") nothing is asked, and with a single
+  chat the name can be left out. "Mándale a papi que llego tarde", with the message in it, goes to the
+  assistant, which sends it as text. The recording action (`send_voice_message`) is for the device and the
+  voice rules only: the model cannot start a recording.
 - Messages wait in an outbox and are retried with backoff until Telegram accepts them, so a
   Wi-Fi outage delays them but never loses them.
 
